@@ -964,7 +964,12 @@ function DashboardApp() {
         <div className={`page-refresh-line ${state.loading || manualRefreshIsRefreshing ? "is-visible" : ""}`} aria-hidden="true" />
         {state.loading && !state.data ? <AppSkeleton /> : state.error && !state.data ? <ApiErrorState message={state.error} /> : (
           <>
-            <ApiStatusBanner warnings={apiWarnings} lastUpdated={lastUpdated} diagnostics={apiDiagnostics} />
+            <ApiStatusBanner
+              warnings={apiWarnings}
+              lastUpdated={lastUpdated}
+              diagnostics={apiDiagnostics}
+              status={state.error || state.stale ? "stale" : "partial"}
+            />
             <div className="page-view" key={active}>
               <RouteErrorBoundary routeKey={active}>
                 <React.Suspense fallback={<RouteLoadingState label={activePageLabel} />}>

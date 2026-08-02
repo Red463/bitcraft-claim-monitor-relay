@@ -9,6 +9,17 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.50.0-beta.3] - 2026-08-02
+
+### Changed
+
+- Distinguished live but incomplete Relay details from stale-data refresh failures.
+- Condensed repeated missing-name diagnostics so live regional responses remain compact.
+
+### Fixed
+
+- Kept global catalog, skill, and region data marked live while their shared subscription remains healthy.
+
 ## [0.50.0-beta.2] - 2026-08-02
 
 ### Fixed

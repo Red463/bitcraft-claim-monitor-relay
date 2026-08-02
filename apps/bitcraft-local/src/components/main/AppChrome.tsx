@@ -46,14 +46,35 @@ export type ApiStatusDiagnostics = {
   warnings: string[];
 };
 
-export function ApiStatusBanner({ warnings, lastUpdated, diagnostics }: { warnings: string[]; lastUpdated: Date | null; diagnostics: ApiStatusDiagnostics }) {
+export function ApiStatusBanner({
+  warnings,
+  lastUpdated,
+  diagnostics,
+  status,
+}: {
+  warnings: string[];
+  lastUpdated: Date | null;
+  diagnostics: ApiStatusDiagnostics;
+  status: "stale" | "partial";
+}) {
   const uniqueWarnings = unique(warnings).slice(0, 6);
   if (!uniqueWarnings.length) return null;
   const diagnosticLog = JSON.stringify({ ...diagnostics, warnings: uniqueWarnings }, null, 2);
+  const statusCopy = status === "stale"
+    ? {
+        kind: "stale" as const,
+        title: "Live game data refresh issue",
+        detail: "Showing latest saved data. Some live details may be stale.",
+      }
+    : {
+        kind: "warning" as const,
+        title: "Some live details are incomplete",
+        detail: "Relay data is live, but some optional names or calculated fields are unavailable.",
+      };
   return (
     <section className="api-status-banner">
       <div className="api-status-main">
-        <AsyncState kind="stale" title="Live game data refresh issue" detail="Showing latest saved data. Some live details may be stale." compact />
+        <AsyncState kind={statusCopy.kind} title={statusCopy.title} detail={statusCopy.detail} compact />
         <small className="api-status-meta">{lastUpdated ? `Last successful refresh: ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Waiting for a successful refresh."}</small>
       </div>
       <details className="api-status-details">

@@ -145,7 +145,7 @@ test("regional public craft normalization preserves usable rows and reports miss
   assert.equal(result.data.craftResults[0].ownerUsername, "");
   assert.deepEqual(result.warnings, [
     "Regional public craft 500 has no building_state row for 600.",
-    "Regional public craft 500 has no player_username_state row for 700.",
+    "Regional public crafts missing crafter usernames: 1.",
   ]);
   assert.equal(result.complete, true);
 });

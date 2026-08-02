@@ -507,7 +507,7 @@ test("regional claims join live claim state, local metrics, tier, owner, and coo
     },
     warnings: [
       "Regional claim 1369094286777412591 has no claim_local_state row.",
-      "Regional claim 1369094286777412591 owner 1224979098736429552 has no username row.",
+      "Regional claims missing owner usernames: 1.",
     ],
   });
 });

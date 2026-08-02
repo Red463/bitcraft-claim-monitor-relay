@@ -70,8 +70,12 @@ test("footer shows the app version and build id", () => {
 });
 test("shared refresh chrome is provider-neutral during the Relay migration", () => {
   const appChrome = readFileSync(new URL("../src/components/main/AppChrome.tsx", import.meta.url), "utf8");
+  const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
 
   assert.match(appChrome, /Live game data refresh issue/);
+  assert.match(appChrome, /Some live details are incomplete/);
+  assert.match(appChrome, /status: "stale" \| "partial"/);
+  assert.match(appShell, /status=\{state\.error \|\| state\.stale \? "stale" : "partial"\}/);
   assert.match(appChrome, /Unable to refresh live game data/);
   assert.match(appChrome, /data provider may be having a temporary issue/i);
   assert.doesNotMatch(appChrome, /bitjita/i);

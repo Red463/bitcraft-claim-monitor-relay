@@ -30,6 +30,8 @@ test("active region helpers live outside the legacy MainPages bundle", () => {
   assert.doesNotMatch(route, /fetchBitjita|fetchCachedActiveRegions/);
   assert.doesNotMatch(server, /activeRegionsCache|function fetchCachedActiveRegions/);
   assert.match(server, /readSubscriptionHealth\("global", "region"\)/);
+  assert.match(server, /const relayGlobalHeartbeatDomains = \["catalogs", "skills", "region"\]/);
+  assert.match(server, /for \(const domain of relayGlobalHeartbeatDomains\)/);
   assert.match(server, /recordSubscriptionHealth\(\{/);
   assert.match(server, /function superviseRelayGlobalCatalog\(\)/);
   assert.match(server, /relayGlobalCatalogRuntime\.reconcile\(\{/);

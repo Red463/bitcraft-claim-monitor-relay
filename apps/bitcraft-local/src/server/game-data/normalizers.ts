@@ -399,6 +399,7 @@ export function normalizeRegionalClaims(options: {
   }
 
   const claims: Array<Record<string, unknown>> = [];
+  let missingOwnerUsernameCount = 0;
   for (const [index, value] of options.claimRows.entries()) {
     try {
       const row = record(value, `Regional claim_state row ${index}`);
@@ -418,7 +419,7 @@ export function normalizeRegionalClaims(options: {
       if (!local) warnings.push(`Regional claim ${entityId} has no claim_local_state row.`);
       const ownerPlayerUsername = usernameById.get(ownerPlayerEntityId) || null;
       if (!ownerPlayerUsername) {
-        warnings.push(`Regional claim ${entityId} owner ${ownerPlayerEntityId} has no username row.`);
+        missingOwnerUsernameCount += 1;
       }
       const buildingDescriptionId = local
         ? decimalString(
@@ -453,6 +454,9 @@ export function normalizeRegionalClaims(options: {
     } catch (error) {
       throw error;
     }
+  }
+  if (missingOwnerUsernameCount > 0) {
+    warnings.push(`Regional claims missing owner usernames: ${missingOwnerUsernameCount}.`);
   }
   claims.sort((left, right) => (
     BigInt(String(left.entityId)) < BigInt(String(right.entityId)) ? -1 : 1
@@ -2266,6 +2270,7 @@ export function normalizeRegionalPublicCrafts(options: {
   const locations = rowsByEntityId(options.locationRows, "Regional location_state");
   const seen = new Set<string>();
   const craftResults: Array<Record<string, unknown>> = [];
+  let missingCrafterUsernameCount = 0;
 
   for (const [index, value] of options.publicRows.entries()) {
     try {
@@ -2328,7 +2333,7 @@ export function normalizeRegionalPublicCrafts(options: {
       }
       const username = usernames.get(ownerEntityId);
       if (!username) {
-        warnings.push(`Regional public craft ${entityId} has no player_username_state row for ${ownerEntityId}.`);
+        missingCrafterUsernameCount += 1;
       }
       const buildingLocation = locations.get(buildingEntityId);
       const claimOwnerBuildingId = claim
@@ -2397,6 +2402,9 @@ export function normalizeRegionalPublicCrafts(options: {
     }
   }
 
+  if (missingCrafterUsernameCount > 0) {
+    warnings.push(`Regional public crafts missing crafter usernames: ${missingCrafterUsernameCount}.`);
+  }
   craftResults.sort((left, right) => String(left.entityId).localeCompare(String(right.entityId)));
   return { data: { craftResults }, complete, warnings };
 }

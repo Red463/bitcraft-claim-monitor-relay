@@ -740,18 +740,22 @@ function globalRegionSubscriptionHealth() {
 async function persistGlobalRegionSubscriptionHealth() {
   const runtime = relayGlobalCatalogRuntime.health();
   const subscription = runtime.subscription ?? {};
-  const snapshot = currentStateRepository.read(currentClaimId(), "region");
-  await currentStateRepository.recordSubscriptionHealth({
-    sourceKey: "global",
-    domain: "region",
-    generation: snapshot?.generation ?? 0,
-    connected: runtime.running
-      && subscription.connected === true
-      && subscription.applied === true
-      && !subscription.lastError
-      && !runtime.lastError,
-    lastError: subscription.lastError ?? runtime.lastError ?? null,
-  }, new Date().toISOString());
+  const relayGlobalHeartbeatDomains = ["catalogs", "skills", "region"];
+  const observedAt = new Date().toISOString();
+  for (const domain of relayGlobalHeartbeatDomains) {
+    const snapshot = currentStateRepository.read(currentClaimId(), domain);
+    await currentStateRepository.recordSubscriptionHealth({
+      sourceKey: "global",
+      domain,
+      generation: snapshot?.generation ?? 0,
+      connected: runtime.running
+        && subscription.connected === true
+        && subscription.applied === true
+        && !subscription.lastError
+        && !runtime.lastError,
+      lastError: subscription.lastError ?? runtime.lastError ?? null,
+    }, observedAt);
+  }
 }
 const relayPrimaryRegionHeartbeatDomains = [
   "players",

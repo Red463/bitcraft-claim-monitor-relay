@@ -1,7 +1,7 @@
 import React from "react";
 import { AlertTriangle, Clock3, Inbox, LoaderCircle, LockKeyhole, SearchX } from "lucide-react";
 
-export type AsyncStateKind = "loading" | "empty" | "no-match" | "restricted" | "stale" | "error";
+export type AsyncStateKind = "loading" | "empty" | "no-match" | "restricted" | "stale" | "warning" | "error";
 
 export type AsyncStateProps = {
   kind: AsyncStateKind;
@@ -17,6 +17,7 @@ const ICONS: Record<AsyncStateKind, React.ReactNode> = {
   "no-match": <SearchX aria-hidden="true" />,
   restricted: <LockKeyhole aria-hidden="true" />,
   stale: <Clock3 aria-hidden="true" />,
+  warning: <AlertTriangle aria-hidden="true" />,
   error: <AlertTriangle aria-hidden="true" />,
 };
 
