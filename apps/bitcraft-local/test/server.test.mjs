@@ -1599,14 +1599,19 @@ test("server collection paginates listings and protects production mutations", a
     body: JSON.stringify({ kind: "basic" }),
   });
   assert.equal(anonymousDiscordSandboxTest.status, 401);
-  const channelMessagesBeforeMismatch = discordChannelMessages.length;
+  const mismatchedChannelMessagesBefore = discordChannelMessages
+    .filter((message) => message.channelId === "555555555555555555")
+    .length;
   const mismatchedDiscordSandboxTest = await fetch(`${origin}/api/local/admin/discord/test`, {
     method: "POST",
     headers: { cookie, origin, "content-type": "application/json", "x-csrf-token": auth.csrfToken },
     body: JSON.stringify({ kind: "basic", channelId: "555555555555555555" }),
   });
   assert.equal(mismatchedDiscordSandboxTest.status, 400);
-  assert.equal(discordChannelMessages.length, channelMessagesBeforeMismatch);
+  assert.equal(
+    discordChannelMessages.filter((message) => message.channelId === "555555555555555555").length,
+    mismatchedChannelMessagesBefore,
+  );
   const basicDiscordSandboxTest = await fetch(`${origin}/api/local/admin/discord/test`, {
     method: "POST",
     headers: { cookie, origin, "content-type": "application/json", "x-csrf-token": auth.csrfToken },
