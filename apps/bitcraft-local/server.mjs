@@ -6175,7 +6175,14 @@ function contributionLeaderboard(claimId) {
   `).all(claimId);
   const contributors = new Map();
   const professions = new Map();
+  let totalProgress = 0;
+  let totalXp = 0;
   for (const row of rows) {
+    totalProgress += toNumber(row.contributed_progress);
+    totalXp += toNumber(row.contributed_xp);
+    const namedContributor = row.contributor_entity_id != null
+      && row.attribution_confidence !== "unknown";
+    if (!namedContributor) continue;
     const contributorKey = String(row.contributor_entity_id || row.contributor_name);
     const profession = String(row.profession || "Unknown");
     const contributor = contributors.get(contributorKey) ?? {
@@ -6240,8 +6247,8 @@ function contributionLeaderboard(claimId) {
     summary: {
       contributorCount: contributorList.length,
       professionCount: professionList.length,
-      totalProgress: contributorList.reduce((sum, row) => sum + row.totalProgress, 0),
-      totalXp: contributorList.reduce((sum, row) => sum + row.totalXp, 0),
+      totalProgress,
+      totalXp,
       recordedCrafts: new Set(rows.map((row) => row.craft_entity_id)).size,
       lastContributedAt: rows[0]?.last_contributed_at ?? null,
     },
@@ -6257,6 +6264,7 @@ function contributionLeaderboard(claimId) {
       totalProgress: toNumber(row.contributed_progress),
       totalXp: toNumber(row.contributed_xp),
       contributionCount: toNumber(row.contribution_count),
+      attributionConfidence: row.attribution_confidence,
       firstContributedAt: row.first_contributed_at,
       lastContributedAt: row.last_contributed_at,
     })),
@@ -6275,6 +6283,7 @@ function currentCraftContributions(claimId) {
       craft_entity_id,
       contributor_entity_id,
       contributor_name,
+      attribution_confidence,
       contributed_progress,
       contributed_xp,
       contribution_count,

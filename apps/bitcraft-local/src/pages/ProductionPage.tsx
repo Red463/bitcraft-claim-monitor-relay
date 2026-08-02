@@ -21,6 +21,13 @@ import { manualRefreshHeaders } from "../refresh/manualRefresh.mjs";
 import { craftProgressKey, hasRecentCraftContribution, productionMetrics } from "./production/productionUtils";
 import { evaluateCraftEligibility } from "./production/toolEligibility";
 
+function formatObservedSince(value: unknown): string {
+  const observedAt = new Date(String(value));
+  return Number.isFinite(observedAt.getTime())
+    ? observedAt.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "tracking became available";
+}
+
 export function MemberPassiveCrafts({ rows }: { rows: AnyRecord[] }) {
   return (
     <section className="settlement-passive-crafts">
@@ -230,6 +237,7 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
         <MiniStat icon={<TrendingUp />} label="Total XP" value={formatNumber(totalProductionXp)} />
         <MiniStat icon={<Star />} label="XP Remaining" value={formatNumber(remainingProductionXp)} />
       </div>
+      <small className="production-observation-note">Contributor activity is observed from {data.contributionObservedSince ? formatObservedSince(data.contributionObservedSince) : "when tracking became available"}. Inferred names were joined from related Relay data.</small>
       <div className="command-filter-panel" data-tour="production-controls">
         <div className="command-filter-main">
           <span className="command-filter-title"><Wrench size={15} /> Production controls</span>
@@ -311,11 +319,16 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
                 {contributors.length ? (
                   <div className="contributors">
                     <small>Contributors</small>
-                    {contributors.map((person) => (
-                      <span key={person.contributorEntityId}><strong><TrackedOwnerName name={person.contributorUsername ?? "Unknown contributor"} claim={data.claim} members={data.members} /></strong> {formatNumber(person.totalProgressContributed)} progress - Observed since {timeAgo(person.lastContributedAt)}</span>
-                    ))}
+                    {contributors.map((person) => {
+                      const unknownContributor = person.contributorEntityId == null
+                        || person.attributionConfidence === "unknown";
+                      const contributorName = unknownContributor
+                        ? "Unknown contributor"
+                        : person.contributorUsername;
+                      return <span key={person.contributorEntityId ?? `unknown:${job.entityId}`}><strong><TrackedOwnerName name={contributorName} claim={data.claim} members={data.members} /></strong> {formatDecimalQuantity(person.totalProgressContributed)} progress - {formatDecimalQuantity(person.totalXpContributed)} XP {person.attributionConfidence === "joined" ? <small>Inferred</small> : null}</span>;
+                    })}
                   </div>
-                ) : <small>No contributor activity has been observed for this craft.</small>}
+                ) : data.contributionObservedSince ? <small>No contributor activity has been observed since {formatObservedSince(data.contributionObservedSince)}.</small> : <small>No contributor activity has been observed since tracking became available.</small>}
               </section>
             </article>
           );
