@@ -15,8 +15,9 @@ import {
 } from "../src/server/schemaMigrations.mjs";
 import { installRetiredTableAuthorizer } from "../src/server/retiredTableAuthorizer.mjs";
 import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
+import { createCurrentStateRepository } from "../src/server/game-data/currentStateRepository.ts";
 
-test("production contribution migration stores live Relay totals as text", () => {
+test("production contribution migration canonicalizes legacy counters before appending", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec(`
     CREATE TABLE production_contributions (
@@ -46,8 +47,11 @@ test("production contribution migration stores live Relay totals as text", () =>
     );
   `);
 
+  applySchemaBootstrap(db);
+  applyAdditiveColumnMigrations(db);
   applyProductionContributionExactAmountMigration(db);
   applyProductionContributionExactAmountMigration(db);
+  applySchemaIndexStatements(db);
 
   const types = new Map(db.prepare("PRAGMA table_info(production_contributions)").all().map(
     (column) => [String(column.name), String(column.type)],
@@ -61,9 +65,46 @@ test("production contribution migration stores live Relay totals as text", () =>
       FROM production_contributions
     `).get() },
     {
-      contributed_progress: "24.0",
+      contributed_progress: "24",
       contributed_xp: "48.0",
-      contribution_count: "1.0",
+      contribution_count: "1",
+    },
+  );
+  const repository = createCurrentStateRepository(db);
+  await repository.appendEvents([{
+    claimId: "1",
+    domain: "contributions",
+    sourceKey: "relay-craft-contribution:19:joined:action:100:2:24:25",
+    occurredAt: "2026-08-01T09:00:01.000Z",
+    data: {
+      eventType: "craft_contribution",
+      regionId: "19",
+      craftEntityId: "2",
+      contributorEntityId: "3",
+      contributorName: "Ada",
+      attributionConfidence: "joined",
+      profession: "Forestry",
+      craftLabel: "Timber",
+      structureName: "Forester",
+      itemTier: "3",
+      contributedProgress: "1",
+      contributedXp: "1.76",
+      contributionCount: "1",
+      previousProgress: "24",
+      currentProgress: "25",
+      observedSince: "2026-08-01T09:00:01.000Z",
+    },
+  }]);
+  assert.deepEqual(
+    { ...db.prepare(`
+      SELECT contributed_progress, contributed_xp, contribution_count
+      FROM production_contributions
+      WHERE contribution_key = '1:2:3'
+    `).get() },
+    {
+      contributed_progress: "25",
+      contributed_xp: "49.76",
+      contribution_count: "2",
     },
   );
   db.close();
