@@ -545,11 +545,11 @@ test("server collection paginates listings and protects production mutations", a
       relayStateDb.prepare(`
         INSERT OR REPLACE INTO production_contributions (
           contribution_key, claim_id, craft_entity_id, contributor_entity_id,
-          contributor_name, profession, craft_label, structure_name, item_tier,
+          contributor_name, attribution_confidence, profession, craft_label, structure_name, item_tier,
           contributed_progress, contributed_xp, contribution_count,
           first_contributed_at, last_contributed_at, first_seen, updated_at,
           raw_json
-        ) VALUES (?, ?, ?, ?, 'Tester', 'Carpentry', 'Simple Plank', ?, '2',
+        ) VALUES (?, ?, ?, ?, 'Tester', 'joined', 'Carpentry', 'Simple Plank', ?, '2',
           ?, ?, ?, '2026-05-20T12:00:00.000Z', ?, ?, ?, '{}')
       `).run(
         `${claimId}:${craftId}:1369094286777412591`,
