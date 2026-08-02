@@ -350,28 +350,6 @@ export function applyProductionContributionExactAmountMigration(db) {
     const integral = text.match(/^(\d+)(?:\.0+)?$/);
     return integral ? BigInt(integral[1]).toString() : null;
   };
-  const counterRows = contributionColumns.length
-    ? db.prepare(`
-        SELECT contribution_key, contributed_progress, contribution_count
-        FROM production_contributions
-      `).all()
-    : [];
-  const counterUpdates = counterRows.map((row) => {
-    const contributedProgress = canonicalLegacyCounter(row.contributed_progress);
-    const contributionCount = canonicalLegacyCounter(row.contribution_count);
-    return {
-      contributionKey: String(row.contribution_key),
-      contributedProgress,
-      contributionCount,
-      changed: (
-        contributedProgress !== null
-        && contributedProgress !== String(row.contributed_progress ?? "").trim()
-      ) || (
-        contributionCount !== null
-        && contributionCount !== String(row.contribution_count ?? "").trim()
-      ),
-    };
-  });
   const columnMap = (columns) => new Map(columns.map((column) => [
     String(column.name),
     column,
@@ -391,7 +369,7 @@ export function applyProductionContributionExactAmountMigration(db) {
     || Number(events.get("contributor_entity_id")?.notnull ?? 0) !== 0
     || !events.has("attribution_confidence")
   );
-  if (!migrateContributions && !migrateEvents && !counterUpdates.some(({ changed }) => changed)) {
+  if (!migrateContributions && !migrateEvents && contributionColumns.length === 0) {
     return;
   }
 
@@ -486,7 +464,29 @@ export function applyProductionContributionExactAmountMigration(db) {
         DROP TABLE production_contribution_events_legacy_attribution;
       `);
     }
-    if (migrateContributions || counterUpdates.some(({ changed }) => changed)) {
+    const counterRows = contributionColumns.length
+      ? db.prepare(`
+          SELECT contribution_key, contributed_progress, contribution_count
+          FROM production_contributions
+        `).all()
+      : [];
+    const counterUpdates = counterRows.map((row) => {
+      const contributedProgress = canonicalLegacyCounter(row.contributed_progress);
+      const contributionCount = canonicalLegacyCounter(row.contribution_count);
+      return {
+        contributionKey: String(row.contribution_key),
+        contributedProgress,
+        contributionCount,
+        changed: (
+          contributedProgress !== null
+          && contributedProgress !== String(row.contributed_progress ?? "").trim()
+        ) || (
+          contributionCount !== null
+          && contributionCount !== String(row.contribution_count ?? "").trim()
+        ),
+      };
+    });
+    if (counterUpdates.some(({ changed }) => changed)) {
       const updateProgress = db.prepare(`
         UPDATE production_contributions
         SET contributed_progress = ?
