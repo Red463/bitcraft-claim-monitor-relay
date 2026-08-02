@@ -68,6 +68,50 @@ test("attributes a matching craft continue reducer caller authoritatively", () =
   });
 });
 
+test("attributes CraftContinueStart through the canonical identity field", () => {
+  const event = craftContinueEvent();
+  event.value.callerIdentity = { __identity__: "0xabc" };
+  event.value.reducer.tag = "CraftContinueStart";
+
+  const attribution = resolveCraftContributionAttribution({
+    event,
+    target,
+    members,
+    actionRows: [],
+    observedAtMs: 1785675249000,
+  });
+
+  assert.deepEqual(attribution, {
+    confidence: "authoritative",
+    contributorEntityId: "576460752388321942",
+    contributorName: "Ada",
+    evidenceKey: "reducer:0xabc",
+  });
+});
+
+test("falls back to canonical identity when toHexString throws", () => {
+  const event = craftContinueEvent();
+  event.value.callerIdentity = {
+    toHexString: () => { throw new Error("SDK identity formatting failed"); },
+    __identity__: "0xabc",
+  };
+
+  const attribution = resolveCraftContributionAttribution({
+    event,
+    target,
+    members,
+    actionRows: [],
+    observedAtMs: 1785675249000,
+  });
+
+  assert.deepEqual(attribution, {
+    confidence: "authoritative",
+    contributorEntityId: "576460752388321942",
+    contributorName: "Ada",
+    evidenceKey: "reducer:0xabc",
+  });
+});
+
 test("rejects a reducer event for a different craft", () => {
   const attribution = resolveCraftContributionAttribution({
     event: craftContinueEvent(1369094287471625782n),
@@ -187,7 +231,7 @@ test("does not coerce an unresolved reducer identity into a contributor", () => 
   });
 });
 
-test("does not compare unsafe numeric target or member identifiers", () => {
+test("rejects an unsafe numeric target identifier", () => {
   assert.throws(() => resolveCraftContributionAttribution({
     event: { tag: "Transaction" },
     target: { ...target, buildingEntityId: 1369094286799419104 },

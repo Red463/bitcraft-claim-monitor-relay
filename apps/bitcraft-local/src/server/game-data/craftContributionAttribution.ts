@@ -67,7 +67,7 @@ function identityHex(value: unknown): string | null {
       const hex = identity.toHexString();
       if (typeof hex === "string" && hex.trim()) return hex.trim();
     } catch {
-      return null;
+      // Fall through to the generated identity's canonical representation.
     }
   }
   const canonical = identity.__identity__;
