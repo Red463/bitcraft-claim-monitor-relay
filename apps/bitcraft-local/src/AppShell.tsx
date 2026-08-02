@@ -26,6 +26,7 @@ import {
 import packageJson from "../package.json";
 import { useGameData } from "./api/gameDataLoader";
 import { useDealAlerts, useLocalHistory, useNotificationActivity } from "./api/localHistory";
+import { pageGameDataWarnings } from "./api/pageGameDataWarnings";
 import { ApiErrorState, ApiStatusBanner, AppSkeleton, RefreshStatus, type ApiStatusDiagnostics } from "./components/main/AppChrome";
 import { RouteLoadingState } from "./components/main/RouteLoadingState";
 import { CommandPalette } from "./components/main/CommandPalette";
@@ -786,7 +787,8 @@ function DashboardApp() {
   const manualRefreshCooldownMs = cooldownRemainingMs(manualRefreshRequest?.requestedAt, manualRefreshClock);
   const manualRefreshCooldownSeconds = Math.ceil(manualRefreshCooldownMs / 1000);
   const manualRefreshIsCoolingDown = !manualRefreshIsRefreshing && manualRefreshCooldownMs > 0;
-  const manualRefreshHasErrors = manualRefreshState.status === "complete" && manualRefreshState.errors.length > 0;
+  const manualRefreshIssueCount = manualRefreshState.errors.length + (state.stale ? 1 : 0);
+  const manualRefreshHasErrors = manualRefreshState.status === "complete" && manualRefreshIssueCount > 0;
   const manualRefreshButtonDisabled = manualRefreshIsRefreshing || manualRefreshCooldownMs > 0;
   const manualRefreshButtonLabel = manualRefreshIsRefreshing
     ? `Refreshing ${activePageLabel} data`
@@ -797,7 +799,7 @@ function DashboardApp() {
     ? `${manualRefreshButtonLabel}. Current data remains visible.`
     : manualRefreshState.status === "complete"
       ? manualRefreshHasErrors
-        ? `Refresh finished with ${manualRefreshState.errors.length} ${manualRefreshState.errors.length === 1 ? "issue" : "issues"}. Current data remains visible.`
+        ? `Refresh finished with ${manualRefreshIssueCount} ${manualRefreshIssueCount === 1 ? "issue" : "issues"}. Current data remains visible.`
         : "Data refreshed."
       : "";
   const requestManualRefresh = React.useCallback(() => {
@@ -824,19 +826,20 @@ function DashboardApp() {
   React.useEffect(() => {
     if (manualRefreshState.status !== "complete" || !manualRefreshState.requestId || manualRefreshCompletionRef.current === manualRefreshState.requestId) return;
     manualRefreshCompletionRef.current = manualRefreshState.requestId;
-    setRouteStatus(manualRefreshState.errors.length > 0 ? "Refresh finished with issues. Current data remains visible." : "Data refreshed.");
-  }, [manualRefreshState.errors.length, manualRefreshState.requestId, manualRefreshState.status]);
+    setRouteStatus(manualRefreshHasErrors ? "Refresh finished with issues. Current data remains visible." : "Data refreshed.");
+  }, [manualRefreshHasErrors, manualRefreshState.requestId, manualRefreshState.status]);
   const apiWarnings = React.useMemo(() => {
     const partialErrors = Array.isArray(data.raw?.partialErrors) ? data.raw.partialErrors.map((error) => String(error)) : [];
+    const relevantPartialErrors = pageGameDataWarnings(active, partialErrors);
     const staleWarning = state.stale
       ? `Showing cached data${lastUpdated ? ` from ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""} while refresh continues.`
       : "";
     return [
       ...(state.error ? [`Main data refresh failed: ${state.error}`] : []),
       ...(staleWarning ? [staleWarning] : []),
-      ...partialErrors,
+      ...relevantPartialErrors,
     ];
-  }, [data.raw?.partialErrors, lastUpdated, state.error, state.stale]);
+  }, [active, data.raw?.partialErrors, lastUpdated, state.error, state.stale]);
   const apiDiagnostics = React.useMemo<ApiStatusDiagnostics>(() => ({
     appVersion: APP_VERSION,
     page: active,

@@ -37,6 +37,9 @@ test("global refresh uses a manual request lifecycle with consistent accessible 
   assert.match(appShell, /role="status"[^>]*aria-live="polite"/s);
   assert.match(appShell, /Data refreshed/);
   assert.match(appShell, /Refresh available in/);
+  assert.match(appShell, /manualRefreshIssueCount/);
+  assert.match(appShell, /state\.stale \? 1 : 0/);
+  assert.match(appShell, /pageGameDataWarnings\(active, partialErrors\)/);
   assert.match(appShell, /<ManualRefreshProvider[\s\S]*\{activePanel\}[\s\S]*<\/ManualRefreshProvider>/);
 });
 
