@@ -12,7 +12,7 @@ test("Production page lives outside the legacy MainPages bundle", () => {
   assert.doesNotMatch(mainPages, /export function MemberPassiveCrafts\b/);
   assert.match(productionPage, /export function Production\b/);
   assert.match(productionPage, /export function MemberPassiveCrafts\b/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/ProductionPage"\)/);
+  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/ProductionPage"\)\.then/);
   assert.doesNotMatch(appShell, /import \{ Market, Production \} from "\.\/pages\/MainPages"/);
 });
 test("Production contributors render as a wrapping grid", () => {
@@ -67,4 +67,15 @@ test("Production crafter filters wrap within phone-width control panels", () => 
     css,
     /@media \(max-width:\s*560px\)[\s\S]*\.production-crafter-line\s*\{[^}]*flex-wrap:\s*wrap/s,
   );
+});
+
+test("production page defaults private crafts to hidden while explaining unknown visibility", () => {
+  const source = readFileSync(new URL("../src/pages/ProductionPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /usePersistedState\("production\.showPrivateCrafts", false\)/);
+  assert.doesNotMatch(source, /privateCrafts\.length\s*\?\s*<label className="production-private-toggle"/);
+  assert.match(source, /Show private crafts/);
+  assert.match(source, /Hide private crafts/);
+  assert.match(source, /Unknown contributor/);
+  assert.match(source, /Observed since/);
 });
