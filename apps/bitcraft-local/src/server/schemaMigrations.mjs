@@ -341,6 +341,37 @@ export function applyMarketTradeRegionBackfill(db) {
 export function applyProductionContributionExactAmountMigration(db) {
   const contributionColumns = db.prepare("PRAGMA table_info(production_contributions)").all();
   const eventColumns = db.prepare("PRAGMA table_info(production_contribution_events)").all();
+  const canonicalLegacyCounter = (value) => {
+    if (typeof value === "bigint") return value >= 0n ? value.toString() : null;
+    if (typeof value === "number") {
+      return Number.isSafeInteger(value) && value >= 0 ? String(value) : null;
+    }
+    const text = String(value ?? "").trim();
+    const integral = text.match(/^(\d+)(?:\.0+)?$/);
+    return integral ? BigInt(integral[1]).toString() : null;
+  };
+  const counterRows = contributionColumns.length
+    ? db.prepare(`
+        SELECT contribution_key, contributed_progress, contribution_count
+        FROM production_contributions
+      `).all()
+    : [];
+  const counterUpdates = counterRows.map((row) => {
+    const contributedProgress = canonicalLegacyCounter(row.contributed_progress);
+    const contributionCount = canonicalLegacyCounter(row.contribution_count);
+    return {
+      contributionKey: String(row.contribution_key),
+      contributedProgress,
+      contributionCount,
+      changed: (
+        contributedProgress !== null
+        && contributedProgress !== String(row.contributed_progress ?? "").trim()
+      ) || (
+        contributionCount !== null
+        && contributionCount !== String(row.contribution_count ?? "").trim()
+      ),
+    };
+  });
   const columnMap = (columns) => new Map(columns.map((column) => [
     String(column.name),
     column,
@@ -360,7 +391,9 @@ export function applyProductionContributionExactAmountMigration(db) {
     || Number(events.get("contributor_entity_id")?.notnull ?? 0) !== 0
     || !events.has("attribution_confidence")
   );
-  if (!migrateContributions && !migrateEvents) return;
+  if (!migrateContributions && !migrateEvents && !counterUpdates.some(({ changed }) => changed)) {
+    return;
+  }
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -452,6 +485,26 @@ export function applyProductionContributionExactAmountMigration(db) {
         FROM production_contribution_events_legacy_attribution;
         DROP TABLE production_contribution_events_legacy_attribution;
       `);
+    }
+    if (migrateContributions || counterUpdates.some(({ changed }) => changed)) {
+      const updateProgress = db.prepare(`
+        UPDATE production_contributions
+        SET contributed_progress = ?
+        WHERE contribution_key = ?
+      `);
+      const updateCount = db.prepare(`
+        UPDATE production_contributions
+        SET contribution_count = ?
+        WHERE contribution_key = ?
+      `);
+      for (const update of counterUpdates) {
+        if (update.contributedProgress !== null) {
+          updateProgress.run(update.contributedProgress, update.contributionKey);
+        }
+        if (update.contributionCount !== null) {
+          updateCount.run(update.contributionCount, update.contributionKey);
+        }
+      }
     }
     db.exec("COMMIT");
   } catch (error) {
