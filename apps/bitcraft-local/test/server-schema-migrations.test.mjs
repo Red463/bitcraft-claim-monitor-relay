@@ -17,6 +17,58 @@ import { installRetiredTableAuthorizer } from "../src/server/retiredTableAuthori
 import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
 import { createCurrentStateRepository } from "../src/server/game-data/currentStateRepository.ts";
 
+test("production contribution repair acquires its write transaction before reading counters", () => {
+  const db = new DatabaseSync(":memory:");
+  applySchemaBootstrap(db);
+  db.prepare(`
+    INSERT INTO production_contributions (
+      contribution_key, claim_id, craft_entity_id, contributor_entity_id,
+      contributor_name, contributed_progress, contributed_xp,
+      contribution_count, first_seen, updated_at, raw_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "1:2:3",
+    "1",
+    "2",
+    "3",
+    "Ada",
+    "24.0",
+    "48.0",
+    "1.0",
+    "2026-08-01T09:00:00.000Z",
+    "2026-08-01T09:00:00.000Z",
+    "{}",
+  );
+
+  const operations = [];
+  const observedDb = {
+    exec(sql) {
+      operations.push({ kind: "exec", sql: String(sql) });
+      return db.exec(sql);
+    },
+    prepare(sql) {
+      operations.push({ kind: "prepare", sql: String(sql) });
+      return db.prepare(sql);
+    },
+  };
+  applyProductionContributionExactAmountMigration(observedDb);
+
+  const transactionIndex = operations.findIndex(
+    ({ kind, sql }) => kind === "exec" && sql.trim() === "BEGIN IMMEDIATE",
+  );
+  const counterReadIndex = operations.findIndex(
+    ({ kind, sql }) => kind === "prepare"
+      && sql.includes("SELECT contribution_key, contributed_progress, contribution_count"),
+  );
+  assert.notEqual(transactionIndex, -1);
+  assert.notEqual(counterReadIndex, -1);
+  assert.ok(
+    transactionIndex < counterReadIndex,
+    "counter repair candidates must be read after acquiring the write transaction",
+  );
+  db.close();
+});
+
 test("production contribution migration canonicalizes legacy counters before appending", async () => {
   const db = new DatabaseSync(":memory:");
   db.exec(`
