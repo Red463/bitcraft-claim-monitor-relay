@@ -77,5 +77,25 @@ test("production page defaults private crafts to hidden while explaining unknown
   assert.match(source, /Show private crafts/);
   assert.match(source, /Hide private crafts/);
   assert.match(source, /Unknown contributor/);
-  assert.match(source, /Observed since/);
+  assert.match(source, /Inferred/);
+  assert.match(source, /const unknownContributor = person\.contributorEntityId == null\s*\|\| person\.attributionConfidence === "unknown"/);
+  assert.match(source, /formatDecimalQuantity\(person\.totalProgressContributed\)/);
+  assert.match(source, /formatDecimalQuantity\(person\.totalXpContributed\)/);
+  assert.match(source, /person\.attributionConfidence === "joined" \? <small>Inferred<\/small> : null/);
+  assert.match(source, /key=\{person\.contributorEntityId \?\? `unknown:\$\{job\.entityId\}`\}/);
+  assert.match(source, /No contributor activity has been observed since \{formatObservedSince\(data\.contributionObservedSince\)\}\./);
+  assert.match(source, /No contributor activity has been observed since tracking became available\./);
+});
+
+test("normalizeData preserves contribution map consumers while exposing the observation window", async () => {
+  const { normalizeData } = await import(new URL("../src/utils/normalize.ts", import.meta.url).href);
+  const normalized = normalizeData({
+    contributions: {
+      byCraft: { "1369094287428103662": [{ contributorEntityId: "576460752388321942" }] },
+      observedSince: "2026-08-01T07:00:00.000Z",
+    },
+  });
+
+  assert.equal(normalized.contributions["1369094287428103662"][0].contributorEntityId, "576460752388321942");
+  assert.equal(normalized.contributionObservedSince, "2026-08-01T07:00:00.000Z");
 });
