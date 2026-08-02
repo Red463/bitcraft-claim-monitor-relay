@@ -43,6 +43,19 @@ test("missing marker readiness produces unknown visibility", () => {
   assert.equal(projected.craftResults[0].isPublic, null);
 });
 
+test("unsafe numeric active craft IDs never use public marker membership", () => {
+  const roundedEntityId = 9007199254740993;
+  const projected = enrichCraftsWithCatalog(
+    { craftResults: [{ entityId: roundedEntityId, recipeId: "10" }] },
+    () => null,
+    () => ({ id: "10", isPassive: false }),
+    { ready: true, publicCraftIds: new Set(["9007199254740992"]) },
+  );
+
+  assert.equal(projected.craftResults[0].visibility, "unknown");
+  assert.equal(projected.craftResults[0].isPublic, null);
+});
+
 test("craft projection separates active and passive rows using normalized Relay recipes", () => {
   const entities = new Map([
     ["items:42", {

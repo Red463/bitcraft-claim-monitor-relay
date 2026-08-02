@@ -48,6 +48,11 @@ export type CraftVisibilityEvidence = {
   publicCraftIds: ReadonlySet<string>;
 };
 
+type PublicCraftMarkerSnapshot = {
+  data?: unknown;
+  lastError?: string | null;
+} | null;
+
 function decimalInteger(value: unknown, label: string): string {
   const normalized = typeof value === "bigint" ? value.toString() : String(value ?? "").trim();
   if (!/^\d+$/.test(normalized)) throw new TypeError(`${label} must be a non-negative decimal integer`);
@@ -155,9 +160,12 @@ export function enrichCraftsWithCatalog(
     const id = String(craft.recipeId ?? "");
     if (!recipeById.has(id)) recipeById.set(id, getRecipe(id));
     const recipe = recipeById.get(id) ?? undefined;
-    const entityId = String(craft.entityId ?? "");
-    const craftVisibility: CraftVisibility = visibility?.ready === true
-      ? visibility.publicCraftIds.has(entityId) ? "public" : "private"
+    const entityId = craft.entityId;
+    const exactEntityId = typeof entityId === "string" && /^\d+$/.test(entityId)
+      ? entityId
+      : null;
+    const craftVisibility: CraftVisibility = visibility?.ready === true && exactEntityId !== null
+      ? visibility.publicCraftIds.has(exactEntityId) ? "public" : "private"
       : "unknown";
     const enriched = {
       ...enrichedCraft(craft, recipe),
@@ -197,5 +205,35 @@ export function enrichCraftsWithCatalog(
     count: activeCrafts.length + passiveCrafts.length,
     activeCount: activeCrafts.length,
     passiveCount: passiveCrafts.length,
+  };
+}
+
+export function enrichCraftsDomain(
+  snapshot: unknown,
+  publicCraftSnapshot: PublicCraftMarkerSnapshot,
+  getEntity: (catalogKey: string) => CatalogEntity | null,
+  getRecipe: (recipeId: string) => CraftRecipe | null,
+) {
+  let visibility: CraftVisibilityEvidence | undefined;
+  let visibilityWarning: string | null = null;
+  if (publicCraftSnapshot?.data != null) {
+    try {
+      visibility = craftVisibilityEvidence(publicCraftSnapshot.data);
+      if (publicCraftSnapshot.lastError) {
+        visibilityWarning = `Craft visibility is using the last-known public-crafts marker: ${publicCraftSnapshot.lastError}`;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      visibilityWarning = `Craft visibility is unavailable because the public-crafts marker is malformed: ${message}`;
+    }
+  } else {
+    visibilityWarning = `Craft visibility is unavailable because the public-crafts marker has not loaded yet.${publicCraftSnapshot?.lastError ? ` ${publicCraftSnapshot.lastError}` : ""}`;
+  }
+  return {
+    data: enrichCraftsWithCatalog(snapshot, getEntity, getRecipe, visibility),
+    ...(visibilityWarning ? {
+      confidence: "partial" as const,
+      warnings: [visibilityWarning],
+    } : {}),
   };
 }
