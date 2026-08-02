@@ -9,6 +9,23 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.51.0-beta.1] - 2026-08-02
+
+### Added
+
+- Added a Craft Monitor control for showing private settlement crafts, with private crafts hidden by default.
+- Added locally observed craft contribution attribution with authoritative, inferred, and unknown contributor states.
+
+### Changed
+
+- Displayed craft XP as whole in-game values while retaining exact Relay calculation rates internally.
+- Identified contribution history by its local observation start so the UI does not imply older coverage.
+
+### Fixed
+
+- Fixed valid fractional Relay XP rates triggering incomplete-data warnings.
+- Fixed Craft Monitor contribution progress and contributor names not appearing from live Relay activity.
+
 ## [0.50.0-beta.5] - 2026-08-02
 
 ### Fixed
