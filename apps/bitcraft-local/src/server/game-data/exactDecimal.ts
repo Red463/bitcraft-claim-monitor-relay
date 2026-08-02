@@ -23,8 +23,8 @@ function expandExponent(value: string): string {
   return `${digits.slice(0, point)}.${digits.slice(point)}`;
 }
 
-function parseDecimal(decimal: string): DecimalParts {
-  const canonical = canonicalNonNegativeDecimal(decimal, "Decimal");
+function parseDecimal(decimal: string, label = "Decimal"): DecimalParts {
+  const canonical = canonicalNonNegativeDecimal(decimal, label);
   const [whole, fraction = ""] = canonical.split(".");
   return {
     coefficient: BigInt(`${whole}${fraction}`),
@@ -67,4 +67,13 @@ export function multiplyDecimalByInteger(decimal: string, integer: string): stri
   const parts = parseDecimal(decimal);
   if (!/^\d+$/.test(integer)) throw new Error("Integer multiplier must be a non-negative integer");
   return serialize({ coefficient: parts.coefficient * BigInt(integer), scale: parts.scale });
+}
+
+export function roundDecimalToWhole(decimal: string, label = "Decimal"): string {
+  const { coefficient, scale } = parseDecimal(decimal, label);
+  if (scale === 0) return coefficient.toString();
+  const divisor = 10n ** BigInt(scale);
+  const whole = coefficient / divisor;
+  const remainder = coefficient % divisor;
+  return (whole + (remainder * 2n >= divisor ? 1n : 0n)).toString();
 }

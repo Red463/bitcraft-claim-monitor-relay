@@ -5,9 +5,10 @@ import {
   projectCraftContributionEnvelope,
   projectCraftContributions,
 } from "../src/server/craftContributionProjection.mjs";
+import { formatDecimalQuantity } from "../src/server/game-data/inventoryProjection.ts";
 
-test("durable contribution history preserves decimal XP and contributor attribution", () => {
-  assert.deepEqual(projectCraftContributions([{
+test("durable contribution history projects whole XP and contributor attribution", () => {
+  const projected = projectCraftContributions([{
     craft_entity_id: "1369094287428103662",
     contributor_entity_id: "576460752388321942",
     contributor_name: "Mosswick",
@@ -37,12 +38,13 @@ test("durable contribution history preserves decimal XP and contributor attribut
     attribution_confidence: "unknown",
     first_contributed_at: "2026-08-01T06:00:00.000Z",
     last_contributed_at: "2026-08-01T11:00:00.000Z",
-  }]), {
+  }]);
+  assert.deepEqual(projected, {
     "1369094287428103662": [{
       contributorEntityId: null,
       contributorUsername: "Unknown contributor",
       totalProgressContributed: "1",
-      totalXpContributed: "0.25",
+      totalXpContributed: "0",
       contributionCount: "1",
       attributionConfidence: "unknown",
       firstContributedAt: "2026-08-01T06:00:00.000Z",
@@ -51,7 +53,7 @@ test("durable contribution history preserves decimal XP and contributor attribut
       contributorEntityId: "576460752388321943",
       contributorUsername: "Fenn",
       totalProgressContributed: "4",
-      totalXpContributed: "3.52",
+      totalXpContributed: "4",
       contributionCount: "1",
       attributionConfidence: "joined",
       firstContributedAt: "2026-08-01T07:00:00.000Z",
@@ -60,13 +62,17 @@ test("durable contribution history preserves decimal XP and contributor attribut
       contributorEntityId: "576460752388321942",
       contributorUsername: "Mosswick",
       totalProgressContributed: "9007199254740993",
-      totalXpContributed: "42.24",
+      totalXpContributed: "42",
       contributionCount: "12",
       attributionConfidence: "authoritative",
       firstContributedAt: "2026-08-01T08:00:00.000Z",
       lastContributedAt: "2026-08-01T09:00:00.000Z",
     }],
   });
+  assert.equal(
+    formatDecimalQuantity(projected["1369094287428103662"][2].totalXpContributed),
+    "42",
+  );
 });
 
 test("malformed durable contribution rows fail instead of inventing identifiers or amounts", () => {
@@ -87,7 +93,7 @@ test("malformed durable contribution rows fail instead of inventing identifiers 
   }]), /attribution confidence/i);
 });
 
-test("integral legacy REAL progress and counts normalize without changing exact decimal XP", () => {
+test("integral legacy REAL totals normalize to whole browser semantics", () => {
   const projected = projectCraftContributions([{
     craft_entity_id: "1369094287428103662",
     contributor_entity_id: "576460752388321942",
@@ -142,7 +148,7 @@ test("envelope returns structured craft contributions with the earliest observed
     contributed_xp: "invalid",
     contribution_count: "1",
     attribution_confidence: "joined",
-    first_contributed_at: "2026-08-01T08:00:00.000Z",
+    first_contributed_at: "2026-08-01T05:00:00.000Z",
   }, {
     craft_entity_id: "4",
     contributor_entity_id: null,
@@ -154,8 +160,8 @@ test("envelope returns structured craft contributions with the earliest observed
     first_contributed_at: "2026-08-01T07:00:00.000Z",
   }]);
 
-  assert.equal(envelope.data.observedSince, "2026-08-01T07:00:00.000Z");
-  assert.equal(envelope.data.byCraft["1"][0].totalXpContributed, "1.5");
+  assert.equal(envelope.data.observedSince, "2026-08-01T05:00:00.000Z");
+  assert.equal(envelope.data.byCraft["1"][0].totalXpContributed, "2");
   assert.equal(envelope.data.byCraft["4"][0].contributorEntityId, null);
   assert.equal(envelope.warnings.length, 1);
   assert.match(envelope.warnings[0], /row 1 is unavailable.*contributed xp/i);

@@ -1,4 +1,4 @@
-import { canonicalNonNegativeDecimal } from "../../dist-server/game-data/exactDecimal.js";
+import { roundDecimalToWhole } from "../../dist-server/game-data/exactDecimal.js";
 
 function exactUnsigned(value, label) {
   const normalized = String(value ?? "").trim();
@@ -40,7 +40,7 @@ export function projectCraftContributions(rows) {
         row.contributed_progress,
         "Contributed progress",
       ),
-      totalXpContributed: canonicalNonNegativeDecimal(row.contributed_xp, "Contributed XP"),
+      totalXpContributed: roundDecimalToWhole(row.contributed_xp, "Contributed XP"),
       contributionCount: exactUnsigned(
         row.contribution_count,
         "Contribution count",
@@ -68,13 +68,13 @@ export function projectCraftContributionEnvelope(rows) {
   const warnings = [];
   const observedTimes = [];
   rows.forEach((row, index) => {
+    const observedAt = validObservedAt(row.first_contributed_at);
+    if (observedAt) observedTimes.push(observedAt);
     try {
       const projected = projectCraftContributions([row]);
       for (const [craftEntityId, contributors] of Object.entries(projected)) {
         (byCraft[craftEntityId] ??= []).push(...contributors);
       }
-      const observedAt = validObservedAt(row.first_contributed_at);
-      if (observedAt) observedTimes.push(observedAt);
     } catch (error) {
       warnings.push(
         `Durable craft contribution row ${index} is unavailable: ${

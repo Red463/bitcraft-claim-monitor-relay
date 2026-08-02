@@ -737,6 +737,8 @@ git commit -m "fix: persist relay craft contributors safely"
 ### Task 5: Contribution Projection and Craft Monitor Presentation
 
 **Files:**
+- Modify: `apps/bitcraft-local/src/server/game-data/exactDecimal.ts`
+- Modify: `apps/bitcraft-local/test/exact-decimal.test.mjs`
 - Modify: `apps/bitcraft-local/src/server/craftContributionProjection.mjs`
 - Modify: `apps/bitcraft-local/test/craft-contribution-projection.test.mjs`
 - Modify: `apps/bitcraft-local/server.mjs:6138-6258`
@@ -776,14 +778,17 @@ type CraftContributorRow = {
 
 Add rows containing:
 
-- named authoritative XP `"42.24"`;
-- named joined XP `"3.52"`;
+- named authoritative persisted XP `"42.24"`, projected as `"42"`;
+- named joined persisted XP `"3.52"`, projected half-up as `"4"`;
 - null contributor ID, `"Unknown contributor"`, and unknown confidence;
 - a malformed decimal XP row that becomes a partial warning; and
-- distinct first-observed times, where `observedSince` is the earliest valid
-  `first_contributed_at`.
+- distinct first-observed times, where the earliest valid
+  `first_contributed_at` belongs to a row with malformed amounts and still
+  defines `observedSince`.
 
-Assert U64 contributor IDs remain exact strings and null remains null.
+Add exact decimal helper coverage for below-half, above-half, half, and
+beyond-safe-integer values. Assert U64 contributor IDs remain exact strings and
+null remains null.
 
 - [ ] **Step 2: Run the projection test and verify it fails**
 
@@ -793,13 +798,21 @@ Run:
 corepack pnpm --filter @workspace/bitcraft-local exec node --experimental-strip-types --test test/craft-contribution-projection.test.mjs
 ```
 
-Expected: FAIL because XP and contributor IDs are integer-only.
+Expected: FAIL because browser XP is still fractional and observation metadata
+is discarded with malformed contribution amounts.
 
 - [ ] **Step 3: Implement projection and route metadata**
 
-Import `canonicalNonNegativeDecimal` from the compiled provider module.
-Keep progress/count integer validation, but validate XP as a canonical decimal.
-Validate confidence against the locked three values.
+Add `roundDecimalToWhole` to the exact decimal module. It rounds non-negative
+canonical decimals half-up with exact decimal/`BigInt` arithmetic and returns an
+integer string without using `Number`. Import it from the compiled provider
+module. Keep progress/count integer validation, validate persisted XP as a
+canonical decimal through the helper, and project XP to the nearest whole
+integer string. Validate confidence against the locked three values.
+
+Validate and collect `first_contributed_at` independently before projecting the
+rest of each row. A row with malformed amounts still emits a partial warning,
+but its valid timestamp remains evidence for the observation-window start.
 
 Update `currentCraftContributions` and leaderboard reads to include
 `attribution_confidence`. Leaderboard numeric summaries may format decimals for
@@ -833,8 +846,9 @@ const contributorName = unknownContributor
   : person.contributorUsername;
 ```
 
-Render exact progress plus XP with `formatDecimalQuantity`, and add an
-`Inferred` detail label only for `joined` confidence. Use a stable key:
+Render exact progress plus the projected whole-number XP with
+`formatDecimalQuantity`, and add an `Inferred` detail label only for `joined`
+confidence. Use a stable key:
 
 ```tsx
 key={person.contributorEntityId ?? `unknown:${job.entityId}`}
