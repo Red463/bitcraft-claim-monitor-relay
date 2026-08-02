@@ -532,8 +532,10 @@ export const schemaBootstrapSql = `
     contribution_key TEXT PRIMARY KEY,
     claim_id TEXT NOT NULL,
     craft_entity_id TEXT NOT NULL,
-    contributor_entity_id TEXT NOT NULL,
+    contributor_entity_id TEXT,
     contributor_name TEXT NOT NULL,
+    attribution_confidence TEXT NOT NULL DEFAULT 'unknown'
+      CHECK (attribution_confidence IN ('authoritative', 'joined', 'unknown')),
     profession TEXT,
     craft_label TEXT,
     structure_name TEXT,
@@ -552,7 +554,9 @@ export const schemaBootstrapSql = `
     claim_id TEXT NOT NULL,
     region_id TEXT NOT NULL,
     craft_entity_id TEXT NOT NULL,
-    contributor_entity_id TEXT NOT NULL,
+    contributor_entity_id TEXT,
+    attribution_confidence TEXT NOT NULL DEFAULT 'unknown'
+      CHECK (attribution_confidence IN ('authoritative', 'joined', 'unknown')),
     contributed_progress TEXT NOT NULL,
     contributed_xp TEXT NOT NULL,
     occurred_at TEXT NOT NULL,

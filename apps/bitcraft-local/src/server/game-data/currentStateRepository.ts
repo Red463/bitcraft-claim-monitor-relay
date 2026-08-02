@@ -6,6 +6,7 @@ import type {
   ProviderHealth,
   StoredDomainSnapshot,
 } from "./contracts.ts";
+import { addDecimal, canonicalNonNegativeDecimal } from "./exactDecimal.ts";
 
 type Statement = {
   all(...values: unknown[]): Record<string, unknown>[];
@@ -181,8 +182,9 @@ export function createCurrentStateRepository(
   const insertContributionEvent = db.prepare(`
     INSERT OR IGNORE INTO production_contribution_events (
       source_key, claim_id, region_id, craft_entity_id, contributor_entity_id,
-      contributed_progress, contributed_xp, occurred_at, received_at, raw_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      attribution_confidence, contributed_progress, contributed_xp, occurred_at,
+      received_at, raw_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const readContribution = db.prepare(`
     SELECT contributed_progress, contributed_xp, contribution_count, first_seen
@@ -192,12 +194,14 @@ export function createCurrentStateRepository(
   const upsertContribution = db.prepare(`
     INSERT INTO production_contributions (
       contribution_key, claim_id, craft_entity_id, contributor_entity_id,
-      contributor_name, profession, craft_label, structure_name, item_tier,
-      contributed_progress, contributed_xp, contribution_count,
-      first_contributed_at, last_contributed_at, first_seen, updated_at, raw_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      contributor_name, attribution_confidence, profession, craft_label,
+      structure_name, item_tier, contributed_progress, contributed_xp,
+      contribution_count, first_contributed_at, last_contributed_at, first_seen,
+      updated_at, raw_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(contribution_key) DO UPDATE SET
       contributor_name = excluded.contributor_name,
+      attribution_confidence = excluded.attribution_confidence,
       profession = excluded.profession,
       craft_label = excluded.craft_label,
       structure_name = excluded.structure_name,
@@ -348,10 +352,22 @@ export function createCurrentStateRepository(
               return value;
             };
             const craftId = requiredDecimal("craftEntityId");
-            const contributorId = requiredDecimal("contributorEntityId");
             const progress = requiredDecimal("contributedProgress");
-            const xp = requiredDecimal("contributedXp");
+            const xp = canonicalNonNegativeDecimal(
+              payload.contributedXp,
+              "Durable craft contribution contributed XP",
+            );
             const count = requiredDecimal("contributionCount");
+            const attributionConfidence = requiredText("attributionConfidence");
+            if (!["authoritative", "joined", "unknown"].includes(attributionConfidence)) {
+              throw new TypeError("Durable craft contribution attribution confidence is invalid");
+            }
+            const contributorId = attributionConfidence === "unknown"
+              ? null
+              : requiredDecimal("contributorEntityId");
+            if (attributionConfidence === "unknown" && payload.contributorEntityId != null) {
+              throw new TypeError("Unknown durable craft contributions cannot identify a contributor");
+            }
             if (BigInt(progress) <= 0n || BigInt(count) <= 0n) {
               throw new TypeError("Durable craft contribution deltas must be positive");
             }
@@ -362,6 +378,7 @@ export function createCurrentStateRepository(
               requiredDecimal("regionId"),
               craftId,
               contributorId,
+              attributionConfidence,
               progress,
               xp,
               event.occurredAt,
@@ -369,14 +386,17 @@ export function createCurrentStateRepository(
               JSON.stringify(payload),
             );
             if (Number(inserted.changes) === 0) continue;
-            const contributionKey = `${event.claimId}:${craftId}:${contributorId}`;
+            const contributionKey = `${event.claimId}:${craftId}:${
+              contributorId ?? "unknown"
+            }`;
             const previous = readContribution.get(contributionKey);
             const totalProgress = (
               BigInt(String(previous?.contributed_progress ?? "0")) + BigInt(progress)
             ).toString();
-            const totalXp = (
-              BigInt(String(previous?.contributed_xp ?? "0")) + BigInt(xp)
-            ).toString();
+            const totalXp = addDecimal(
+              String(previous?.contributed_xp ?? "0"),
+              xp,
+            );
             const totalCount = (
               BigInt(String(previous?.contribution_count ?? "0")) + BigInt(count)
             ).toString();
@@ -386,6 +406,7 @@ export function createCurrentStateRepository(
               craftId,
               contributorId,
               requiredText("contributorName"),
+              attributionConfidence,
               String(payload.profession ?? "").trim() || null,
               requiredText("craftLabel"),
               requiredText("structureName"),

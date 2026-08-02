@@ -8,7 +8,12 @@ try {
   // The first TDD run proves the regional player session is absent.
 }
 
-function fakeBindings({ bankRows = [], inventoryRows = [] } = {}) {
+function fakeBindings({
+  bankRows = [],
+  inventoryRows = [],
+  userRows = [],
+  playerActionRows = [],
+} = {}) {
   const state = {
     connectConfig: {},
     queries: null,
@@ -103,6 +108,8 @@ function fakeBindings({ bankRows = [], inventoryRows = [] } = {}) {
   const bankState = cachedTable("bank", bankRows);
   const inventoryState = cachedTable("inventory", inventoryRows);
   const progressiveActionState = cachedTable("progressive-action", []);
+  const userState = cachedTable("user", userRows);
+  const playerActionState = cachedTable("player-action", playerActionRows);
   const connection = {
     db: {
       playerState,
@@ -118,6 +125,8 @@ function fakeBindings({ bankRows = [], inventoryRows = [] } = {}) {
       bankState,
       inventoryState,
       progressiveActionState,
+      userState,
+      playerActionState,
     },
     subscriptionBuilder() {
       const subscriptionState = {
@@ -195,6 +204,16 @@ const members = [
   { playerEntityId: "202", userName: "Grace" },
 ];
 
+test("primary-region member queries reject unsafe numeric entity identifiers", () => {
+  assert.throws(
+    () => sessionModule.playerStateQueries([{
+      playerEntityId: Number.MAX_SAFE_INTEGER + 1,
+      userName: "Rounded",
+    }]),
+    /invalid player entity id/i,
+  );
+});
+
 test("primary-region session filters member, settlement, and Town Bank state before emitting snapshots", async () => {
   assert.ok(sessionModule, "primary-region player session module must exist");
   const fake = fakeBindings({
@@ -245,6 +264,8 @@ test("primary-region session filters member, settlement, and Town Bank state bef
     "SELECT * FROM equipment_state WHERE entity_id = 101 OR entity_id = 202",
     "SELECT * FROM equipment_preset_state WHERE player_entity_id = 101 OR player_entity_id = 202",
     "SELECT * FROM active_buff_state WHERE entity_id = 101 OR entity_id = 202",
+    "SELECT * FROM user_state WHERE entity_id = 101 OR entity_id = 202",
+    "SELECT * FROM player_action_state WHERE entity_id = 101 OR entity_id = 202",
     "SELECT * FROM project_site_state WHERE owner_id = 1369094286777412590",
     "SELECT * FROM building_state WHERE claim_entity_id = 1369094286777412590",
     "SELECT * FROM claim_tech_state WHERE entity_id = 1369094286777412590",
@@ -398,23 +419,51 @@ test("primary-region session filters member, settlement, and Town Bank state bef
   assert.equal(fake.state.callbacks.size, 0);
 });
 
-test("primary-region session emits positive craft progress transactions as exact contribution events", async () => {
+test("primary-region session attributes live craft progress without owner fallback and deduplicates evidence", async () => {
   assert.ok(sessionModule, "primary-region player session module must exist");
-  const fake = fakeBindings();
+  const playerActionRows = [{
+    autoId: 94295n,
+    entityId: 576460752388321942n,
+    startTime: 1785675248960n,
+    duration: 1274n,
+    target: 1369094286799419104n,
+    recipeId: 307004,
+    actionType: { tag: "Craft", value: undefined },
+    lastActionResult: { tag: "Success", value: undefined },
+    clientCancel: false,
+    wasConsumed: false,
+  }];
+  const fake = fakeBindings({
+    userRows: [
+      {
+        entityId: 576460752388321942n,
+        identity: { toHexString: () => "0xabc" },
+        canSignIn: true,
+      },
+      {
+        entityId: 504403158356601680n,
+        identity: { toHexString: () => "0xdef" },
+        canSignIn: true,
+      },
+    ],
+    playerActionRows,
+  });
   const contributions = [];
   const session = new sessionModule.RelayPrimaryRegionPlayerSession({
     loadBindings: async () => fake.module,
     onSnapshot: () => {},
     onContribution: (event) => contributions.push(event),
-    now: () => new Date("2026-08-01T09:00:00.000Z"),
+    now: () => new Date("2026-08-02T12:54:09.000Z"),
   });
   const target = {
     craftEntityId: "1369094287428103662",
+    buildingEntityId: "1369094286799419104",
+    recipeId: "307004",
     profession: "Forestry",
     craftLabel: "Owl Feather",
     structureName: "Forester",
     itemTier: "3",
-    xpPerProgress: "2",
+    xpPerProgress: "1.76",
   };
 
   await session.start({
@@ -425,10 +474,19 @@ test("primary-region session emits positive craft progress transactions as exact
     generation: 1,
     regionId: "19",
     claimId: "1369094286777412590",
-    members: [{ playerEntityId: "576460752388321942", userName: "Mosswick" }],
+    members: [
+      { playerEntityId: "576460752388321942", userName: "Mosswick" },
+      { playerEntityId: "504403158356601680", userName: "Grace" },
+    ],
     contributionTargets: [target],
   });
   fake.state.onConnect(fake.connection);
+  assert.ok(fake.state.subscriptions[0].queries.includes(
+    "SELECT * FROM user_state WHERE entity_id = 576460752388321942 OR entity_id = 504403158356601680",
+  ));
+  assert.ok(fake.state.subscriptions[0].queries.includes(
+    "SELECT * FROM player_action_state WHERE entity_id = 576460752388321942 OR entity_id = 504403158356601680",
+  ));
   assert.ok(fake.state.subscriptions[1].queries.includes(
     "SELECT * FROM progressive_action_state WHERE entity_id = 1369094287428103662",
   ));
@@ -437,47 +495,135 @@ test("primary-region session emits positive craft progress transactions as exact
   const update = fake.state.callbacks.get("progressive-action:update");
   assert.equal(typeof update, "function");
   update(
-    { event: { tag: "SubscribeApplied", id: "initial" } },
+    { event: { tag: "SubscribeApplied" } },
     { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 0 },
     { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16056 },
   );
+  const reducerContext = {
+    event: {
+      tag: "Reducer",
+      value: {
+        callerIdentity: { toHexString: () => "0xabc" },
+        reducer: {
+          tag: "CraftContinue",
+          value: {
+            request: {
+              progressiveActionEntityId: 1369094287428103662n,
+              timestamp: 1785675248960n,
+            },
+          },
+        },
+      },
+    },
+  };
   update(
-    { event: { tag: "Transaction", id: "transaction-12" } },
+    reducerContext,
     { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16056 },
     { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16080 },
   );
   update(
-    { event: { tag: "Transaction", id: "transaction-13" } },
-    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16080 },
+    reducerContext,
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16056 },
     { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16080 },
   );
+  update(
+    { event: { tag: "Transaction" } },
+    { entityId: 1369094287428103662n, ownerEntityId: 999n, progress: 16080 },
+    { entityId: 1369094287428103662n, ownerEntityId: 999n, progress: 16104 },
+  );
+  playerActionRows.push({
+    ...playerActionRows[0],
+    autoId: 94296n,
+    entityId: 504403158356601680n,
+  });
+  update(
+    { event: { tag: "Transaction" } },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16104 },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16128 },
+  );
+  playerActionRows.splice(0);
+  update(
+    { event: { tag: "Transaction" } },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16128 },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16152 },
+  );
+  update(
+    { event: { tag: "Transaction" } },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16152 },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16152 },
+  );
+  update(
+    { event: { tag: "Transaction" } },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 16152 },
+    { entityId: 1369094287428103662n, ownerEntityId: 576460752388321942n, progress: 0 },
+  );
 
-  assert.deepEqual(contributions, [{
-    claimId: "1369094286777412590",
-    domain: "contributions",
-    sourceKey: "relay-craft-contribution:19:transaction-12:1369094287428103662",
-    occurredAt: "2026-08-01T09:00:00.000Z",
-    data: {
-      eventType: "craft_contribution",
-      regionId: "19",
-      database: "bitcraft-live-19",
-      schemaFingerprint: "regional-v1",
-      craftEntityId: "1369094287428103662",
-      contributorEntityId: "576460752388321942",
-      contributorName: "Mosswick",
-      profession: "Forestry",
-      craftLabel: "Owl Feather",
-      structureName: "Forester",
-      itemTier: "3",
-      contributedProgress: "24",
-      contributedXp: "48",
-      contributionCount: "1",
-      previousProgress: "16056",
-      currentProgress: "16080",
-    },
-  }]);
+  assert.equal(contributions.length, 4);
+  assert.deepEqual(
+    contributions.map(({ sourceKey, data }) => ({
+      sourceKey,
+      contributorEntityId: data.contributorEntityId,
+      contributorName: data.contributorName,
+      attributionConfidence: data.attributionConfidence,
+      observedSince: data.observedSince,
+      contributedProgress: data.contributedProgress,
+      contributedXp: data.contributedXp,
+    })),
+    [
+      {
+        sourceKey: "relay-craft-contribution:19:authoritative:reducer:0xabc:1369094287428103662:16056:16080",
+        contributorEntityId: "576460752388321942",
+        contributorName: "Mosswick",
+        attributionConfidence: "authoritative",
+        observedSince: "2026-08-02T12:54:09.000Z",
+        contributedProgress: "24",
+        contributedXp: "42.24",
+      },
+      {
+        sourceKey: "relay-craft-contribution:19:joined:action:94295:1369094287428103662:16080:16104",
+        contributorEntityId: "576460752388321942",
+        contributorName: "Mosswick",
+        attributionConfidence: "joined",
+        observedSince: "2026-08-02T12:54:09.000Z",
+        contributedProgress: "24",
+        contributedXp: "42.24",
+      },
+      {
+        sourceKey: "relay-craft-contribution:19:unknown:unknown:ambiguous:1369094287428103662:16104:16128",
+        contributorEntityId: null,
+        contributorName: "Unknown contributor",
+        attributionConfidence: "unknown",
+        observedSince: "2026-08-02T12:54:09.000Z",
+        contributedProgress: "24",
+        contributedXp: "42.24",
+      },
+      {
+        sourceKey: "relay-craft-contribution:19:unknown:unknown:no-match:1369094287428103662:16128:16152",
+        contributorEntityId: null,
+        contributorName: "Unknown contributor",
+        attributionConfidence: "unknown",
+        observedSince: "2026-08-02T12:54:09.000Z",
+        contributedProgress: "24",
+        contributedXp: "42.24",
+      },
+    ],
+  );
+  assert.deepEqual(session.health(), {
+    connected: true,
+    applied: false,
+    lastAppliedAt: null,
+    lastError: null,
+    lastContributionAt: "2026-08-02T12:54:09.000Z",
+    authoritativeContributions: 1,
+    joinedContributions: 1,
+    unattributedContributions: 2,
+    ambiguousContributionMatches: 1,
+    deduplicatedContributions: 1,
+  });
 
   await session.stop();
+  assert.equal(fake.state.callbacks.has("user:update"), false);
+  assert.equal(fake.state.callbacks.has("player-action:update"), false);
 });
 
 test("primary-region session replaces contribution queries without replacing base data", async () => {
@@ -493,6 +639,8 @@ test("primary-region session replaces contribution queries without replacing bas
   });
   const first = {
     craftEntityId: "9001",
+    buildingEntityId: "7001",
+    recipeId: "3001",
     profession: "Forestry",
     craftLabel: "Planks",
     structureName: "Forester",
