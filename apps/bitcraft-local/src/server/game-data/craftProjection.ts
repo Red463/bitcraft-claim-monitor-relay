@@ -41,6 +41,13 @@ type CraftRecipe = {
   [key: string]: unknown;
 };
 
+export type CraftVisibility = "public" | "private" | "unknown";
+
+export type CraftVisibilityEvidence = {
+  ready: boolean;
+  publicCraftIds: ReadonlySet<string>;
+};
+
 function decimalInteger(value: unknown, label: string): string {
   const normalized = typeof value === "bigint" ? value.toString() : String(value ?? "").trim();
   if (!/^\d+$/.test(normalized)) throw new TypeError(`${label} must be a non-negative decimal integer`);
@@ -63,6 +70,28 @@ function enrichedCraft(craft: CraftRow, recipe: CraftRecipe | undefined) {
     toolRequirements: Array.isArray(recipe?.toolRequirements) ? recipe.toolRequirements : [],
     experiencePerProgress: Array.isArray(recipe?.experiencePerProgress) ? recipe.experiencePerProgress : [],
   };
+}
+
+export function craftVisibilityEvidence(snapshot: unknown): CraftVisibilityEvidence {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new TypeError("public craft marker snapshot must be an object");
+  }
+  const rows = (snapshot as Record<string, unknown>).craftResults;
+  if (!Array.isArray(rows)) {
+    throw new TypeError("public craft marker snapshot must include a craftResults array");
+  }
+  const publicCraftIds = new Set<string>();
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      throw new TypeError("public craft marker row must be an object");
+    }
+    const entityId = (row as CraftRow).entityId;
+    if (typeof entityId !== "string" || !/^\d+$/.test(entityId)) {
+      throw new TypeError("public craft marker entity ID must be a decimal string");
+    }
+    publicCraftIds.add(entityId);
+  }
+  return { ready: true, publicCraftIds };
 }
 
 export function enrichCraftsForPlanning(
@@ -111,6 +140,7 @@ export function enrichCraftsWithCatalog(
   snapshot: unknown,
   getEntity: (catalogKey: string) => CatalogEntity | null,
   getRecipe: (recipeId: string) => CraftRecipe | null,
+  visibility?: CraftVisibilityEvidence,
 ) {
   const source = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
     ? snapshot as Record<string, unknown>
@@ -125,7 +155,15 @@ export function enrichCraftsWithCatalog(
     const id = String(craft.recipeId ?? "");
     if (!recipeById.has(id)) recipeById.set(id, getRecipe(id));
     const recipe = recipeById.get(id) ?? undefined;
-    const enriched = enrichedCraft(craft, recipe);
+    const entityId = String(craft.entityId ?? "");
+    const craftVisibility: CraftVisibility = visibility?.ready === true
+      ? visibility.publicCraftIds.has(entityId) ? "public" : "private"
+      : "unknown";
+    const enriched = {
+      ...enrichedCraft(craft, recipe),
+      visibility: craftVisibility,
+      isPublic: craftVisibility === "unknown" ? null : craftVisibility === "public",
+    };
     const output = Array.isArray(craft.craftedItem) ? craft.craftedItem[0] : undefined;
     let outputEntity: CatalogEntity | null = null;
     if (output) {

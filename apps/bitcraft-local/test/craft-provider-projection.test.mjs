@@ -2,11 +2,46 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const {
+  craftVisibilityEvidence,
   enrichCraftsForPlanning,
   enrichCraftsWithCatalog,
 } = await import(
   new URL("../src/server/game-data/craftProjection.ts", import.meta.url).href,
 );
+
+test("craft visibility uses exact public marker membership", () => {
+  const visibility = craftVisibilityEvidence({
+    craftResults: [{ entityId: "1369094287471625781" }],
+  });
+  const projected = enrichCraftsWithCatalog(
+    { craftResults: [
+      { entityId: "1369094287471625781", recipeId: "10" },
+      { entityId: "1369094286813753789", recipeId: "10" },
+    ] },
+    () => null,
+    () => ({ id: "10", isPassive: false }),
+    visibility,
+  );
+  assert.deepEqual(
+    projected.craftResults.map(({ entityId, visibility, isPublic }) => [
+      entityId, visibility, isPublic,
+    ]),
+    [
+      ["1369094287471625781", "public", true],
+      ["1369094286813753789", "private", false],
+    ],
+  );
+});
+
+test("missing marker readiness produces unknown visibility", () => {
+  const projected = enrichCraftsWithCatalog(
+    { craftResults: [{ entityId: "100", recipeId: "10" }] },
+    () => null,
+    () => ({ id: "10", isPassive: false }),
+  );
+  assert.equal(projected.craftResults[0].visibility, "unknown");
+  assert.equal(projected.craftResults[0].isPublic, null);
+});
 
 test("craft projection separates active and passive rows using normalized Relay recipes", () => {
   const entities = new Map([

@@ -49,7 +49,7 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
   type ProductionSortKey = "tier" | "totalXp" | "remainingXp" | "remainingEffort" | "completion" | "name";
   const [sortKey, setSortKey] = usePersistedState<ProductionSortKey>("production.sort", "tier");
   const [sortDir, setSortDir] = usePersistedState<"asc" | "desc">("production.direction", "desc");
-  const [showPrivateCrafts, setShowPrivateCrafts] = usePersistedState("production.showPrivateCrafts", true);
+  const [showPrivateCrafts, setShowPrivateCrafts] = usePersistedState("production.showPrivateCrafts", false);
   const [toolbeltTools, setToolbeltTools] = React.useState<AnyRecord[] | null>(null);
   const [toolbeltError, setToolbeltError] = React.useState(false);
   const toolsForMemberRef = React.useRef<string | null>(null);
@@ -159,8 +159,20 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
       toolbeltUnavailable: toolbeltError && toolbeltTools == null,
     });
   }
-  const privateCrafts = data.crafts.filter((job) => job.isPublic === false);
-  const visibilityFilteredCrafts = showPrivateCrafts ? data.crafts : data.crafts.filter((job) => job.isPublic !== false);
+  const visibilityKnownCrafts = data.crafts.filter(
+    (job) => job.visibility === "public"
+      || job.visibility === "private"
+      || typeof job.isPublic === "boolean",
+  );
+  const privateCrafts = visibilityKnownCrafts.filter(
+    (job) => job.visibility === "private" || job.isPublic === false,
+  );
+  const visibilityFilteredCrafts = showPrivateCrafts
+    ? visibilityKnownCrafts
+    : visibilityKnownCrafts.filter(
+        (job) => job.visibility !== "private" && job.isPublic !== false,
+      );
+  const unknownVisibilityCrafts = data.crafts.length - visibilityKnownCrafts.length;
   const visibleCrafts = selectedMemberName
     ? visibilityFilteredCrafts.filter((job) => String(job.ownerUsername ?? "Unknown") === selectedMemberName)
     : visibilityFilteredCrafts;
@@ -238,7 +250,7 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
             </select>
           </label>
           <Segmented options={[{ id: "Descending", label: "Descending" }, { id: "Ascending", label: "Ascending" }]} value={sortDir === "desc" ? "Descending" : "Ascending"} onChange={(direction) => setSortDir(direction === "Descending" ? "desc" : "asc")} label="Direction" />
-          {privateCrafts.length ? <label className="production-private-toggle"><span><Lock size={13} /> Show private crafts</span><input type="checkbox" checked={showPrivateCrafts} onChange={(event) => setShowPrivateCrafts(event.target.checked)} /></label> : null}
+          <label className="production-private-toggle"><span><Lock size={13} /> {showPrivateCrafts ? "Hide private crafts" : "Show private crafts"} ({privateCrafts.length})</span><input type="checkbox" checked={showPrivateCrafts} onChange={(event) => setShowPrivateCrafts(event.target.checked)} /></label>
         </div>
         {Object.keys(crafterCounts).length ? (
           <div className="production-crafter-line">
@@ -265,7 +277,8 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
       </div>
       {selectedMember ? <div className="production-member-banner"><User size={15} /><span>Checking jobs for</span><strong><TrackedOwnerName name={selectedMember.userName ?? selectedMember.username} claim={data.claim} members={data.members} /></strong><small>Requires skill level and a suitable Toolbelt tool. A tool can craft one tier above its own tier; power controls effort per action.</small></div> : null}
       {data.crafts.length === 0 ? <div className="empty-state"><Factory />No crafting jobs are currently active.</div> : null}
-      {data.crafts.length > 0 && visibleCrafts.length === 0 ? <div className="empty-state"><Lock />Private crafts are hidden by your Production controls.</div> : null}
+      {unknownVisibilityCrafts > 0 ? <div className="empty-state"><AlertTriangle />Craft visibility is unavailable for {unknownVisibilityCrafts} job{unknownVisibilityCrafts === 1 ? "" : "s"}; unknown jobs stay hidden until the public-crafts marker is ready.</div> : null}
+      {data.crafts.length > 0 && visibleCrafts.length === 0 && unknownVisibilityCrafts === 0 ? <div className="empty-state"><Lock />Private crafts are hidden by your Production controls.</div> : null}
       <div className="production-grid">
         {jobs.map((job, index) => {
           const first = job.craftedItem?.[0] ?? {};
@@ -299,7 +312,7 @@ export function Production({ data, refreshToken, selectedMemberId, onSelectMembe
                   <div className="contributors">
                     <small>Contributors</small>
                     {contributors.map((person) => (
-                      <span key={person.contributorEntityId}><strong><TrackedOwnerName name={person.contributorUsername ?? "Unknown"} claim={data.claim} members={data.members} /></strong> {formatNumber(person.totalProgressContributed)} progress - {timeAgo(person.lastContributedAt)}</span>
+                      <span key={person.contributorEntityId}><strong><TrackedOwnerName name={person.contributorUsername ?? "Unknown contributor"} claim={data.claim} members={data.members} /></strong> {formatNumber(person.totalProgressContributed)} progress - Observed since {timeAgo(person.lastContributedAt)}</span>
                     ))}
                   </div>
                 ) : <small>No contributor activity has been observed for this craft.</small>}

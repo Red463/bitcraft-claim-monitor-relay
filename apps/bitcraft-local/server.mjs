@@ -123,6 +123,7 @@ import {
   browserVisibleChangedDomains,
   canonicalF32Decimal,
   canonicalNonNegativeDecimal,
+  craftVisibilityEvidence,
   enrichConstructionWithCatalog,
   enrichCraftsForPlanning,
   enrichCraftsWithCatalog,
@@ -7390,12 +7391,28 @@ const server = createServer(async (req, res) => {
             };
           }
           if (domain === "crafts") {
+            const publicCraftSnapshot = currentStateRepository.read(claimId, "public-crafts");
+            const visibility = publicCraftSnapshot?.data
+              ? craftVisibilityEvidence(publicCraftSnapshot.data)
+              : undefined;
+            const visibilityWarnings = publicCraftSnapshot?.data
+              ? publicCraftSnapshot.lastError
+                ? [`Craft visibility is using the last-known public-crafts marker: ${publicCraftSnapshot.lastError}`]
+                : []
+              : [
+                  `Craft visibility is unavailable because the public-crafts marker has not loaded yet.${publicCraftSnapshot?.lastError ? ` ${publicCraftSnapshot.lastError}` : ""}`,
+                ];
             return {
               data: enrichCraftsWithCatalog(
                 data,
                 (catalogKey) => providerCatalogRepository.getEntity(catalogKey),
                 (recipeId) => providerCatalogRepository.getDescription("crafting_recipe", recipeId),
+                visibility,
               ),
+              ...(visibilityWarnings.length ? {
+                confidence: "partial",
+                warnings: visibilityWarnings,
+              } : {}),
             };
           }
           if (domain === "contributions") {
