@@ -11,6 +11,11 @@ import {
   schemaBindingsReady,
 } from "./schemaManifest.ts";
 import type { DomainEvent } from "./contracts.ts";
+import {
+  resolveCraftContributionAttribution,
+  type MemberIdentity,
+} from "./craftContributionAttribution.ts";
+import { multiplyDecimalByInteger } from "./exactDecimal.ts";
 import { equalitySubscriptionQueries } from "./publicCraftRegionSession.ts";
 
 type BindingManifest = Parameters<typeof assertSchemaFingerprint>[0];
@@ -50,6 +55,8 @@ type BindingConnection = {
     bankState: CachedTable;
     inventoryState: CachedTable;
     progressiveActionState: CachedTable;
+    userState: CachedTable;
+    playerActionState: CachedTable;
   };
   subscriptionBuilder(): SubscriptionBuilder;
   disconnect(): void;
@@ -80,6 +87,8 @@ type Member = {
 
 export type CraftContributionTarget = {
   craftEntityId: string;
+  buildingEntityId: string;
+  recipeId: string;
   profession: string | null;
   craftLabel: string;
   structureName: string;
@@ -135,6 +144,9 @@ async function loadBundledRegionalBindings(): Promise<RegionalBindingModule> {
 
 function memberEntityId(member: Member, index: number): string {
   const value = member.playerEntityId ?? member.player_entity_id;
+  if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new TypeError(`regional member ${index} has an invalid player entity id`);
+  }
   const id = typeof value === "bigint" ? value.toString() : String(value ?? "").trim();
   if (!/^\d+$/.test(id)) {
     throw new TypeError(`regional member ${index} has an invalid player entity id`);
@@ -143,9 +155,57 @@ function memberEntityId(member: Member, index: number): string {
 }
 
 function decimalInteger(value: unknown, label: string): string {
+  if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new TypeError(`${label} must be an exact non-negative integer`);
+  }
   const id = typeof value === "bigint" ? value.toString() : String(value ?? "").trim();
   if (!/^\d+$/.test(id)) throw new TypeError(`${label} must be a decimal integer`);
   return id;
+}
+
+function identityHex(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const identity = value as Record<string, unknown>;
+  if (typeof identity.toHexString === "function") {
+    try {
+      const hex = identity.toHexString();
+      if (typeof hex === "string" && hex.trim()) return hex.trim();
+    } catch {
+      // Fall through to the generated identity's canonical representation.
+    }
+  }
+  const canonical = identity.__identity__;
+  return typeof canonical === "string" && canonical.trim() ? canonical.trim() : null;
+}
+
+function contributionMembers(
+  members: Member[],
+  userRows: readonly unknown[],
+): MemberIdentity[] {
+  const identities = new Map<string, string>();
+  for (const value of userRows) {
+    if (!value || typeof value !== "object") continue;
+    const row = value as Record<string, unknown>;
+    try {
+      const entityId = decimalInteger(
+        row.entityId ?? row.entity_id,
+        "Relay contribution user entity id",
+      );
+      const hex = identityHex(row.identity);
+      if (hex) identities.set(entityId, hex);
+    } catch {
+      // Ignore unrelated malformed cache rows rather than losing live contribution attribution.
+    }
+  }
+  return members.map((member, index) => {
+    const entityId = memberEntityId(member, index);
+    const name = String(member.userName ?? member.user_name ?? entityId).trim() || entityId;
+    return {
+      entityId,
+      name,
+      identityHex: identities.get(entityId) ?? "",
+    };
+  });
 }
 
 function contributionQueries(targets: CraftContributionTarget[]): string[] {
@@ -166,6 +226,8 @@ export function playerStateQueries(members: Member[]): string[] {
     `SELECT * FROM equipment_state WHERE ${where("entity_id")}`,
     `SELECT * FROM equipment_preset_state WHERE ${where("player_entity_id")}`,
     `SELECT * FROM active_buff_state WHERE ${where("entity_id")}`,
+    `SELECT * FROM user_state WHERE ${where("entity_id")}`,
+    `SELECT * FROM player_action_state WHERE ${where("entity_id")}`,
   ];
 }
 
@@ -236,6 +298,7 @@ export class RelayPrimaryRegionPlayerSession {
   #bankRefreshEpoch = 0;
   #bankRefreshQueued = false;
   #refreshingBankInventories = false;
+  readonly #contributionSourceKeys = new Set<string>();
   readonly #tableChanged = () => this.#queueSnapshot();
   readonly #bankChanged = () => this.#queueBankInventoryRefresh();
   readonly #contributionChanged = (...args: unknown[]) => this.#handleContributionUpdate(args);
@@ -244,6 +307,12 @@ export class RelayPrimaryRegionPlayerSession {
     applied: false,
     lastAppliedAt: null as string | null,
     lastError: null as string | null,
+    lastContributionAt: null as string | null,
+    authoritativeContributions: 0,
+    joinedContributions: 0,
+    unattributedContributions: 0,
+    ambiguousContributionMatches: 0,
+    deduplicatedContributions: 0,
   };
 
   constructor(dependencies: SessionDependencies) {
@@ -503,19 +572,23 @@ export class RelayPrimaryRegionPlayerSession {
       const event = context.event && typeof context.event === "object"
         ? context.event as Record<string, unknown>
         : {};
-      if (event.tag !== "Transaction") return;
-      const transactionId = String(event.id ?? "").trim();
-      if (!transactionId) throw new TypeError("Relay craft contribution transaction id is required");
+      if (event.tag !== "Transaction" && event.tag !== "Reducer") return;
       const previous = previousValue && typeof previousValue === "object"
         ? previousValue as Record<string, unknown>
         : {};
       const current = currentValue && typeof currentValue === "object"
         ? currentValue as Record<string, unknown>
         : {};
-      const craftId = decimalInteger(
-        current.entityId ?? current.entity_id,
-        "Relay craft contribution entity id",
+      const previousCraftId = decimalInteger(
+        previous.entityId ?? previous.entity_id,
+        "Relay craft contribution previous entity id",
       );
+      const currentCraftId = decimalInteger(
+        current.entityId ?? current.entity_id,
+        "Relay craft contribution current entity id",
+      );
+      if (previousCraftId !== currentCraftId) return;
+      const craftId = currentCraftId;
       const target = [
         ...(this.#config.contributionTargets ?? []),
         ...this.#pendingContributionTargets,
@@ -533,24 +606,53 @@ export class RelayPrimaryRegionPlayerSession {
       );
       const progressDelta = BigInt(currentProgress) - BigInt(previousProgress);
       if (progressDelta <= 0n) return;
-      const contributorId = decimalInteger(
-        current.ownerEntityId ?? current.owner_entity_id,
-        "Relay craft contribution owner entity id",
-      );
-      const member = this.#config.members.find(
-        (candidate, index) => memberEntityId(candidate, index) === contributorId,
-      );
-      const contributorName = String(member?.userName ?? member?.user_name ?? contributorId).trim()
-        || contributorId;
-      const xpPerProgress = decimalInteger(
-        target.xpPerProgress,
-        `Relay craft ${craftId} experience per progress`,
-      );
-      const occurredAt = this.#now().toISOString();
+      const observedAt = this.#now();
+      const occurredAt = observedAt.toISOString();
+      const attribution = resolveCraftContributionAttribution({
+        event,
+        target,
+        members: contributionMembers(
+          this.#config.members,
+          [...this.#connection!.db.userState.iter()],
+        ),
+        actionRows: [...this.#connection!.db.playerActionState.iter()],
+        observedAtMs: observedAt.getTime(),
+      });
+      if (attribution.evidenceKey === "unknown:ambiguous") {
+        this.#health.ambiguousContributionMatches += 1;
+      }
+      const sourceKey = [
+        "relay-craft-contribution",
+        this.#config.regionId,
+        attribution.confidence,
+        attribution.evidenceKey,
+        craftId,
+        previousProgress,
+        currentProgress,
+      ].join(":");
+      if (this.#contributionSourceKeys.has(sourceKey)) {
+        this.#contributionSourceKeys.delete(sourceKey);
+        this.#contributionSourceKeys.add(sourceKey);
+        this.#health.deduplicatedContributions += 1;
+        return;
+      }
+      this.#contributionSourceKeys.add(sourceKey);
+      if (this.#contributionSourceKeys.size > 2_048) {
+        const oldest = this.#contributionSourceKeys.values().next().value;
+        if (oldest !== undefined) this.#contributionSourceKeys.delete(oldest);
+      }
+      this.#health.lastContributionAt = occurredAt;
+      if (attribution.confidence === "authoritative") {
+        this.#health.authoritativeContributions += 1;
+      } else if (attribution.confidence === "joined") {
+        this.#health.joinedContributions += 1;
+      } else {
+        this.#health.unattributedContributions += 1;
+      }
       const result = this.#onContribution({
         claimId: this.#config.claimId,
         domain: "contributions",
-        sourceKey: `relay-craft-contribution:${this.#config.regionId}:${transactionId}:${craftId}`,
+        sourceKey,
         occurredAt,
         data: {
           eventType: "craft_contribution",
@@ -558,14 +660,19 @@ export class RelayPrimaryRegionPlayerSession {
           database: this.#config.database,
           schemaFingerprint: this.#config.schemaFingerprint,
           craftEntityId: craftId,
-          contributorEntityId: contributorId,
-          contributorName,
+          contributorEntityId: attribution.contributorEntityId,
+          contributorName: attribution.contributorName,
+          attributionConfidence: attribution.confidence,
+          observedSince: occurredAt,
           profession: target.profession,
           craftLabel: target.craftLabel,
           structureName: target.structureName,
           itemTier: target.itemTier,
           contributedProgress: progressDelta.toString(),
-          contributedXp: (progressDelta * BigInt(xpPerProgress)).toString(),
+          contributedXp: multiplyDecimalByInteger(
+            target.xpPerProgress,
+            progressDelta.toString(),
+          ),
           contributionCount: "1",
           previousProgress,
           currentProgress,
@@ -589,6 +696,8 @@ export class RelayPrimaryRegionPlayerSession {
       connection.db.claimRecruitmentState,
       connection.db.travelerTaskState,
       connection.db.travelerTaskDesc,
+      connection.db.userState,
+      connection.db.playerActionState,
     ];
   }
 
@@ -690,6 +799,7 @@ export class RelayPrimaryRegionPlayerSession {
     this.#applyPending = false;
     this.#bankRefreshQueued = false;
     this.#refreshingBankInventories = false;
+    this.#contributionSourceKeys.clear();
     this.#health.connected = false;
   }
 }

@@ -47,6 +47,10 @@ export const schemaIndexStatements = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_discord_id ON admin_users (discord_id) WHERE discord_id IS NOT NULL AND discord_id <> '';",
   "CREATE INDEX IF NOT EXISTS idx_game_catalog_entities_item_list ON game_catalog_entities (item_list_id, catalog_key);",
   "CREATE INDEX IF NOT EXISTS idx_market_trades_claim_region_item_time ON market_trades (claim_id, region_id, item_id, item_type, occurred_at DESC);",
+  "CREATE INDEX IF NOT EXISTS idx_production_contrib_claim ON production_contributions (claim_id, last_contributed_at DESC);",
+  "CREATE INDEX IF NOT EXISTS idx_production_contrib_profession ON production_contributions (claim_id, profession, contributed_progress DESC);",
+  "CREATE INDEX IF NOT EXISTS idx_production_contrib_events_claim ON production_contribution_events (claim_id, occurred_at DESC);",
+  "CREATE INDEX IF NOT EXISTS idx_production_contrib_events_craft ON production_contribution_events (claim_id, craft_entity_id, occurred_at DESC);",
 ];
 
 export const retiredTableNames = [
@@ -335,58 +339,120 @@ export function applyMarketTradeRegionBackfill(db) {
 }
 
 export function applyProductionContributionExactAmountMigration(db) {
-  const columns = db.prepare("PRAGMA table_info(production_contributions)").all();
-  if (!columns.length) return;
-  const types = new Map(columns.map((column) => [
+  const contributionColumns = db.prepare("PRAGMA table_info(production_contributions)").all();
+  const eventColumns = db.prepare("PRAGMA table_info(production_contribution_events)").all();
+  const columnMap = (columns) => new Map(columns.map((column) => [
     String(column.name),
-    String(column.type ?? "").toUpperCase(),
+    column,
   ]));
-  if (
-    types.get("contributed_progress") === "TEXT"
-    && types.get("contributed_xp") === "TEXT"
-    && types.get("contribution_count") === "TEXT"
-  ) return;
+  const contributions = columnMap(contributionColumns);
+  const events = columnMap(eventColumns);
+  const migrateContributions = contributionColumns.length > 0 && (
+    String(contributions.get("contributed_progress")?.type ?? "").toUpperCase() !== "TEXT"
+    || String(contributions.get("contributed_xp")?.type ?? "").toUpperCase() !== "TEXT"
+    || String(contributions.get("contribution_count")?.type ?? "").toUpperCase() !== "TEXT"
+    || Number(contributions.get("contributor_entity_id")?.notnull ?? 0) !== 0
+    || !contributions.has("attribution_confidence")
+  );
+  const migrateEvents = eventColumns.length > 0 && (
+    String(events.get("contributed_progress")?.type ?? "").toUpperCase() !== "TEXT"
+    || String(events.get("contributed_xp")?.type ?? "").toUpperCase() !== "TEXT"
+    || Number(events.get("contributor_entity_id")?.notnull ?? 0) !== 0
+    || !events.has("attribution_confidence")
+  );
+  if (!migrateContributions && !migrateEvents) return;
 
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.exec(`
-      ALTER TABLE production_contributions
-        RENAME TO production_contributions_legacy_amounts;
-      CREATE TABLE production_contributions (
-        contribution_key TEXT PRIMARY KEY,
-        claim_id TEXT NOT NULL,
-        craft_entity_id TEXT NOT NULL,
-        contributor_entity_id TEXT NOT NULL,
-        contributor_name TEXT NOT NULL,
-        profession TEXT,
-        craft_label TEXT,
-        structure_name TEXT,
-        item_tier TEXT,
-        contributed_progress TEXT NOT NULL DEFAULT '0',
-        contributed_xp TEXT NOT NULL DEFAULT '0',
-        contribution_count TEXT NOT NULL DEFAULT '0',
-        first_contributed_at TEXT,
-        last_contributed_at TEXT,
-        first_seen TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        raw_json TEXT NOT NULL
-      );
-      INSERT INTO production_contributions (
-        contribution_key, claim_id, craft_entity_id, contributor_entity_id,
-        contributor_name, profession, craft_label, structure_name, item_tier,
-        contributed_progress, contributed_xp, contribution_count,
-        first_contributed_at, last_contributed_at, first_seen, updated_at,
-        raw_json
-      )
-      SELECT
-        contribution_key, claim_id, craft_entity_id, contributor_entity_id,
-        contributor_name, profession, craft_label, structure_name, item_tier,
-        CAST(contributed_progress AS TEXT), CAST(contributed_xp AS TEXT),
-        CAST(contribution_count AS TEXT), first_contributed_at,
-        last_contributed_at, first_seen, updated_at, raw_json
-      FROM production_contributions_legacy_amounts;
-      DROP TABLE production_contributions_legacy_amounts;
-    `);
+    if (migrateContributions) {
+      const confidence = contributions.has("attribution_confidence")
+        ? `CASE
+            WHEN attribution_confidence IN ('authoritative', 'joined', 'unknown')
+              THEN attribution_confidence
+            ELSE 'unknown'
+          END`
+        : "'unknown'";
+      db.exec(`
+        ALTER TABLE production_contributions
+          RENAME TO production_contributions_legacy_amounts;
+        CREATE TABLE production_contributions (
+          contribution_key TEXT PRIMARY KEY,
+          claim_id TEXT NOT NULL,
+          craft_entity_id TEXT NOT NULL,
+          contributor_entity_id TEXT,
+          contributor_name TEXT NOT NULL,
+          attribution_confidence TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (attribution_confidence IN ('authoritative', 'joined', 'unknown')),
+          profession TEXT,
+          craft_label TEXT,
+          structure_name TEXT,
+          item_tier TEXT,
+          contributed_progress TEXT NOT NULL DEFAULT '0',
+          contributed_xp TEXT NOT NULL DEFAULT '0',
+          contribution_count TEXT NOT NULL DEFAULT '0',
+          first_contributed_at TEXT,
+          last_contributed_at TEXT,
+          first_seen TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          raw_json TEXT NOT NULL
+        );
+        INSERT INTO production_contributions (
+          contribution_key, claim_id, craft_entity_id, contributor_entity_id,
+          contributor_name, attribution_confidence, profession, craft_label,
+          structure_name, item_tier, contributed_progress, contributed_xp,
+          contribution_count, first_contributed_at, last_contributed_at,
+          first_seen, updated_at, raw_json
+        )
+        SELECT
+          contribution_key, claim_id, craft_entity_id, contributor_entity_id,
+          contributor_name, ${confidence}, profession, craft_label,
+          structure_name, item_tier, CAST(contributed_progress AS TEXT),
+          CAST(contributed_xp AS TEXT), CAST(contribution_count AS TEXT),
+          first_contributed_at, last_contributed_at, first_seen, updated_at,
+          raw_json
+        FROM production_contributions_legacy_amounts;
+        DROP TABLE production_contributions_legacy_amounts;
+      `);
+    }
+    if (migrateEvents) {
+      const confidence = events.has("attribution_confidence")
+        ? `CASE
+            WHEN attribution_confidence IN ('authoritative', 'joined', 'unknown')
+              THEN attribution_confidence
+            ELSE 'unknown'
+          END`
+        : "'unknown'";
+      db.exec(`
+        ALTER TABLE production_contribution_events
+          RENAME TO production_contribution_events_legacy_attribution;
+        CREATE TABLE production_contribution_events (
+          source_key TEXT PRIMARY KEY,
+          claim_id TEXT NOT NULL,
+          region_id TEXT NOT NULL,
+          craft_entity_id TEXT NOT NULL,
+          contributor_entity_id TEXT,
+          attribution_confidence TEXT NOT NULL DEFAULT 'unknown'
+            CHECK (attribution_confidence IN ('authoritative', 'joined', 'unknown')),
+          contributed_progress TEXT NOT NULL,
+          contributed_xp TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          received_at TEXT NOT NULL,
+          raw_json TEXT NOT NULL
+        );
+        INSERT INTO production_contribution_events (
+          source_key, claim_id, region_id, craft_entity_id,
+          contributor_entity_id, attribution_confidence, contributed_progress,
+          contributed_xp, occurred_at, received_at, raw_json
+        )
+        SELECT
+          source_key, claim_id, region_id, craft_entity_id,
+          contributor_entity_id, ${confidence},
+          CAST(contributed_progress AS TEXT), CAST(contributed_xp AS TEXT),
+          occurred_at, received_at, raw_json
+        FROM production_contribution_events_legacy_attribution;
+        DROP TABLE production_contribution_events_legacy_attribution;
+      `);
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

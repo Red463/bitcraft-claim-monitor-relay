@@ -567,7 +567,7 @@ test("repository durably deduplicates normalized Relay storage events", async ()
   db.close();
 });
 
-test("repository applies Relay craft contribution deltas exactly once", async () => {
+test("repository durably deduplicates exact unknown Relay craft contributions across restarts", async () => {
   const db = new DatabaseSync(":memory:");
   applySchemaBootstrap(db);
   applyAdditiveColumnMigrations(db);
@@ -576,7 +576,7 @@ test("repository applies Relay craft contribution deltas exactly once", async ()
   const event = {
     claimId: "1369094286777412590",
     domain: "contributions",
-    sourceKey: "relay-craft-contribution:19:transaction-12:1369094287428103662",
+    sourceKey: "relay-craft-contribution:19:unknown:unknown:no-match:1369094287428103662:16056:16080",
     occurredAt: "2026-08-01T09:00:00.000Z",
     data: {
       eventType: "craft_contribution",
@@ -584,34 +584,54 @@ test("repository applies Relay craft contribution deltas exactly once", async ()
       database: "bitcraft-live-19",
       schemaFingerprint: "regional-v1",
       craftEntityId: "1369094287428103662",
-      contributorEntityId: "576460752388321942",
-      contributorName: "Mosswick",
+      contributorEntityId: null,
+      contributorName: "Unknown contributor",
+      attributionConfidence: "unknown",
+      observedSince: "2026-08-01T09:00:00.000Z",
       profession: "Forestry",
       craftLabel: "Owl Feather",
       structureName: "Forester",
       itemTier: "3",
       contributedProgress: "24",
-      contributedXp: "48",
+      contributedXp: "42.24",
       contributionCount: "1",
       previousProgress: "16056",
       currentProgress: "16080",
     },
   };
+  const laterEvent = {
+    ...event,
+    sourceKey: "relay-craft-contribution:19:unknown:unknown:no-match:1369094287428103662:16080:16104",
+    occurredAt: "2026-08-01T09:00:01.000Z",
+    data: {
+      ...event.data,
+      observedSince: "2026-08-01T09:00:01.000Z",
+      previousProgress: "16080",
+      currentProgress: "16104",
+    },
+  };
 
   await repository.appendEvents([event, event]);
-  await repository.appendEvents([event]);
+  const restartedRepository = createCurrentStateRepository(db);
+  await restartedRepository.appendEvents([event, laterEvent]);
 
   const eventRows = db.prepare("SELECT * FROM production_contribution_events").all();
-  assert.equal(eventRows.length, 1);
+  assert.equal(eventRows.length, 2);
   assert.equal(eventRows[0].source_key, event.sourceKey);
   assert.equal(eventRows[0].contributed_progress, "24");
+  assert.equal(eventRows[0].contributor_entity_id, null);
+  assert.equal(eventRows[0].attribution_confidence, "unknown");
 
   const contribution = db.prepare("SELECT * FROM production_contributions").get();
-  assert.equal(contribution.contributed_progress, "24");
-  assert.equal(contribution.contributed_xp, "48");
-  assert.equal(contribution.contribution_count, "1");
+  assert.equal(contribution.contribution_key, "1369094286777412590:1369094287428103662:unknown");
+  assert.equal(contribution.contributed_progress, "48");
+  assert.equal(contribution.contributed_xp, "84.48");
+  assert.equal(contribution.contribution_count, "2");
+  assert.equal(contribution.contributor_entity_id, null);
+  assert.equal(contribution.contributor_name, "Unknown contributor");
+  assert.equal(contribution.attribution_confidence, "unknown");
   assert.equal(contribution.first_contributed_at, event.occurredAt);
-  assert.equal(contribution.last_contributed_at, event.occurredAt);
+  assert.equal(contribution.last_contributed_at, laterEvent.occurredAt);
   db.close();
 });
 

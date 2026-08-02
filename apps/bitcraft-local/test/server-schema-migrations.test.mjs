@@ -349,6 +349,10 @@ test("schemaIndexStatements preserves release-sensitive unique indexes", () => {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_discord_id ON admin_users (discord_id) WHERE discord_id IS NOT NULL AND discord_id <> '';",
     "CREATE INDEX IF NOT EXISTS idx_game_catalog_entities_item_list ON game_catalog_entities (item_list_id, catalog_key);",
     "CREATE INDEX IF NOT EXISTS idx_market_trades_claim_region_item_time ON market_trades (claim_id, region_id, item_id, item_type, occurred_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_production_contrib_claim ON production_contributions (claim_id, last_contributed_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_production_contrib_profession ON production_contributions (claim_id, profession, contributed_progress DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_production_contrib_events_claim ON production_contribution_events (claim_id, occurred_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_production_contrib_events_craft ON production_contribution_events (claim_id, craft_entity_id, occurred_at DESC);",
   ]);
 });
 
@@ -472,6 +476,128 @@ test("retired tables share cleanup ownership and are absent from a fresh schema"
   const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
   for (const table of retiredTableNames) assert.equal(tables.has(table), false, `${table} must be retired`);
   assert.equal(tables.has("app_settings"), true);
+  db.close();
+});
+
+test("production contribution migration preserves named rows while making attribution nullable", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE production_contributions (
+      contribution_key TEXT PRIMARY KEY,
+      claim_id TEXT NOT NULL,
+      craft_entity_id TEXT NOT NULL,
+      contributor_entity_id TEXT NOT NULL,
+      contributor_name TEXT NOT NULL,
+      profession TEXT,
+      craft_label TEXT,
+      structure_name TEXT,
+      item_tier TEXT,
+      contributed_progress TEXT NOT NULL DEFAULT '0',
+      contributed_xp TEXT NOT NULL DEFAULT '0',
+      contribution_count TEXT NOT NULL DEFAULT '0',
+      first_contributed_at TEXT,
+      last_contributed_at TEXT,
+      first_seen TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      raw_json TEXT NOT NULL
+    );
+    CREATE TABLE production_contribution_events (
+      source_key TEXT PRIMARY KEY,
+      claim_id TEXT NOT NULL,
+      region_id TEXT NOT NULL,
+      craft_entity_id TEXT NOT NULL,
+      contributor_entity_id TEXT NOT NULL,
+      contributed_progress TEXT NOT NULL,
+      contributed_xp TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      raw_json TEXT NOT NULL
+    );
+    CREATE INDEX idx_production_contrib_claim
+      ON production_contributions (claim_id, last_contributed_at DESC);
+    CREATE INDEX idx_production_contrib_profession
+      ON production_contributions (claim_id, profession, contributed_progress DESC);
+    CREATE INDEX idx_production_contrib_events_claim
+      ON production_contribution_events (claim_id, occurred_at DESC);
+    CREATE INDEX idx_production_contrib_events_craft
+      ON production_contribution_events (claim_id, craft_entity_id, occurred_at DESC);
+    INSERT INTO production_contributions VALUES (
+      '1:2:3', '1', '2', '3', 'Ada', 'Forestry', 'Timber', 'Forester',
+      '3', '24', '42.24', '1', '2026-08-01T09:00:00.000Z',
+      '2026-08-01T09:00:00.000Z', '2026-08-01T09:00:00.000Z',
+      '2026-08-01T09:00:00.000Z', '{}'
+    );
+    INSERT INTO production_contribution_events VALUES (
+      'legacy:1', '1', '19', '2', '3', '24', '42.24',
+      '2026-08-01T09:00:00.000Z', '2026-08-01T09:00:01.000Z', '{}'
+    );
+  `);
+
+  applyProductionContributionExactAmountMigration(db);
+  applyProductionContributionExactAmountMigration(db);
+  applySchemaIndexStatements(
+    db,
+    schemaIndexStatements.filter((statement) => statement.includes("idx_production_contrib")),
+  );
+
+  const contributionColumns = new Map(
+    db.prepare("PRAGMA table_info(production_contributions)").all()
+      .map((column) => [String(column.name), column]),
+  );
+  const eventColumns = new Map(
+    db.prepare("PRAGMA table_info(production_contribution_events)").all()
+      .map((column) => [String(column.name), column]),
+  );
+  assert.equal(contributionColumns.get("contributor_entity_id").notnull, 0);
+  assert.equal(eventColumns.get("contributor_entity_id").notnull, 0);
+  assert.equal(contributionColumns.get("attribution_confidence").dflt_value, "'unknown'");
+  assert.equal(eventColumns.get("attribution_confidence").dflt_value, "'unknown'");
+  assert.equal(contributionColumns.get("contributed_progress").type, "TEXT");
+  assert.equal(contributionColumns.get("contributed_xp").type, "TEXT");
+  assert.equal(contributionColumns.get("contribution_count").type, "TEXT");
+  assert.deepEqual(
+    db.prepare(`
+      SELECT name
+      FROM sqlite_schema
+      WHERE type = 'index' AND name LIKE 'idx_production_contrib%'
+      ORDER BY name
+    `).all().map(({ name }) => name),
+    [
+      "idx_production_contrib_claim",
+      "idx_production_contrib_events_claim",
+      "idx_production_contrib_events_craft",
+      "idx_production_contrib_profession",
+    ],
+  );
+  assert.deepEqual(
+    { ...db.prepare(`
+      SELECT contribution_key, contributor_entity_id, contributor_name,
+        attribution_confidence, contributed_progress, contributed_xp
+      FROM production_contributions
+    `).get() },
+    {
+      contribution_key: "1:2:3",
+      contributor_entity_id: "3",
+      contributor_name: "Ada",
+      attribution_confidence: "unknown",
+      contributed_progress: "24",
+      contributed_xp: "42.24",
+    },
+  );
+  assert.deepEqual(
+    { ...db.prepare(`
+      SELECT source_key, contributor_entity_id, attribution_confidence,
+        contributed_progress, contributed_xp
+      FROM production_contribution_events
+    `).get() },
+    {
+      source_key: "legacy:1",
+      contributor_entity_id: "3",
+      attribution_confidence: "unknown",
+      contributed_progress: "24",
+      contributed_xp: "42.24",
+    },
+  );
   db.close();
 });
 
