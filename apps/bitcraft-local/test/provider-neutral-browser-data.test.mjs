@@ -97,7 +97,7 @@ test("Craft Monitor uses the provider-neutral craft snapshot and local catalog p
   assert.match(source, /\/api\/local\/player-data/);
   assert.match(source, /playerToolbeltTools/);
   assert.doesNotMatch(source, /players\/\$\{memberId\}\/inventories/);
-  assert.match(server, /enrichCraftsWithCatalog/);
+  assert.match(server, /enrichCraftsDomain/);
   assert.match(server, /providerCatalogRepository\.getDescription\("crafting_recipe", recipeId\)/);
 });
 

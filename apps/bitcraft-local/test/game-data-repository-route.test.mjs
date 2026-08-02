@@ -21,6 +21,9 @@ const {
 } = await import(
   new URL("../src/server/game-data/gameDataRoute.ts", import.meta.url).href,
 );
+const { enrichCraftsDomain } = await import(
+  new URL("../src/server/game-data/craftProjection.ts", import.meta.url).href,
+);
 
 test("Town Bank commits invalidate the public inventories domain immediately", () => {
   assert.deepEqual(
@@ -854,4 +857,38 @@ test("game-data route surfaces projection warnings and partial confidence", () =
   assert.deepEqual(result.body.partialErrors, [
     "construction: Construction project 9 is missing global recipe 404.",
   ]);
+});
+
+test("malformed public craft evidence preserves the crafts response with a partial warning", () => {
+  const craftSnapshot = {
+    craftResults: [{ entityId: "100", recipeId: "10", completed: false }],
+  };
+  const result = gameDataResponse({
+    configuredClaimId: "1369094286777412590",
+    claimId: "1369094286777412590",
+    domains: ["crafts"],
+    repository: {
+      read: () => ({
+        data: craftSnapshot,
+        confidence: "authoritative",
+        generation: 8,
+        lastError: null,
+        provenance: relayProvenance("2026-07-29T21:00:00.000Z"),
+        warnings: [],
+      }),
+    },
+    transformDomain: (_domain, data) => enrichCraftsDomain(
+      data,
+      { data: { craftResults: [{ entityId: 100 }] }, lastError: null },
+      () => null,
+      () => ({ id: "10", isPassive: false }),
+    ),
+    now: new Date("2026-07-29T21:00:01.000Z"),
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.domains.crafts.data.craftResults[0].visibility, "unknown");
+  assert.equal(result.body.domains.crafts.data.craftResults[0].isPublic, null);
+  assert.equal(result.body.domains.crafts.confidence, "partial");
+  assert.match(result.body.domains.crafts.warnings[0], /public-crafts marker is malformed/);
 });
