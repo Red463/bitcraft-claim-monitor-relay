@@ -408,6 +408,55 @@ test("primary-region runtime forwards live contribution events to durable provid
   assert.deepEqual(appended, [event]);
 });
 
+test("primary-region runtime updates contribution scope without restarting member data", async () => {
+  const starts = [];
+  const stops = [];
+  const updates = [];
+  const runtime = new runtimeModule.RelayPrimaryRegionRuntime({
+    manifest: { schemas: { regional: { fingerprint: "regional-v1", bindingsGenerated: true } } },
+    discoverTopology: async () => topology(),
+    createSession: () => ({
+      start: async (config) => starts.push(config),
+      updateContributionScope: (targets, warnings) => updates.push({ targets, warnings }),
+      stop: async () => stops.push(true),
+      health: () => ({ connected: true, applied: true, lastAppliedAt: null, lastError: null }),
+    }),
+    currentStateRepository: {
+      nextGeneration: () => 1,
+      commitGeneration: () => {},
+    },
+  });
+  const members = [{ playerEntityId: "101", userName: "Ada" }];
+  const first = [{
+    craftEntityId: "9001",
+    profession: "Forestry",
+    craftLabel: "Planks",
+    structureName: "Forester",
+    itemTier: "3",
+    xpPerProgress: "2",
+  }];
+  const second = [{ ...first[0], craftEntityId: "9002" }];
+
+  await runtime.start({
+    relayBaseUrl: "https://relay.example",
+    claimId: "1",
+    regionId: "19",
+    members,
+    contributionTargets: first,
+  });
+  await runtime.reconcile({
+    claimId: "1",
+    regionId: "19",
+    members,
+    contributionTargets: second,
+    contributionWarnings: ["one target changed"],
+  });
+
+  assert.equal(starts.length, 1);
+  assert.deepEqual(stops, []);
+  assert.deepEqual(updates, [{ targets: second, warnings: ["one target changed"] }]);
+});
+
 test("healthy primary-region runtime replaces its session when the discovered source changes", async () => {
   let now = 0;
   let sourceRevision = 1;

@@ -429,7 +429,7 @@ test("primary-region session emits positive craft progress transactions as exact
     contributionTargets: [target],
   });
   fake.state.onConnect(fake.connection);
-  assert.ok(fake.state.queries.includes(
+  assert.ok(fake.state.subscriptions[1].queries.includes(
     "SELECT * FROM progressive_action_state WHERE entity_id = 1369094287428103662",
   ));
   fake.state.onApplied({});
@@ -478,6 +478,49 @@ test("primary-region session emits positive craft progress transactions as exact
   }]);
 
   await session.stop();
+});
+
+test("primary-region session replaces contribution queries without replacing base data", async () => {
+  assert.ok(sessionModule, "primary-region player session module must exist");
+  const fake = fakeBindings();
+  const session = new sessionModule.RelayPrimaryRegionPlayerSession({
+    loadBindings: async () => fake.module,
+    onSnapshot: () => {},
+  });
+  const first = {
+    craftEntityId: "9001",
+    profession: "Forestry",
+    craftLabel: "Planks",
+    structureName: "Forester",
+    itemTier: "3",
+    xpPerProgress: "2",
+  };
+  const second = { ...first, craftEntityId: "9002", craftLabel: "Beams" };
+
+  await session.start({
+    uri: "wss://relay.example:4000",
+    database: "bitcraft-live-19",
+    schemaFingerprint: "regional-v1",
+    manifest,
+    generation: 1,
+    regionId: "19",
+    claimId: "1369094286777412590",
+    members: [{ playerEntityId: "101", userName: "Ada" }],
+    contributionTargets: [first],
+  });
+  fake.state.onConnect(fake.connection);
+
+  const base = fake.state.subscriptions[0];
+  const initialContribution = fake.state.subscriptions[1];
+  assert.doesNotMatch(base.queries.join("\n"), /progressive_action_state/);
+  assert.match(initialContribution.queries.join("\n"), /entity_id = 9001/);
+
+  session.updateContributionScope([second], []);
+
+  assert.equal(base.unsubscribed, false);
+  assert.equal(initialContribution.unsubscribed, true);
+  assert.match(fake.state.subscriptions[2].queries.join("\n"), /entity_id = 9002/);
+  assert.equal(fake.state.disconnected, false);
 });
 
 test("primary-region player session rejects schema mismatch before loading bindings", async () => {

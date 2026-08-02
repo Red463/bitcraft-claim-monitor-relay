@@ -221,6 +221,7 @@ export class RelayPrimaryRegionPlayerSession {
   readonly #now: () => Date;
   #connection: BindingConnection | null = null;
   #baseSubscription: SubscriptionHandle | null = null;
+  #contributionSubscription: SubscriptionHandle | null = null;
   #bankInventorySubscriptions: SubscriptionHandle[] = [];
   #config: SessionConfig | null = null;
   #nextGeneration = 0;
@@ -266,7 +267,6 @@ export class RelayPrimaryRegionPlayerSession {
       travelerTaskQuery(config.members),
       "SELECT * FROM traveler_task_desc",
       bankQuery(config.claimId),
-      ...contributionQueries(config.contributionTargets ?? []),
     ];
     if (queries.length === 0) {
       throw new Error("Relay regional player session requires at least one claim member");
@@ -287,6 +287,7 @@ export class RelayPrimaryRegionPlayerSession {
           })
           .onError((_context, error) => this.#recordError(error))
           .subscribe(queries);
+        this.#replaceContributionSubscription(connection);
       })
       .onConnectError((_context, error) => this.#recordError(error))
       .onDisconnect((_context, error) => {
@@ -294,6 +295,35 @@ export class RelayPrimaryRegionPlayerSession {
         if (error) this.#recordError(error);
       })
       .build();
+  }
+
+  updateContributionScope(
+    targets: CraftContributionTarget[],
+    warnings: string[] = [],
+  ): void {
+    if (!this.#config) {
+      throw new Error("Relay primary-region player session is not started");
+    }
+    this.#config = {
+      ...this.#config,
+      contributionTargets: [...targets],
+      contributionWarnings: [...warnings],
+    };
+    if (this.#connection) {
+      this.#replaceContributionSubscription(this.#connection);
+      this.#queueSnapshot();
+    }
+  }
+
+  #replaceContributionSubscription(connection: BindingConnection): void {
+    this.#contributionSubscription?.unsubscribe();
+    this.#contributionSubscription = null;
+    const queries = contributionQueries(this.#config?.contributionTargets ?? []);
+    if (!queries.length) return;
+    this.#contributionSubscription = connection.subscriptionBuilder()
+      .onApplied(() => this.#queueSnapshot())
+      .onError((_context, error) => this.#recordError(error))
+      .subscribe(queries);
   }
 
   #applySnapshot(connection: BindingConnection): void {
@@ -592,6 +622,8 @@ export class RelayPrimaryRegionPlayerSession {
     this.#bankRefreshEpoch += 1;
     this.#removeTableListeners();
     this.#clearBankInventorySubscriptions();
+    this.#contributionSubscription?.unsubscribe();
+    this.#contributionSubscription = null;
     this.#baseSubscription?.unsubscribe();
     this.#baseSubscription = null;
     this.#connection?.disconnect();
