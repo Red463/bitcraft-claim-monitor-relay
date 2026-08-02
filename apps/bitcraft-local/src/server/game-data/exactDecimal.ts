@@ -33,7 +33,8 @@ function parseDecimal(decimal: string): DecimalParts {
 }
 
 export function canonicalNonNegativeDecimal(value: unknown, label: string): string {
-  const decimal = typeof value === "string" ? value.trim() : String(value);
+  if (typeof value !== "string") throw new Error(`${label} must be a decimal string`);
+  const decimal = value.trim();
   if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(decimal)) {
     throw new Error(`${label} must be a non-negative decimal`);
   }

@@ -24,4 +24,8 @@ test("invalid Relay XP is rejected", () => {
   assert.throws(() => canonicalF32Decimal(-1, "xp"), /non-negative/i);
   assert.throws(() => canonicalF32Decimal(Infinity, "xp"), /finite/i);
   assert.throws(() => canonicalNonNegativeDecimal("1.2.3", "xp"), /decimal/i);
+  assert.throws(
+    () => canonicalNonNegativeDecimal(9007199254740993, "identifier"),
+    /string/i,
+  );
 });
