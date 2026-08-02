@@ -199,6 +199,12 @@ progress remains a decimal integer string; XP totals remain canonical decimal
 strings. No XP calculation passes through `BigInt` until its decimal scale has
 been made explicit.
 
+In-game XP is whole-number. Fractional rate products and accumulated XP remain
+exact canonical decimals in persistence, but the browser contribution
+projection rounds each accumulated total to the nearest whole XP, half-up,
+using exact decimal/`BigInt` arithmetic. The browser receives an integer string;
+rounding never passes through `Number`.
+
 The existing SQLite TEXT columns can retain decimal totals, but repository
 validation and aggregation must be updated to understand canonical
 non-negative decimal strings. A schema migration is required only if the
@@ -263,7 +269,7 @@ remain visible through focused warnings.
 
 Craft cards show:
 
-- observed contribution progress and XP;
+- observed contribution progress and nearest-whole XP;
 - named contributor totals when attribution is authoritative or joined;
 - an Unknown contributor row when unattributed progress exists; and
 - an **Observed since** timestamp for the local contribution window.
@@ -325,6 +331,8 @@ time without exposing raw identities publicly.
 - enabling the toggle reveals only private crafts;
 - unknown visibility is never rendered as public;
 - valid fractional XP produces no incomplete-data warning;
+- fractional persisted XP projects to an exact half-up whole-number browser
+  value without `Number` rounding;
 - named, joined, and Unknown contributor states render correctly; and
 - observed-since copy prevents the local history from appearing complete.
 

@@ -6,6 +6,7 @@ const {
   canonicalF32Decimal,
   canonicalNonNegativeDecimal,
   multiplyDecimalByInteger,
+  roundDecimalToWhole,
 } = await import(
   new URL("../src/server/game-data/exactDecimal.ts", import.meta.url).href,
 );
@@ -18,6 +19,13 @@ test("Relay F32 XP rates normalize without binary noise", () => {
 test("exact decimal XP multiplies and accumulates without Number", () => {
   assert.equal(multiplyDecimalByInteger("1.76", "24"), "42.24");
   assert.equal(addDecimal("42.24", "9007199254740993.76"), "9007199254741036");
+});
+
+test("exact decimal XP rounds half-up to a whole-number string", () => {
+  assert.equal(roundDecimalToWhole("42.24"), "42");
+  assert.equal(roundDecimalToWhole("3.52"), "4");
+  assert.equal(roundDecimalToWhole("0.5"), "1");
+  assert.equal(roundDecimalToWhole("9007199254740993.5"), "9007199254740994");
 });
 
 test("invalid Relay XP is rejected", () => {
