@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.50.0-beta.4] - 2026-08-02
+
+### Changed
+
+- Updated the default app logo and browser favicon to the approved Claim Monitor branding.
+
 ## [0.50.0-beta.3] - 2026-08-02
 
 ### Changed

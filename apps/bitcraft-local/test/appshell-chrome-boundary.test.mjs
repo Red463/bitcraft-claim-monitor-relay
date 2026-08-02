@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 test("floating action rail can be collapsed with persisted state and accessible toggle", () => {
@@ -79,6 +79,18 @@ test("shared refresh chrome is provider-neutral during the Relay migration", () 
   assert.match(appChrome, /Unable to refresh live game data/);
   assert.match(appChrome, /data provider may be having a temporary issue/i);
   assert.doesNotMatch(appChrome, /bitjita/i);
+});
+test("app chrome uses the approved Claim Monitor logo and favicon as defaults", () => {
+  const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const publicDirectory = new URL("../public/", import.meta.url);
+
+  assert.match(index, /type="image\/x-icon" href="\/favicon\.ico"/);
+  assert.match(appShell, /const DEFAULT_APP_LOGO_URL = "\/claim-monitor-logo\.png"/);
+  assert.match(appShell, /const DEFAULT_FAVICON_URL = "\/favicon\.ico"/);
+  assert.match(appShell, /appSettings\.branding\.logo\s*\?\s*<img[\s\S]*:\s*<img src=\{DEFAULT_APP_LOGO_URL\} alt=""/);
+  assert.equal(existsSync(new URL("claim-monitor-logo.png", publicDirectory)), true);
+  assert.equal(existsSync(new URL("favicon.ico", publicDirectory)), true);
 });
 test("sidebar exposes a persistent app account sign-in affordance", () => {
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");

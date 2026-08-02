@@ -82,6 +82,8 @@ const GITHUB_REPOSITORY = "https://github.com/Red463/bitcraft-claim-monitor-rela
 const CHANGELOG_URL = `${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md`;
 const DISCORD_URL = "https://discord.gg/ET4bteqbG5";
 const APP_VERSION = packageJson.version;
+const DEFAULT_APP_LOGO_URL = "/claim-monitor-logo.png";
+const DEFAULT_FAVICON_URL = "/favicon.ico";
 const RELEASE_UPDATED_NOTICE_MS = 8_000;
 const VISUALLY_HIDDEN_STYLE: React.CSSProperties = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 };
 
@@ -730,8 +732,8 @@ function DashboardApp() {
     const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (!link) return;
     const favicon = appSettings.branding.favicon;
-    link.href = favicon ? `${favicon.url}?v=${encodeURIComponent(favicon.updatedAt)}` : "/favicon.svg";
-    link.type = favicon?.contentType ?? "image/svg+xml";
+    link.href = favicon ? `${favicon.url}?v=${encodeURIComponent(favicon.updatedAt)}` : DEFAULT_FAVICON_URL;
+    link.type = favicon?.contentType ?? "image/x-icon";
   }, [appSettings.branding.favicon]);
   React.useEffect(() => {
     if (!state.data) return;
@@ -874,7 +876,9 @@ function DashboardApp() {
       <aside id="mobile-navigation" aria-label="Mobile navigation" aria-hidden={mobileNavigationUnavailable ? true : undefined} inert={mobileNavigationUnavailable ? true : undefined} className={`app-sidebar ${mobileNavigationOpen ? "mobile-open" : ""}`}>
         <button type="button" className="mobile-navigation-close" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)}><X size={18} /></button>
         <div className="brand">
-          {appSettings.branding.logo ? <img src={`${appSettings.branding.logo.url}?v=${encodeURIComponent(appSettings.branding.logo.updatedAt)}`} alt="" /> : <Shield />}
+          {appSettings.branding.logo
+            ? <img src={`${appSettings.branding.logo.url}?v=${encodeURIComponent(appSettings.branding.logo.updatedAt)}`} alt="" />
+            : <img src={DEFAULT_APP_LOGO_URL} alt="" />}
           <div title={data.claim.name ?? "Settlement"}><h1>{data.claim.name ?? "Settlement"}</h1><span>Claim Monitor</span></div>
           <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
             {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
