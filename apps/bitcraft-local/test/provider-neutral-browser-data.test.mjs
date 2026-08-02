@@ -6,7 +6,17 @@ const { loadGameData, pageDomains, usesProviderNeutralGameData } = await import(
   new URL("../src/api/gameData.ts", import.meta.url).href,
 );
 test("claim overview, Members, Professions, and Leaderboard request provider-neutral local domains", async () => {
-  assert.deepEqual(pageDomains("dashboard"), ["claim", "members", "citizens", "players", "construction", "market"]);
+  assert.deepEqual(pageDomains("dashboard"), [
+    "claim",
+    "members",
+    "citizens",
+    "players",
+    "construction",
+    "market",
+    "research",
+    "crafts",
+    "region-claims",
+  ]);
   assert.deepEqual(pageDomains("members"), [
     "claim",
     "members",

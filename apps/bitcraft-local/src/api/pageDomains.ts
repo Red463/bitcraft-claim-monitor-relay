@@ -25,7 +25,17 @@ export function usesProviderNeutralGameData(activePanel: ActivePanel): boolean {
 export function pageDomains(activePanel: ActivePanel): DomainKey[] {
   switch (activePanel) {
     case "dashboard":
-      return ["claim", "members", "citizens", "players", "construction", "market"];
+      return [
+        "claim",
+        "members",
+        "citizens",
+        "players",
+        "construction",
+        "market",
+        "research",
+        "crafts",
+        "region-claims",
+      ];
     case "members":
       return ["claim", "members", "citizens", "players", "equipment", "crafts", "recruitment"];
     case "skills":

@@ -45,3 +45,18 @@ test("research view keeps legacy unresearched rows visible as available", () => 
     locked: [],
   });
 });
+
+test("research settlement caps use the greatest learned supply capacity", () => {
+  assert.deepEqual(viewModule.researchSettlementCaps(
+    {},
+    [
+      { id: "1826500486", state: "researched", isResearched: true, supplies: "30000" },
+      { id: "1157053499", state: "researched", isResearched: true, supplies: "50000" },
+      { id: "688169271", state: "researched", isResearched: true, supplies: "85000" },
+      { id: "733358069", state: "locked", supplies: "115000" },
+    ],
+  ), {
+    maxTiles: 0,
+    maxSupplies: 85000,
+  });
+});
