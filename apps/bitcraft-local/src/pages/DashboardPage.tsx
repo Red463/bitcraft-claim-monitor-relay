@@ -27,7 +27,7 @@ import type { ActivePanel } from "../types/app";
 import { activityMetadata, signedDelta } from "./activity/activityUtils";
 import { MARKET_INCOME_RANGES, buildMarketIncomeSummary, type MarketIncomeRangeDays } from "./market/marketAnalytics";
 import { hasRecentCraftContribution } from "./production/productionUtils";
-import { dashboardRegionWealth } from "./dashboardView";
+import { dashboardRegionWealth, formatExactCompactInteger } from "./dashboardView";
 import { researchSettlementCaps } from "./researchView";
 
 export function Dashboard({ data, activity, marketHistory, dashboardSummary, lastUpdated, onNavigate }: { data: ReturnType<typeof normalizeData>; activity: AnyRecord[]; marketHistory: AnyRecord | null; dashboardSummary: AnyRecord | null; lastUpdated: Date | null; onNavigate: (panel: ActivePanel, marketTab?: string) => void }) {
@@ -176,7 +176,7 @@ export function Dashboard({ data, activity, marketHistory, dashboardSummary, las
         <DashboardMetric icon={<Package />} label="Supply Status" value={formatDaysAndHours(supplyDays)} detail={`${formatNumber(supplies)} stored`} progress={supplyPct} tone="green" onClick={() => onNavigate("inventory")} />
         <DashboardMetric icon={<CircleDollarSign />} label="Treasury" value={`${formatNumber(treasury)}g`} detail={`${signedDelta(treasuryNetToday, 0, "g")} net today`} tone="gold" onClick={() => onNavigate("activity")} />
         <DashboardMetric icon={<TrendingUp />} label="Market Listings" value={market.length} detail={`${formatCompactNumber(marketListingValue)} total listing value`} tone="green" onClick={() => onNavigate("market")} />
-        <DashboardMetric icon={<CircleDollarSign />} label="Region Wealth" value={regionSettlementCount ? formatCompactNumber(regionWealth) : "-"} detail={regionWealthDetail} tone="gold" onClick={() => onNavigate("region")} />
+        <DashboardMetric icon={<CircleDollarSign />} label="Region Wealth" value={regionSettlementCount ? formatExactCompactInteger(regionWealth) : "-"} detail={regionWealthDetail} tone="gold" onClick={() => onNavigate("region")} />
       </section>
 
       <section className="dashboard-main-grid">

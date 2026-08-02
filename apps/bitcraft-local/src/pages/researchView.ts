@@ -27,16 +27,16 @@ export function researchSettlementCaps(claim: AnyRecord, technologies: AnyRecord
   const researched = technologies.filter(
     (technology) => technology.isResearched || technology.state === "researched",
   );
+  const learnedSupplyCap = Math.max(
+    ...researched.map((technology) => toNumber(technology.supplies)),
+    0,
+  );
   return {
     maxTiles: Math.max(
       toNumber(claim.numTiles),
       ...researched.map((technology) => toNumber(technology.area)),
       0,
     ),
-    maxSupplies: Math.max(
-      claimSupplyCap(claim),
-      ...researched.map((technology) => toNumber(technology.supplies)),
-      0,
-    ),
+    maxSupplies: learnedSupplyCap || claimSupplyCap(claim),
   };
 }

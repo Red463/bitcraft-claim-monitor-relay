@@ -222,6 +222,10 @@ export class RelayPrimaryRegionPlayerSession {
   #connection: BindingConnection | null = null;
   #baseSubscription: SubscriptionHandle | null = null;
   #contributionSubscription: SubscriptionHandle | null = null;
+  #pendingContributionSubscription: SubscriptionHandle | null = null;
+  #pendingContributionTargets: CraftContributionTarget[] = [];
+  #pendingContributionWarnings: string[] = [];
+  #contributionRefreshEpoch = 0;
   #bankInventorySubscriptions: SubscriptionHandle[] = [];
   #config: SessionConfig | null = null;
   #nextGeneration = 0;
@@ -287,7 +291,11 @@ export class RelayPrimaryRegionPlayerSession {
           })
           .onError((_context, error) => this.#recordError(error))
           .subscribe(queries);
-        this.#replaceContributionSubscription(connection);
+        this.#replaceContributionSubscription(
+          connection,
+          config.contributionTargets ?? [],
+          config.contributionWarnings ?? [],
+        );
       })
       .onConnectError((_context, error) => this.#recordError(error))
       .onDisconnect((_context, error) => {
@@ -304,26 +312,65 @@ export class RelayPrimaryRegionPlayerSession {
     if (!this.#config) {
       throw new Error("Relay primary-region player session is not started");
     }
-    this.#config = {
-      ...this.#config,
-      contributionTargets: [...targets],
-      contributionWarnings: [...warnings],
-    };
     if (this.#connection) {
-      this.#replaceContributionSubscription(this.#connection);
-      this.#queueSnapshot();
+      this.#replaceContributionSubscription(this.#connection, targets, warnings);
+    } else {
+      this.#config = {
+        ...this.#config,
+        contributionTargets: [...targets],
+        contributionWarnings: [...warnings],
+      };
     }
   }
 
-  #replaceContributionSubscription(connection: BindingConnection): void {
-    this.#contributionSubscription?.unsubscribe();
-    this.#contributionSubscription = null;
-    const queries = contributionQueries(this.#config?.contributionTargets ?? []);
-    if (!queries.length) return;
-    this.#contributionSubscription = connection.subscriptionBuilder()
-      .onApplied(() => this.#queueSnapshot())
+  #replaceContributionSubscription(
+    connection: BindingConnection,
+    targets: CraftContributionTarget[],
+    warnings: string[],
+  ): void {
+    this.#contributionRefreshEpoch += 1;
+    const epoch = this.#contributionRefreshEpoch;
+    this.#pendingContributionSubscription?.unsubscribe();
+    this.#pendingContributionSubscription = null;
+    this.#pendingContributionTargets = [...targets];
+    this.#pendingContributionWarnings = [...warnings];
+    const queries = contributionQueries(targets);
+    if (!queries.length) {
+      this.#config = {
+        ...this.#config!,
+        contributionTargets: [],
+        contributionWarnings: [...warnings],
+      };
+      this.#contributionSubscription?.unsubscribe();
+      this.#contributionSubscription = null;
+      this.#pendingContributionTargets = [];
+      this.#pendingContributionWarnings = [];
+      if (this.#health.applied) this.#queueSnapshot();
+      return;
+    }
+    const previous = this.#contributionSubscription;
+    let replacement: SubscriptionHandle;
+    replacement = connection.subscriptionBuilder()
+      .onApplied(() => {
+        if (epoch !== this.#contributionRefreshEpoch) {
+          replacement.unsubscribe();
+          return;
+        }
+        this.#config = {
+          ...this.#config!,
+          contributionTargets: [...targets],
+          contributionWarnings: [...warnings],
+        };
+        this.#contributionSubscription = replacement;
+        this.#pendingContributionSubscription = null;
+        this.#pendingContributionTargets = [];
+        this.#pendingContributionWarnings = [];
+        previous?.unsubscribe();
+        if (this.#health.applied) this.#queueSnapshot();
+      })
       .onError((_context, error) => this.#recordError(error))
       .subscribe(queries);
+    this.#pendingContributionSubscription = replacement;
   }
 
   #applySnapshot(connection: BindingConnection): void {
@@ -469,7 +516,10 @@ export class RelayPrimaryRegionPlayerSession {
         current.entityId ?? current.entity_id,
         "Relay craft contribution entity id",
       );
-      const target = (this.#config.contributionTargets ?? []).find(
+      const target = [
+        ...(this.#config.contributionTargets ?? []),
+        ...this.#pendingContributionTargets,
+      ].find(
         (candidate) => candidate.craftEntityId === craftId,
       );
       if (!target) return;
@@ -622,6 +672,11 @@ export class RelayPrimaryRegionPlayerSession {
     this.#bankRefreshEpoch += 1;
     this.#removeTableListeners();
     this.#clearBankInventorySubscriptions();
+    this.#contributionRefreshEpoch += 1;
+    this.#pendingContributionSubscription?.unsubscribe();
+    this.#pendingContributionSubscription = null;
+    this.#pendingContributionTargets = [];
+    this.#pendingContributionWarnings = [];
     this.#contributionSubscription?.unsubscribe();
     this.#contributionSubscription = null;
     this.#baseSubscription?.unsubscribe();

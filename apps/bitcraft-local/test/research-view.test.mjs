@@ -48,7 +48,7 @@ test("research view keeps legacy unresearched rows visible as available", () => 
 
 test("research settlement caps use the greatest learned supply capacity", () => {
   assert.deepEqual(viewModule.researchSettlementCaps(
-    {},
+    { maxSupplies: "115000" },
     [
       { id: "1826500486", state: "researched", isResearched: true, supplies: "30000" },
       { id: "1157053499", state: "researched", isResearched: true, supplies: "50000" },

@@ -483,9 +483,13 @@ test("primary-region session emits positive craft progress transactions as exact
 test("primary-region session replaces contribution queries without replacing base data", async () => {
   assert.ok(sessionModule, "primary-region player session module must exist");
   const fake = fakeBindings();
+  const snapshots = [];
+  const contributions = [];
   const session = new sessionModule.RelayPrimaryRegionPlayerSession({
     loadBindings: async () => fake.module,
-    onSnapshot: () => {},
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    onContribution: (event) => contributions.push(event),
+    now: () => new Date("2026-08-02T10:00:00.000Z"),
   });
   const first = {
     craftEntityId: "9001",
@@ -514,13 +518,32 @@ test("primary-region session replaces contribution queries without replacing bas
   const initialContribution = fake.state.subscriptions[1];
   assert.doesNotMatch(base.queries.join("\n"), /progressive_action_state/);
   assert.match(initialContribution.queries.join("\n"), /entity_id = 9001/);
+  initialContribution.onApplied({});
+  await Promise.resolve();
+  assert.equal(snapshots.length, 0, "contribution readiness must not publish broad data before base readiness");
+  base.onApplied({});
+  await Promise.resolve();
+  await Promise.resolve();
 
   session.updateContributionScope([second], []);
 
+  const replacementContribution = fake.state.subscriptions[2];
   assert.equal(base.unsubscribed, false);
-  assert.equal(initialContribution.unsubscribed, true);
-  assert.match(fake.state.subscriptions[2].queries.join("\n"), /entity_id = 9002/);
+  assert.equal(initialContribution.unsubscribed, false, "old target stays live until replacement applies");
+  assert.match(replacementContribution.queries.join("\n"), /entity_id = 9002/);
   assert.equal(fake.state.disconnected, false);
+
+  const update = fake.state.callbacks.get("progressive-action:update");
+  update(
+    { event: { tag: "Transaction", id: "transaction-overlap" } },
+    { entityId: 9002n, ownerEntityId: 101n, progress: 10 },
+    { entityId: 9002n, ownerEntityId: 101n, progress: 20 },
+  );
+  await Promise.resolve();
+  assert.equal(contributions[0]?.data?.craftEntityId, "9002");
+
+  replacementContribution.onApplied({});
+  assert.equal(initialContribution.unsubscribed, true);
 });
 
 test("primary-region player session rejects schema mismatch before loading bindings", async () => {

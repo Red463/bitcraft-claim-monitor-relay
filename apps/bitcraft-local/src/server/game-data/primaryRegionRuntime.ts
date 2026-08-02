@@ -24,7 +24,7 @@ type CurrentStateRepository = {
 
 type RegionalSession = {
   start(config: Parameters<RelayPrimaryRegionPlayerSession["start"]>[0]): Promise<void>;
-  updateContributionScope?(
+  updateContributionScope(
     targets: ContributionTarget[],
     warnings?: string[],
   ): void;
@@ -122,7 +122,7 @@ export class RelayPrimaryRegionRuntime {
   #session: RegionalSession | null = null;
   #relayBaseUrl: string | null = null;
   #claimId: string | null = null;
-  #signature: string | null = null;
+  #membershipSignature: string | null = null;
   #contributionSignature: string | null = null;
   #sessionEpoch = 0;
   #commitTail: Promise<void> = Promise.resolve();
@@ -183,11 +183,12 @@ export class RelayPrimaryRegionRuntime {
       contributionTargets,
       contributionWarnings,
     );
-    const sameScope = this.#session
+    const session = this.#session;
+    const sameScope = session
       && claimId === this.#claimId
-      && nextSignature === this.#signature;
+      && nextSignature === this.#membershipSignature;
     if (sameScope && nextContributionSignature !== this.#contributionSignature) {
-      this.#session?.updateContributionScope?.(
+      session.updateContributionScope(
         contributionTargets,
         contributionWarnings,
       );
@@ -218,7 +219,7 @@ export class RelayPrimaryRegionRuntime {
       await this.#commitTail;
       await this.#eventTail;
       this.#session = null;
-      this.#signature = null;
+      this.#membershipSignature = null;
       this.#contributionSignature = null;
       this.#claimId = claimId;
       await this.#startSession(config.regionId, config.members, contributionTargets, contributionWarnings);
@@ -266,7 +267,7 @@ export class RelayPrimaryRegionRuntime {
         ...(contributionWarnings.length ? { contributionWarnings } : {}),
       });
       this.#session = openingSession;
-      this.#signature = membershipSignature(regionId, members);
+      this.#membershipSignature = membershipSignature(regionId, members);
       this.#contributionSignature = contributionSessionSignature(
         contributionTargets,
         contributionWarnings,
@@ -422,7 +423,7 @@ export class RelayPrimaryRegionRuntime {
     return {
       running: this.#session != null,
       source: this.#source ? { ...this.#source } : null,
-      membershipSignature: this.#signature,
+      membershipSignature: this.#membershipSignature,
       subscription: this.#session?.health() ?? {
         connected: false,
         applied: false,
@@ -439,7 +440,7 @@ export class RelayPrimaryRegionRuntime {
     await this.#commitTail;
     await this.#eventTail;
     this.#session = null;
-    this.#signature = null;
+    this.#membershipSignature = null;
     this.#contributionSignature = null;
   }
 }
