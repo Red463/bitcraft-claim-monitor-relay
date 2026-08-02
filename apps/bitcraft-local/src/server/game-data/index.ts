@@ -3,6 +3,7 @@ export * from "./assetManifest.ts";
 export * from "./claimMarketRegionSession.ts";
 export * from "./claimMarketRuntime.ts";
 export * from "./constructionProjection.ts";
+export * from "./exactDecimal.ts";
 export * from "./craftProjection.ts";
 export * from "./equipmentProjection.ts";
 export * from "./empireRegionSession.ts";

@@ -121,6 +121,8 @@ import {
   buildCatalogItemDetail,
   buildResearchTierPresets,
   browserVisibleChangedDomains,
+  canonicalF32Decimal,
+  canonicalNonNegativeDecimal,
   enrichConstructionWithCatalog,
   enrichCraftsForPlanning,
   enrichCraftsWithCatalog,
@@ -5053,9 +5055,16 @@ function craftPrimarySkill(craft) {
 }
 
 function craftExperiencePerProgress(craft) {
-  const skillId = toNumber(craft.levelRequirements?.[0]?.skill_id ?? craft.experiencePerProgress?.[0]?.skill_id);
-  const match = craft.experiencePerProgress?.find?.((entry) => toNumber(entry.skill_id) === skillId);
-  return toNumber(match?.quantity ?? craft.experiencePerProgress?.[0]?.quantity);
+  const skillId = toNumber(
+    craft.levelRequirements?.[0]?.skillId
+    ?? craft.levelRequirements?.[0]?.skill_id
+    ?? craft.experiencePerProgress?.[0]?.skillId
+    ?? craft.experiencePerProgress?.[0]?.skill_id,
+  );
+  const match = craft.experiencePerProgress?.find?.(
+    (entry) => toNumber(entry.skillId ?? entry.skill_id) === skillId,
+  );
+  return match?.quantity ?? craft.experiencePerProgress?.[0]?.quantity;
 }
 
 function craftContributionOutputItem(craft, catalog) {
@@ -5607,20 +5616,36 @@ function relayCraftContributionTargets(craftsPayload) {
       if (!/^\d+$/.test(craftEntityId)) {
         throw new Error("Relay craft contribution target has an invalid craft entity id");
       }
-      const xpPerProgress = craftExperiencePerProgress(craft);
-      if (!Number.isSafeInteger(xpPerProgress) || xpPerProgress < 0) {
-        throw new Error(`Relay craft ${craftEntityId} has invalid experience per progress`);
+      const xpPerProgress = canonicalF32Decimal(
+        craftExperiencePerProgress(craft),
+        `Relay craft ${craftEntityId} experience per progress`,
+      );
+      const buildingEntityId = canonicalNonNegativeDecimal(
+        craft.buildingEntityId ?? craft.building_entity_id,
+        `Relay craft ${craftEntityId} building entity id`,
+      );
+      if (!/^\d+$/.test(buildingEntityId)) {
+        throw new Error(`Relay craft ${craftEntityId} has an invalid building entity id`);
+      }
+      const recipeId = canonicalNonNegativeDecimal(
+        craft.recipeId ?? craft.recipe_id,
+        `Relay craft ${craftEntityId} recipe id`,
+      );
+      if (!/^\d+$/.test(recipeId)) {
+        throw new Error(`Relay craft ${craftEntityId} has an invalid recipe id`);
       }
       const item = craftContributionOutputItem(craft, catalog);
       targets.push({
         craftEntityId,
+        buildingEntityId,
+        recipeId,
         profession: craftPrimarySkill(craft) || null,
         craftLabel: String(item.name ?? craft.recipeName ?? craft.craftedItemName ?? "Unknown craft"),
         structureName: String(craft.buildingName ?? craft.structureName ?? "Unknown structure"),
         itemTier: item.tier == null
           ? (craft.tier == null ? null : String(craft.tier))
           : String(item.tier),
-        xpPerProgress: String(xpPerProgress),
+        xpPerProgress,
       });
     } catch (error) {
       warnings.push(errorMessage(error));
