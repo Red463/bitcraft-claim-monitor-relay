@@ -9,6 +9,14 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.50.0-beta.5] - 2026-08-02
+
+### Fixed
+
+- Fixed Dashboard storage capacity, production, and player-settlement regional wealth using authoritative Relay data.
+- Preserved exact large regional wealth totals and uninterrupted live craft contributions during subscription scope changes.
+- Kept Dashboard refresh warnings focused on data required by its visible metrics.
+
 ## [0.50.0-beta.4] - 2026-08-02
 
 ### Changed
