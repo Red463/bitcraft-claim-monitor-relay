@@ -9,6 +9,15 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+### Added
+
+- Added the Featurebase in-app messenger with a dark, right-aligned English launcher.
+- Added signed Featurebase identity for Discord users while preserving anonymous visitor support.
+
+### Security
+
+- Cleared Featurebase identity and messenger state when users sign out or delete their account.
+
 ## [0.52.0-beta.1] - 2026-08-09
 
 ### Added
