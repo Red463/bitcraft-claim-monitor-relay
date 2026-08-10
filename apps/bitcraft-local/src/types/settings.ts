@@ -32,6 +32,7 @@ export type UserLegalStatus = {
 };
 export type UserAuthState = {
   user: AppUser | null;
+  featurebaseJwt?: string;
   csrfToken: string | null;
   discordLoginEnabled: boolean;
   legal: UserLegalStatus;

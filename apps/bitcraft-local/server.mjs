@@ -114,6 +114,7 @@ import {
 } from "./src/server/manualRefreshGuard.mjs";
 import { ADMIN_ROLE_LABELS, adminHasPermission, adminPermissionFor, normalizeAdminRole } from "./src/server/adminPermissions.mjs";
 import { discordAvatarUrl, publicAdminUser, publicAppUser } from "./src/server/publicUsers.mjs";
+import { createFeaturebaseJwt } from "./src/server/featurebaseJwt.mjs";
 import { adminMutationRejection } from "./src/server/adminRequestGuards.mjs";
 import { discordProfileDisplayName, validAdminUsername, validDiscordId } from "./src/server/authIdentity.mjs";
 import { createAdminLoginAttemptStore, loginAttemptKey } from "./src/server/adminLoginAttempts.mjs";
@@ -350,6 +351,7 @@ const legalDigests = legalPolicyDigests(legalPolicy);
 const legalSnapshot = currentLegalSnapshot(legalPolicy, legalDigests);
 const serveFrontend = isProduction || process.env.SERVE_STATIC === "true";
 const adminSetupKey = process.env.ADMIN_SETUP_KEY ?? "";
+const featurebaseJwtSecret = process.env.FEATUREBASE_JWT_SECRET ?? "";
 const legacyAdminPasswordAuth = process.env.ENABLE_LEGACY_ADMIN_PASSWORD_AUTH === "true";
 const processRole = resolveProcessRole(process.env, { isProduction });
 const processRoleConfig = processRoleCapabilities(processRole);
@@ -2858,10 +2860,12 @@ function clearBrowserCookie(name) {
 
 function authStatus(req) {
   const user = getAppUser(req);
+  const publicUser = publicAppUser(user);
   const config = discordOAuthConfig(req);
   const acceptance = user ? statements.currentUserLegalAcceptance.get(user.id) : null;
   return {
-    user: publicAppUser(user),
+    user: publicUser,
+    featurebaseJwt: createFeaturebaseJwt({ secret: featurebaseJwtSecret, user: publicUser }),
     csrfToken: user ? appUserCsrfToken(req) : null,
     discordLoginEnabled: config.enabled,
     legal: user
@@ -7582,7 +7586,9 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/local/legal") {
       return send(res, 200, { ...legalPolicy, ...legalDigests });
     }
-    if (req.method === "GET" && url.pathname === "/api/local/auth/me") return send(res, 200, authStatus(req));
+    if (req.method === "GET" && url.pathname === "/api/local/auth/me") {
+      return send(res, 200, authStatus(req), { "cache-control": "no-store" });
+    }
     if (req.method === "GET" && url.pathname === "/api/local/access-control/effective") return send(res, 200, publicEffectiveAccess(accessControlConfig(), accessControlSubject(req)));
     if (req.method === "GET" && url.pathname === "/api/local/auth/discord/start") {
       if (!rateLimit(req, res, "auth", RATE_LIMITS.auth)) return;

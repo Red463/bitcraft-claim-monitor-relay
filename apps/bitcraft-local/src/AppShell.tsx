@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import packageJson from "../package.json";
+import { useFeaturebase } from "featurebase-js/react";
 import { useGameData } from "./api/gameDataLoader";
 import { useDealAlerts, useLocalHistory, useNotificationActivity } from "./api/localHistory";
 import { pageDomains } from "./api/pageDomains";
@@ -202,6 +203,7 @@ function accountDisplayName(user: UserAuthState["user"]): string {
  * preferences, user Discord auth state, notifications, and page composition.
  */
 function DashboardApp() {
+  const { shutdown: shutdownFeaturebase } = useFeaturebase();
   const [active, setActive] = usePersistedState<ActivePanel>("navigation.page", "dashboard");
   const [routeSearch, setRouteSearch] = React.useState(() => window.location.search);
   const mainRef = React.useRef<HTMLElement | null>(null);
@@ -443,8 +445,9 @@ function DashboardApp() {
     const response = await fetch(`${LOCAL_API}/auth/logout`, { method: "POST" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Unable to sign out");
+    shutdownFeaturebase();
     setUserAuth(body);
-  }, []);
+  }, [shutdownFeaturebase]);
   const linkDiscordCharacter = React.useCallback(async (member: AnyRecord | null) => {
     const payload = member ? { characterPlayerId: String(member.playerEntityId ?? ""), characterName: String(member.userName ?? member.username ?? member.playerUsername ?? member.name ?? "") } : {};
     const response = await fetch(`${LOCAL_API}/auth/character`, { method: "PUT", headers: { "content-type": "application/json", "x-csrf-token": String(userAuth.csrfToken ?? "") }, body: JSON.stringify(payload) });
@@ -529,6 +532,7 @@ function DashboardApp() {
     setConsent(null);
   }, []);
   const handleAccountDeleted = React.useCallback(() => {
+    shutdownFeaturebase();
     withdrawAnalyticsConsent();
     setConsent(null);
     setUserSettingsOpen(false);
@@ -538,7 +542,7 @@ function DashboardApp() {
       csrfToken: null,
       legal: { ...current.legal, acceptedAt: null, requiresAcceptance: false },
     }));
-  }, []);
+  }, [shutdownFeaturebase]);
   const accessTargetMeta = React.useMemo(() => new Map(ACCESS_CONTROL_TARGETS.map((target) => [target.id, target])), []);
   const accessDecisionFor = React.useCallback((targetId: string) => effectiveAccess?.targets?.[targetId], [effectiveAccess]);
   const isPageAllowed = React.useCallback((panel: ActivePanel | string) => panel === "admin" || effectiveTargetAllowed(effectiveAccess, targetIdForPage(panel)), [effectiveAccess]);
