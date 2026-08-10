@@ -21,6 +21,7 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 ### Fixed
 
 - Fixed a blank page caused by a circular production bundle dependency after the Featurebase integration.
+- Allowed the Featurebase Messenger resources required by the production Content Security Policy.
 
 ## [0.52.0-beta.1] - 2026-08-09
 

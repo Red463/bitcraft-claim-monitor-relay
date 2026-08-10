@@ -31,11 +31,15 @@ test("securityHeaders applies public release browser protections and preserves e
   assert.equal(headers["x-frame-options"], "SAMEORIGIN");
   assert.equal(headers["referrer-policy"], "strict-origin-when-cross-origin");
   assert.equal(headers["cross-origin-opener-policy"], "same-origin");
-  assert.match(headers["content-security-policy"], /default-src 'self'/);
-  assert.match(headers["content-security-policy"], /connect-src 'self'(?:;|$)/);
-  assert.match(headers["content-security-policy"], /img-src 'self' data: https:\/\/cdn\.discordapp\.com(?:;|$)/);
-  assert.doesNotMatch(headers["content-security-policy"], /bitjita/i);
-  assert.match(headers["content-security-policy"], /frame-ancestors 'self'/);
+  const contentSecurityPolicy = headers["content-security-policy"];
+  assert.match(contentSecurityPolicy, /default-src 'self'/);
+  assert.match(contentSecurityPolicy, /script-src[^;]*https:\/\/do\.featurebase\.app/);
+  assert.match(contentSecurityPolicy, /connect-src[^;]*https:\/\/\*\.featurebase\.app[^;]*wss:\/\/\*\.featurebase\.app/);
+  assert.match(contentSecurityPolicy, /frame-src[^;]*https:\/\/\*\.featurebase\.app/);
+  assert.match(contentSecurityPolicy, /media-src[^;]*https:\/\/\*\.featurebase-attachments\.com/);
+  assert.match(contentSecurityPolicy, /img-src[^;]*https:\/\/\*\.featurebase\.app[^;]*https:\/\/\*\.featurebase-attachments\.com/);
+  assert.doesNotMatch(contentSecurityPolicy, /bitjita/i);
+  assert.match(contentSecurityPolicy, /frame-ancestors 'self'/);
 });
 
 test("missing game icons never fall through to the frontend HTML shell", () => {

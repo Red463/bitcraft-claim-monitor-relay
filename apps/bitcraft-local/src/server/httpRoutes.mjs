@@ -4,12 +4,13 @@ export function securityHeaders(headers = {}) {
   return {
     "content-security-policy": [
       "default-src 'self'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: https://cdn.discordapp.com",
+      "script-src 'self' https://do.featurebase.app",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://do.featurebase.app",
+      "img-src 'self' data: https://cdn.discordapp.com https://*.featurebase.app https://*.featurebase-attachments.com https://fb-usercontent.fra1.cdn.digitaloceanspaces.com",
       "font-src 'self' data: https://fonts.gstatic.com",
-      "connect-src 'self'",
-      "frame-src https://bitcraftsync.app https://bitcraftmap.com https://bccodex.com",
+      "connect-src 'self' https://*.featurebase.app wss://*.featurebase.app",
+      "frame-src https://bitcraftsync.app https://bitcraftmap.com https://bccodex.com https://*.featurebase.app",
+      "media-src https://*.featurebase.app https://*.featurebase-attachments.com",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
