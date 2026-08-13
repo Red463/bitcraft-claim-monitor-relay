@@ -7426,7 +7426,7 @@ const server = createServer(async (req, res) => {
         if (url.pathname.startsWith("/api/local/map/tiles/")) {
           mapPerformanceTelemetry.recordTileRequest({ durationMs, statusCode: res.statusCode });
         }
-        if (url.pathname === "/api/local/map/resources" && mapResourcePageRows !== null) {
+        if (mapResourcePageRows !== null) {
           mapPerformanceTelemetry.recordResourcePage({
             rows: mapResourcePageRows,
             bytes: Number(res.getHeader("content-length") ?? 0),

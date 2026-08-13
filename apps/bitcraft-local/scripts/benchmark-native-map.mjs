@@ -100,6 +100,10 @@ function validResourcePage(samples, response) {
     && typeof response.json?.complete === "boolean";
 }
 
+function acceptedResourcePage(response) {
+  return response.json?.layerAvailability?.status === "live" || response.json?.layerAvailability?.status === "stale";
+}
+
 function selectionQuery(regionIds, resourceIds) {
   const query = new URLSearchParams();
   query.set("regions", regionIds.join(","));
@@ -117,6 +121,7 @@ export async function runNativeMapBenchmark({
   httpClient = defaultHttpClient,
   sseClient = defaultSseClient,
   requestHeaders = {},
+  selectionDeadlineMs = 15_000,
 }) {
   const root = String(baseUrl).replace(/\/+$/, "");
   const samples = {
@@ -124,9 +129,45 @@ export async function runNativeMapBenchmark({
     responseBytes: 0, queueDepth: 0, rssBytes: 0, eventLoopDelayMs: 0, http429: 0, http503: 0, unexpectedHttp: 0,
   };
   let stream = null;
+  let eventVersion = 0;
+  const eventWaiters = new Set();
+  const onStreamEvent = () => {
+    eventVersion += 1;
+    for (const resolve of eventWaiters) resolve();
+    eventWaiters.clear();
+  };
+  const ensureStream = async () => {
+    if (stream) return stream.status >= 200 && stream.status < 300;
+    stream = await sseClient.open(
+      `${root}/api/local/map/resource-events?${selectionQuery(regionIds, resourceIds)}`,
+      onStreamEvent,
+      { headers: requestHeaders },
+    );
+    if (stream.status < 200 || stream.status >= 300) samples.unexpectedHttp += 1;
+    return stream.status >= 200 && stream.status < 300;
+  };
+  const waitForStreamChange = async (afterVersion, timeoutMs) => {
+    if (eventVersion > afterVersion) return 0;
+    const startedAt = performance.now();
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        eventWaiters.delete(done);
+        resolve();
+      }, Math.max(1, timeoutMs));
+      const done = () => {
+        clearTimeout(timer);
+        eventWaiters.delete(done);
+        resolve();
+      };
+      eventWaiters.add(done);
+    });
+    return performance.now() - startedAt;
+  };
   try {
+    let selectionFinished = false;
+    const selectionDeadlineAt = performance.now() + selectionDeadlineMs;
     const probe = async () => {
-      for (let index = 0; index < iterations; index += 1) {
+      for (let index = 0; index < iterations || (!selectionFinished && performance.now() < selectionDeadlineAt); index += 1) {
         const health = await httpClient.request(`${root}/api/local/map/health`, { headers: requestHeaders });
         if (recordStatus(samples, health) && health.json && typeof health.json.resources === "object") {
           samples.healthMs.push(health.durationMs);
@@ -137,12 +178,17 @@ export async function runNativeMapBenchmark({
         const tile = await httpClient.request(`${root}${tilePath}`, { headers: requestHeaders });
         if (validTile(samples, tile)) (index === 0 ? samples.coldTileMs : samples.cachedTileMs).push(tile.durationMs);
         else if (tile.status >= 200 && tile.status < 300) samples.unexpectedHttp += 1;
+        if (index + 1 >= iterations && !selectionFinished) await new Promise((resolve) => setTimeout(resolve, 100));
       }
     };
     const loadPartitions = async () => { for (const regionId of regionIds) for (const resourceId of resourceIds) {
       let cursor = null;
       let completeMs = 0;
-      do {
+      let initialStreamRetry = false;
+      let acceptedFirstPage = false;
+      let attempts = 0;
+      while (true) {
+        attempts += 1;
         const query = new URLSearchParams({ region: regionId, resourceId });
         if (cursor) query.set("cursor", cursor);
         const response = await httpClient.request(`${root}/api/local/map/resources?${query}`, { headers: requestHeaders });
@@ -151,21 +197,35 @@ export async function runNativeMapBenchmark({
           break;
         }
         completeMs += response.durationMs;
-        if (!cursor) samples.firstResourcePageMs.push(response.durationMs);
+        if (!acceptedResourcePage(response)) {
+          if (response.json?.layerAvailability?.status !== "loading" || attempts >= 100 || performance.now() >= selectionDeadlineAt) break;
+          if (!await ensureStream()) break;
+          if (initialStreamRetry) {
+            const observedVersion = eventVersion;
+            completeMs += await waitForStreamChange(observedVersion, Math.max(1, selectionDeadlineAt - performance.now()));
+            if (eventVersion <= observedVersion) break;
+          }
+          initialStreamRetry = true;
+          cursor = null;
+          continue;
+        }
+        if (!cursor) {
+          samples.firstResourcePageMs.push(completeMs);
+          acceptedFirstPage = true;
+        }
         cursor = response.json?.nextCursor ?? null;
-      } while (cursor);
-      if (completeMs > 0) samples.completePartitionMs.push(completeMs);
+        if (!cursor) break;
+      }
+      if (completeMs > 0 && acceptedFirstPage && cursor === null) {
+        samples.completePartitionMs.push(completeMs);
+      }
     }};
-    await Promise.all([probe(), loadPartitions()]);
-    stream = await sseClient.open(
-      `${root}/api/local/map/resource-events?${selectionQuery(regionIds, resourceIds)}`,
-      () => {},
-      { headers: requestHeaders },
-    );
-    if (stream.status < 200 || stream.status >= 300) samples.unexpectedHttp += 1;
+    const loading = loadPartitions().finally(() => { selectionFinished = true; });
+    await Promise.all([probe(), loading]);
+    await ensureStream();
     const warmQuery = new URLSearchParams({ region: regionIds[0], resourceId: resourceIds[0] });
     const warm = await httpClient.request(`${root}/api/local/map/resources?${warmQuery}`, { headers: requestHeaders });
-    if (validResourcePage(samples, warm)) samples.warmReselectMs.push(warm.durationMs);
+    if (validResourcePage(samples, warm) && acceptedResourcePage(warm)) samples.warmReselectMs.push(warm.durationMs);
     else if (warm.status >= 200 && warm.status < 300) samples.unexpectedHttp += 1;
   } finally {
     stream?.close();

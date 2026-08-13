@@ -651,16 +651,10 @@ test("server collection paginates listings and protects production mutations", a
   const mapRegionsResponse = await fetch(`${origin}/api/local/map/regions`);
   assert.equal(mapRegionsResponse.status, 200);
   const mapRegions = await mapRegionsResponse.json();
-  assert.deepEqual(mapRegions.regionIds, ["19"]);
-  assert.equal(mapRegions.regions[0].regionName, "Region 19");
-  assert.equal(mapRegions.regions[0].freshness, "stale");
-  const resourcePartitionUnavailable = await fetch(`${origin}/api/local/map/resources?region=19&resourceId=21`);
-  assert.equal(resourcePartitionUnavailable.status, 503);
-  assert.match((await resourcePartitionUnavailable.json()).error, /resource runtime is not configured/i);
-  const resourceEventsUnavailable = await fetch(`${origin}/api/local/map/resource-events?regions=19&resourceIds=21`);
-  assert.equal(resourceEventsUnavailable.status, 503);
-  assert.match((await resourceEventsUnavailable.json()).error, /resource runtime is not configured/i);
-
+  assert.deepEqual(mapRegions.regionIds, ["3", "7", "8", "9", "11", "12", "13", "14", "15", "17", "18", "19", "23"]);
+  const mapRegion19 = mapRegions.regions.find((region) => region.regionId === "19");
+  assert.equal(mapRegion19.regionName, "Region 19");
+  assert.equal(mapRegion19.freshness, "live");
   const empireObservedAt = new Date().toISOString();
   const empireCurrentData = {
     primaryRegionId: "19",

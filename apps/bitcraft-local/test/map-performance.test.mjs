@@ -110,8 +110,8 @@ test("benchmark runner probes health and tiles while paging resource partitions 
       assert.equal(options.headers.authorization, "Bearer benchmark");
       if (url.includes("/api/local/map/health")) return { status: 200, durationMs: 40, bytes: 100, json: { resources: { queueDepth: 2 }, rssBytes: 1_000, eventLoopDelayMs: 8 } };
       if (url.includes("/tiles/")) return { status: 200, durationMs: calls.filter((entry) => entry.includes("/tiles/")).length === 1 ? 140 : 35, bytes: 2_000, json: null };
-      if (url.includes("cursor=next")) return { status: 200, durationMs: 25, bytes: 300, json: { complete: true, nextCursor: null, resources: [["2", "19", "28", 30, 40]] } };
-      return { status: 200, durationMs: 45, bytes: 300, json: { complete: false, nextCursor: "next", resources: [["1", "19", "28", 10, 20]] } };
+      if (url.includes("cursor=next")) return { status: 200, durationMs: 25, bytes: 300, json: { complete: true, nextCursor: null, resources: [["2", "19", "28", 30, 40]], layerAvailability: { status: "live" } } };
+      return { status: 200, durationMs: 45, bytes: 300, json: { complete: false, nextCursor: "next", resources: [["1", "19", "28", 10, 20]], layerAvailability: { status: "live" } } };
     },
   };
   let streamClosed = false;
@@ -160,6 +160,29 @@ test("benchmark fails closed on missing samples and unexpected HTTP responses", 
   });
   assert.equal(result.ok, false);
   assert.match(result.failures.join(" "), /unexpected http|successful health|successful cold tile|resource page/i);
+});
+
+test("benchmark waits for an accepted generation instead of treating a loading empty page as a result", async () => {
+  let resourceRequests = 0;
+  const result = await benchmarkModule.runNativeMapBenchmark({
+    baseUrl: "http://127.0.0.1:18449", regionIds: ["19"], resourceIds: ["28"],
+    tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2,
+    httpClient: { async request(url) {
+      if (url.endsWith("/health")) return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0 } } };
+      if (url.includes("/tiles/")) return { status: 200, durationMs: 20, bytes: 100, json: null };
+      resourceRequests += 1;
+      if (resourceRequests === 1) return { status: 200, durationMs: 100, bytes: 100, json: { resources: [], complete: true, nextCursor: null, layerAvailability: { status: "loading" } } };
+      return { status: 200, durationMs: 80, bytes: 100, json: { resources: [], complete: true, nextCursor: null, layerAvailability: { status: "live" } } };
+    } },
+    sseClient: { async open(_url, onEvent) {
+      queueMicrotask(() => onEvent({ changedDomains: ["map-resources"] }));
+      return { status: 200, close() {} };
+    } },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.samples.firstResourcePageMs, [180]);
+  assert.deepEqual(result.samples.completePartitionMs, [180]);
+  assert.equal(resourceRequests, 3, "loading, accepted cold retry, and warm reselect are distinct");
 });
 
 test("streaming map routes are excluded from completion-latency distributions", () => {
