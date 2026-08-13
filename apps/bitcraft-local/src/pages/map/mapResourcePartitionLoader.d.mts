@@ -19,10 +19,13 @@ export type CompletedResourcePartition = ResourcePartitionPlan & {
   freshness: string;
 };
 
+export type ProgressiveResourcePartitionPage = CompletedResourcePartition & { complete: boolean };
+
 export function createMapResourcePartitionLoader(options: {
   fetchPage(input: { partition: ResourcePartitionPlan; cursor: string | null; signal: AbortSignal }): Promise<ResourcePartitionPage>;
   concurrency?: number;
-  onPartition(partition: CompletedResourcePartition): void;
+  onPage?(page: ProgressiveResourcePartitionPage): void;
+  onPartition?(partition: CompletedResourcePartition): void;
   onStatus(status: { key: string; regionId: string; resourceId: string; status: string; warning?: string | null; pending?: boolean }): void;
 }): {
   setScope(partitions?: ResourcePartitionPlan[]): void;

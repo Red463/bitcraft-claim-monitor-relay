@@ -19,6 +19,10 @@ function partitionIdentity(key) {
   return { regionId: decimal(match[1], "Resource partition region id"), resourceId: decimal(match[2], "Resource partition type id") };
 }
 
+function compareEntityRows(left, right) {
+  return left[0].length - right[0].length || left[0].localeCompare(right[0]);
+}
+
 export function resourcePartitionPlan(regionIds = [], resourceIds = []) {
   return decimalSort(regionIds, "Resource partition region id").flatMap((regionId) => (
     decimalSort(resourceIds, "Resource partition type id").map((resourceId) => ({
@@ -44,7 +48,26 @@ function normalizedRows(rows, identity) {
     } catch {
       return [];
     }
-  }).sort((left, right) => left[0].length - right[0].length || left[0].localeCompare(right[0]));
+  }).sort(compareEntityRows);
+}
+
+function mergeRows(left, right) {
+  const merged = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length || rightIndex < right.length) {
+    if (leftIndex >= left.length) merged.push(right[rightIndex++]);
+    else if (rightIndex >= right.length) merged.push(left[leftIndex++]);
+    else {
+      const order = compareEntityRows(left[leftIndex], right[rightIndex]);
+      if (order <= 0) merged.push(left[leftIndex++]);
+      if (order >= 0) {
+        if (order !== 0) merged.push(right[rightIndex]);
+        rightIndex += 1;
+      }
+    }
+  }
+  return merged;
 }
 
 export function replaceResourcePartition(state, partition) {
@@ -59,7 +82,61 @@ export function replaceResourcePartition(state, partition) {
     rows: Object.freeze(normalizedRows(partition?.rows, identity)),
     warnings: Object.freeze([...(partition?.warnings ?? [])].map(String)),
     freshness: String(partition?.freshness ?? "live"),
+    complete: true,
+    stagingRows: Object.freeze([]),
+    lastComplete: null,
   }));
+  return next;
+}
+
+function completeSnapshot(partition) {
+  if (!partition) return null;
+  if (partition.complete === true) return Object.freeze({
+    generation: partition.generation,
+    rows: partition.rows,
+    warnings: partition.warnings,
+    freshness: partition.freshness,
+  });
+  return partition.lastComplete ?? null;
+}
+
+export function applyResourcePartitionPage(state, page) {
+  const identity = partitionIdentity(page?.key);
+  const key = resourcePartitionKey(identity.regionId, identity.resourceId);
+  if (page?.regionId != null && decimal(page.regionId, "Resource page region id") !== identity.regionId) {
+    throw new TypeError("Resource page region does not match its partition key");
+  }
+  if (page?.resourceId != null && decimal(page.resourceId, "Resource page type id") !== identity.resourceId) {
+    throw new TypeError("Resource page type does not match its partition key");
+  }
+  const generation = decimal(page?.generation, "Resource partition generation");
+  const next = new Map(state ?? []);
+  const current = next.get(key);
+  const sameStaging = current?.complete === false && current.generation === generation;
+  const pageRows = normalizedRows(page?.rows, identity);
+  const stagingRows = Object.freeze(sameStaging ? mergeRows(current.stagingRows, pageRows) : pageRows);
+  const warnings = Object.freeze([...new Set([
+    ...(sameStaging ? current.warnings : []),
+    ...(page?.warnings ?? []),
+  ].map(String))]);
+  const freshness = String(page?.freshness ?? "live");
+  const lastComplete = completeSnapshot(current);
+  if (page?.complete === true) {
+    next.set(key, Object.freeze({
+      key, ...identity, generation, rows: stagingRows, warnings, freshness,
+      complete: true, stagingRows: Object.freeze([]), lastComplete: null,
+    }));
+  } else {
+    next.set(key, Object.freeze({
+      key, ...identity, generation,
+      rows: lastComplete?.rows ?? stagingRows,
+      warnings,
+      freshness,
+      complete: false,
+      stagingRows,
+      lastComplete,
+    }));
+  }
   return next;
 }
 

@@ -6,8 +6,8 @@ function warning(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, onPartition, onStatus }) {
-  if (typeof fetchPage !== "function" || typeof onPartition !== "function" || typeof onStatus !== "function") {
+export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, onPage = () => {}, onPartition, onStatus }) {
+  if (typeof fetchPage !== "function" || typeof onPage !== "function" || (onPartition != null && typeof onPartition !== "function") || typeof onStatus !== "function") {
     throw new TypeError("Resource partition loader callbacks are required");
   }
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("Resource partition concurrency must be a positive integer");
@@ -16,6 +16,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
   const queued = new Set();
   const active = new Map();
   const completed = new Set();
+  const retryTimers = new Map();
   let paused = false;
   let stopped = false;
 
@@ -29,10 +30,27 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
     if (!stopped && wanted.has(partition.key)) onStatus({ key: partition.key, regionId: partition.regionId, resourceId: partition.resourceId, status, ...extra });
   };
 
+  const clearRetry = (key) => {
+    const timer = retryTimers.get(key);
+    if (timer != null) clearTimeout(timer);
+    retryTimers.delete(key);
+  };
+
+  const scheduleRetry = (partition, seconds) => {
+    clearRetry(partition.key);
+    const delayMs = Math.max(1, Number(seconds) * 1_000);
+    if (!Number.isFinite(delayMs)) return;
+    retryTimers.set(partition.key, setTimeout(() => {
+      retryTimers.delete(partition.key);
+      enqueue(partition);
+      pump();
+    }, delayMs));
+  };
+
   const load = async (partition, controller) => {
     let cursor = null;
     let generation = null;
-    let rows = [];
+    let rows = onPartition ? [] : null;
     let warnings = [];
     let freshness = "live";
     let restarts = 0;
@@ -46,7 +64,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
           restarts += 1;
           cursor = null;
           generation = null;
-          rows = [];
+          rows = onPartition ? [] : null;
           warnings = [];
           continue;
         }
@@ -63,7 +81,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
         restarts += 1;
         cursor = null;
         generation = null;
-        rows = [];
+        rows = onPartition ? [] : null;
         warnings = [];
         continue;
       }
@@ -76,13 +94,24 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
           warning: String(availability.reason ?? warnings[0] ?? "Resource partition is unavailable."),
           pending: availability.pending === true,
         });
+        if (availability.pending === true && Number(payload?.retryAfterSeconds) > 0) {
+          scheduleRetry(partition, payload.retryAfterSeconds);
+        }
         return;
       }
       if (!Array.isArray(payload.resources)) throw new TypeError("Resource partition rows are invalid");
-      rows.push(...payload.resources);
+      onPage({
+        ...partition,
+        generation,
+        rows: payload.resources,
+        complete: payload.complete === true,
+        warnings: [...new Set(warnings)],
+        freshness,
+      });
+      rows?.push(...payload.resources);
       if (payload.complete === true) {
         completed.add(partition.key);
-        onPartition({ ...partition, generation, rows, warnings: [...new Set(warnings)], freshness });
+        onPartition?.({ ...partition, generation, rows: rows ?? [], warnings: [...new Set(warnings)], freshness });
         publishStatus(partition, freshness, { warning: warnings[0] ?? null, pending: false });
         return;
       }
@@ -122,6 +151,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
       queued.clear();
       for (const partition of queue) queued.add(partition.key);
       for (const [key, controller] of active) if (!next.has(key)) controller.abort();
+      for (const key of retryTimers.keys()) if (!next.has(key)) clearRetry(key);
       for (const key of [...completed]) if (!next.has(key)) completed.delete(key);
       for (const partition of next.values()) enqueue(partition);
       pump();
@@ -131,6 +161,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
       for (const key of keys) {
         const partition = wanted.get(key);
         if (!partition) continue;
+        clearRetry(key);
         completed.delete(key);
         active.get(key)?.abort();
         if (!active.has(key)) enqueue(partition);
@@ -140,6 +171,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
     pause() {
       if (stopped || paused) return;
       paused = true;
+      for (const key of retryTimers.keys()) clearRetry(key);
       for (const controller of active.values()) controller.abort();
     },
     resume() {
@@ -153,6 +185,7 @@ export function createMapResourcePartitionLoader({ fetchPage, concurrency = 4, o
       stopped = true;
       queue = [];
       queued.clear();
+      for (const key of retryTimers.keys()) clearRetry(key);
       for (const controller of active.values()) controller.abort();
       active.clear();
       wanted.clear();

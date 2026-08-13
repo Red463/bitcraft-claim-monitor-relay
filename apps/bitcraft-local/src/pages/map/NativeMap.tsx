@@ -16,7 +16,7 @@ import { nativeMapRequest } from "./nativeMapRequest.mjs";
 import { assignPlayerMarkerColours } from "./playerMarkerColours.mjs";
 import { applyResourceViewport, resourceLayerStatus } from "./resourceViewport.mjs";
 import { createMapResourcePartitionLoader } from "./mapResourcePartitionLoader.mjs";
-import { replaceResourcePartition, resourceRowsFromPartitions, retainResourcePartitions, type ResourcePartition } from "./mapResourcePartitionState.mjs";
+import { applyResourcePartitionPage, resourceRowsFromPartitions, retainResourcePartitions, type ResourcePartition } from "./mapResourcePartitionState.mjs";
 import { mapResourceFeatures } from "./mapResourceSnapshotState.mjs";
 import { createMapSnapshotLoader, mapEventNeedsSnapshot } from "./mapSnapshotLoader.mjs";
 import { replaceMapSnapshot } from "./mapSnapshotState.mjs";
@@ -313,7 +313,8 @@ export function NativeMap({
   const visibleResourcePoints = React.useMemo(() => mapFeaturesInRegionScope(resourcePoints, visibleRegionIds), [resourcePoints, visibleRegionIds.join(",")]);
   const visibleEnemyPoints = React.useMemo(() => mapFeaturesInRegionScope(snapshot?.layers.enemies ?? [], visibleRegionIds), [snapshot?.layers.enemies, visibleRegionIds.join(",")]);
   const resourceStatuses = wantedResourceKeys.map((key) => resourcePartitionStatuses.get(key));
-  const loadedResourcePartitionCount = wantedResourceKeys.filter((key) => resourcePartitions.has(key)).length;
+  const startedResourcePartitionCount = wantedResourceKeys.filter((key) => resourcePartitions.has(key)).length;
+  const loadedResourcePartitionCount = wantedResourceKeys.filter((key) => resourcePartitions.get(key)?.complete === true).length;
   const pendingResourcePartitionCount = resourceStatuses.filter((status) => status == null || status.status === "loading" || status.pending === true).length;
   const unavailableResourcePartitionCount = resourceStatuses.filter((status) => status?.status === "unavailable").length;
   const resourceLayerLoading = wantedResourceKeys.length > 0 && pendingResourcePartitionCount > 0;
@@ -593,7 +594,7 @@ export function NativeMap({
         }
         return payload;
       },
-      onPartition: (partition) => setResourcePartitions((current) => replaceResourcePartition(current, partition)),
+      onPage: (page) => setResourcePartitions((current) => applyResourcePartitionPage(current, page)),
       onStatus: (status) => setResourcePartitionStatuses((current) => {
         const next = new Map(current);
         next.set(status.key, { status: status.status, warning: status.warning, pending: status.pending });
@@ -739,7 +740,7 @@ export function NativeMap({
           pending: false,
           reason: resourceWarnings[0] ?? null,
         }
-      : loadedResourcePartitionCount > 0
+      : startedResourcePartitionCount > 0
         ? { available: true, status: "partial", pending: pendingResourcePartitionCount > 0, reason: resourceWarnings[0] ?? "Some selected resource regions are still loading." }
         : pendingResourcePartitionCount > 0
           ? { available: false, status: "loading", pending: true, reason: "Selected resource regions are loading." }

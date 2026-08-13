@@ -54,6 +54,33 @@ test("partition loader assembles every page before publishing one replacement", 
   loader.stop();
 });
 
+test("partition loader publishes the first page before the final page resolves", async () => {
+  const pages = [];
+  const partitions = [];
+  let releaseSecondPage;
+  const secondPage = new Promise((resolve) => { releaseSecondPage = resolve; });
+  const loader = createMapResourcePartitionLoader({
+    fetchPage: async ({ partition, cursor }) => cursor == null
+      ? page(partition, { generation: "7", rows: [["1", "19", "28", 10, 20]], nextCursor: "next", complete: false })
+      : secondPage,
+    onPage: (entry) => pages.push(entry),
+    onPartition: (partition) => partitions.push(partition),
+    onStatus() {},
+  });
+
+  loader.setScope([A]);
+  await waitFor(() => pages.length === 1, "first progressive page");
+  assert.equal(pages[0].complete, false);
+  assert.deepEqual(pages[0].rows, [["1", "19", "28", 10, 20]]);
+  assert.equal(partitions.length, 0);
+
+  releaseSecondPage(page(A, { generation: "7", rows: [["2", "19", "28", 30, 40]], complete: true }));
+  await waitFor(() => partitions.length === 1, "completed partition");
+  assert.equal(pages.length, 2);
+  assert.equal(pages[1].complete, true);
+  loader.stop();
+});
+
 test("partition loader bounds concurrent cold requests", async () => {
   let active = 0;
   let maximum = 0;
@@ -152,5 +179,32 @@ test("partition loader reports a failed region without replacing its last-good c
   await waitFor(() => statuses.some((status) => status.status === "unavailable"), "partition failure");
   assert.equal(published.length, 0);
   assert.match(statuses.at(-1).warning, /region 24 unavailable/);
+  loader.stop();
+});
+
+test("retryable admission pressure stays pending and reloads after the advertised delay", async () => {
+  let calls = 0;
+  const pages = [];
+  const statuses = [];
+  const loader = createMapResourcePartitionLoader({
+    fetchPage: async ({ partition }) => {
+      calls += 1;
+      if (calls === 1) return {
+        ...page(partition, { status: "loading" }),
+        retryAfterSeconds: 0.001,
+        layerAvailability: { available: false, status: "loading", pending: true, reason: "Cold subscriptions are busy." },
+      };
+      return page(partition, { rows: [["1", "19", "28", 10, 20]] });
+    },
+    onPage: (entry) => pages.push(entry),
+    onPartition() {},
+    onStatus: (status) => statuses.push(status),
+  });
+
+  loader.setScope([A]);
+  await waitFor(() => pages.length === 1, "retryable resource page");
+  assert.equal(calls, 2);
+  assert.equal(statuses.some((status) => status.status === "unavailable"), false);
+  assert.equal(statuses.some((status) => status.status === "loading" && status.pending === true), true);
   loader.stop();
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyResourcePartitionPage,
   replaceResourcePartition,
   resourcePartitionKey,
   resourcePartitionPlan,
@@ -59,4 +60,47 @@ test("retaining a new selection removes only deselected partitions", () => {
 
   assert.deepEqual([...retained.keys()], ["24|resource:28"]);
   assert.deepEqual(resourceRowsFromPartitions(retained), [["2", "24", "28", 30, 40]]);
+});
+
+test("cold pages render progressively and deduplicate entity ids within one generation", () => {
+  let state = applyResourcePartitionPage(new Map(), {
+    key: "19|resource:28", regionId: "19", resourceId: "28", generation: "7",
+    rows: [["2", "19", "28", 20, 30], ["1", "19", "28", 10, 20]],
+    warnings: [], freshness: "live", complete: false,
+  });
+  state = applyResourcePartitionPage(state, {
+    key: "19|resource:28", regionId: "19", resourceId: "28", generation: "7",
+    rows: [["2", "19", "28", 99, 99], ["3", "19", "28", 30, 40]],
+    warnings: [], freshness: "live", complete: false,
+  });
+
+  assert.deepEqual(resourceRowsFromPartitions(state).map((row) => row[0]), ["1", "2", "3"]);
+  assert.equal(state.get("19|resource:28").complete, false);
+});
+
+test("a new incomplete generation keeps the last complete rows until atomic promotion", () => {
+  let state = replaceResourcePartition(new Map(), {
+    key: "19|resource:28", generation: "7", rows: [["1", "19", "28", 10, 20]], warnings: [], freshness: "live",
+  });
+  state = applyResourcePartitionPage(state, {
+    key: "19|resource:28", regionId: "19", resourceId: "28", generation: "8",
+    rows: [["2", "19", "28", 30, 40]], warnings: [], freshness: "live", complete: false,
+  });
+  assert.deepEqual(resourceRowsFromPartitions(state).map((row) => row[0]), ["1"]);
+  assert.deepEqual(state.get("19|resource:28").stagingRows.map((row) => row[0]), ["2"]);
+
+  state = applyResourcePartitionPage(state, {
+    key: "19|resource:28", regionId: "19", resourceId: "28", generation: "9",
+    rows: [["3", "19", "28", 50, 60]], warnings: [], freshness: "live", complete: false,
+  });
+  assert.deepEqual(resourceRowsFromPartitions(state).map((row) => row[0]), ["1"]);
+  assert.deepEqual(state.get("19|resource:28").stagingRows.map((row) => row[0]), ["3"]);
+
+  state = applyResourcePartitionPage(state, {
+    key: "19|resource:28", regionId: "19", resourceId: "28", generation: "9",
+    rows: [["4", "19", "28", 70, 80]], warnings: [], freshness: "live", complete: true,
+  });
+  assert.deepEqual(resourceRowsFromPartitions(state).map((row) => row[0]), ["3", "4"]);
+  assert.equal(state.get("19|resource:28").complete, true);
+  assert.deepEqual(state.get("19|resource:28").stagingRows, []);
 });

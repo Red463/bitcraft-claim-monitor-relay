@@ -72,3 +72,9 @@ test("compact resource merge ignores malformed rows", () => {
   });
   assert.equal(merged.layers.resources.length, 1);
 });
+
+test("typed resource projection accepts a progressive first page", () => {
+  const features = mapResourceFeatures([["100", "19", "28", -25, 38_401]]);
+  assert.equal(features.length, 1);
+  assert.deepEqual(features[0].point, { x: -25, z: 38_401, dimension: "1", coordinateSpace: "map-xz" });
+});
