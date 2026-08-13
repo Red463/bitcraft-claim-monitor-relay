@@ -77,6 +77,16 @@ export function combineMapResourceLeases(leases: MapResourceLease[]) {
   ].filter((warning): warning is string => Boolean(warning)))];
   return {
     data: { resources: snapshots.flatMap((snapshot) => snapshot.data?.resources ?? []) },
+    compactPartitions: new Map(ready.map((state) => [
+      state.lease.key,
+      state.snapshot!.compactResources ?? (state.snapshot!.data?.resources ?? []).map((point) => [
+        point.entityId,
+        point.regionId,
+        point.resourceId,
+        point.locationX,
+        point.locationZ,
+      ] as const),
+    ])),
     generation: Math.max(0, ...snapshots.map((snapshot) => Number(snapshot.generation) || 0)),
     freshness: ready.some((state) => state.status === "stale") ? "stale" : warnings.length ? "partial" : "live",
     provenance: { receivedAt },

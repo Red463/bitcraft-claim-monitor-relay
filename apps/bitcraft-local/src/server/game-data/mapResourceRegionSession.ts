@@ -52,6 +52,7 @@ export type RegionSessionConfig = {
 
 export type MapResourceSnapshot = {
   data: { regionId: string; resourceId: string; resources: MapResourcePoint[] };
+  compactResources?: ReadonlyArray<readonly [string, string, string, number, number]>;
   warnings: string[];
   database: string;
   regionId: string;

@@ -73,7 +73,7 @@ test("spatial lease inputs collect claims in every selected operational region",
 
 test("resource lease composition preserves warm rows and loading readiness", () => {
   assert.equal(typeof routeModule.combineMapResourceLeases, "function");
-  const warm = resourceSnapshot("19", "28", 7, [{ entityId: "100", resourceId: "28", regionId: "19" }]);
+  const warm = resourceSnapshot("19", "28", 7, [{ entityId: "100", resourceId: "28", regionId: "19", locationX: 10, locationZ: 20, dimension: "1" }]);
   const combined = routeModule.combineMapResourceLeases([
     lease("19|resource:28", "live", warm),
     lease("24|resource:28", "loading"),
@@ -85,6 +85,14 @@ test("resource lease composition preserves warm rows and loading readiness", () 
   assert.deepEqual(combined.readyKeys, ["19|resource:28"]);
   assert.deepEqual(combined.loadingKeys, ["24|resource:28"]);
   assert.deepEqual(combined.unavailableKeys, []);
+  assert.deepEqual(combined.compactPartitions.get("19|resource:28"), [["100", "19", "28", 10, 20]]);
+});
+
+test("resource route maps transient admission pressure to retryable HTTP 429", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(server, /mapResourceAdmissionResponse/);
+  assert.match(server, /"Retry-After"/);
+  assert.match(server, /statusCode:\s*429/);
 });
 
 test("resource lease composition retains snapshot warnings and marks usable rows partial", () => {

@@ -91,6 +91,17 @@ type Dependencies = {
 
 export type MapResourceGenerationNotice = Pick<MapResourceSnapshot, "regionId" | "resourceId" | "generation" | "receivedAt">;
 
+export class MapResourceAdmissionError extends Error {
+  readonly statusCode = 429;
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = "MapResourceAdmissionError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 function decimal(value: unknown, label: string): string {
   const normalized = String(value ?? "").trim();
   if (!/^\d+$/.test(normalized)) throw new TypeError(`${label} must be a decimal integer`);
@@ -339,6 +350,13 @@ export class RelayMapResourceRuntime {
     if (this.#stopped || this.#regions.get(entry.regionId) !== entry || entry.session !== session || snapshot.regionId !== entry.regionId) return;
     const resource = entry.resources.get(snapshot.resourceId);
     if (!resource) return;
+    snapshot.compactResources = snapshot.data.resources.map((point) => [
+      point.entityId,
+      point.regionId,
+      point.resourceId,
+      point.locationX,
+      point.locationZ,
+    ] as const);
     resource.snapshot = snapshot;
     resource.nextGeneration = Math.max(resource.nextGeneration, snapshot.generation + 1);
     resource.failure = null;
@@ -446,7 +464,11 @@ export class RelayMapResourceRuntime {
     this.#coldStarts = this.#coldStarts.filter((startedAt) => startedAt > minimum);
     if (this.#coldStarts.length >= this.#maxColdStartsPerWindow) {
       this.#capacityRejectionCount += 1;
-      throw new Error(`Relay map resource cold-start limit ${this.#maxColdStartsPerWindow} is exhausted`);
+      const retryAfterMs = Math.max(1, (this.#coldStarts[0] ?? this.#now()) + this.#coldStartWindowMs - this.#now());
+      throw new MapResourceAdmissionError(
+        `Relay map resource cold-start limit ${this.#maxColdStartsPerWindow} is exhausted`,
+        Math.max(1, Math.ceil(retryAfterMs / 1_000)),
+      );
     }
     this.#coldStarts.push(this.#now());
   }

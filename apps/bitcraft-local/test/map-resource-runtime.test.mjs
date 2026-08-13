@@ -470,6 +470,7 @@ test("configuration, capacity, and cold-start limits reject only cold creation",
     createSession: (options) => rate.sessions.push({ options, async start() {}, async subscribe() {}, unsubscribe() {}, health() { return {}; }, async stop() {} }) && rate.sessions.at(-1),
     now: clock.now, setTimer: (callback, delay) => clock.setTimer(callback, delay), clearTimer: (timer) => clock.clearTimer(timer),
     maxResourceTypesPerRegion: 128,
+    maxColdStartsPerWindow: 64,
   });
   await limited.reconcile({ relayBaseUrl: "https://relay.example", primaryRegionId: "19", activeRegionIds: ["19"] });
   const leases = [];
@@ -479,4 +480,42 @@ test("configuration, capacity, and cold-start limits reject only cold creation",
   await leases[0].release();
   await limited.acquire({ regionId: "19", resourceId: "1" });
   await limited.stop();
+});
+
+test("accepted runtime snapshots expose one sorted compact partition for zero-copy paging", async () => {
+  const { runtime, sessions } = runtimeFixture({ regions: ["19"] });
+  await runtime.reconcile({ relayBaseUrl: "https://relay.example", primaryRegionId: "19", activeRegionIds: ["19"] });
+  const lease = await runtime.acquire({ regionId: "19", resourceId: "130" });
+  sessions[0].options.onSnapshot(snapshot("19", "130", 1, [
+    { entityId: "1", regionId: "19", resourceId: "130", locationX: 10, locationZ: 20, dimension: "1" },
+    { entityId: "2", regionId: "19", resourceId: "130", locationX: 30, locationZ: 40, dimension: "1" },
+  ]));
+
+  assert.deepEqual(lease.state().snapshot.compactResources, [
+    ["1", "19", "130", 10, 20],
+    ["2", "19", "130", 30, 40],
+  ]);
+  await lease.release();
+  await runtime.stop();
+});
+
+test("cold admission overloads identify a retry delay instead of permanent unavailability", async () => {
+  const clock = manualClock();
+  const fixture = runtimeFixture({ regions: ["19"], clock });
+  const runtime = new runtimeModule.RelayMapResourceRuntime({
+    manifest: { schemas: { regional: { fingerprint: "regional-v1", bindingsGenerated: true } } },
+    discoverTopology: async () => fixture.topology,
+    createSession: (options) => ({ options, async start() {}, async subscribe() {}, unsubscribe() {}, health() { return {}; }, async stop() {} }),
+    now: clock.now,
+    setTimer: (callback, delay) => clock.setTimer(callback, delay),
+    clearTimer: (timer) => clock.clearTimer(timer),
+    maxResourceTypesPerRegion: 16,
+    maxColdStartsPerWindow: 1,
+  });
+  await runtime.reconcile({ relayBaseUrl: "https://relay.example", primaryRegionId: "19", activeRegionIds: ["19"] });
+  await runtime.acquire({ regionId: "19", resourceId: "1" });
+  await assert.rejects(runtime.acquire({ regionId: "19", resourceId: "2" }), (error) => (
+    error?.statusCode === 429 && error?.retryAfterSeconds === 60 && /cold-start/i.test(error.message)
+  ));
+  await runtime.stop();
 });

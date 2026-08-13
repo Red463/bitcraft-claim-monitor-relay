@@ -88,7 +88,7 @@ function decimalValues(value, label) {
     .sort((left, right) => left.length - right.length || left.localeCompare(right));
 }
 
-export function parseMapResourceSelectionScope(searchParams, { allowedRegionIds = [], allowedResourceIds = null, maxResourceIds = 16, maxPartitions = 64 } = {}) {
+export function parseMapResourceSelectionScope(searchParams, { allowedRegionIds = [], allowedResourceIds = null, maxResourceIds = 16, maxPartitions = 256 } = {}) {
   const regionIds = decimalValues(searchParams.get("regions"), "Map resource regions");
   const resourceIds = decimalValues(searchParams.get("resourceIds"), "Map resource ids");
   const allowed = new Set(allowedRegionIds.map((value) => decimal(value, "Allowed map resource region")));
@@ -150,7 +150,9 @@ export function buildMapResourcePartitionPayload({
   const featureLimit = positiveInteger(pageFeatureLimit, "Map resource page feature limit");
   const byteLimit = positiveInteger(pageByteLimit, "Map resource page byte limit");
   const offset = scope?.cursor ? cursorCodec.decode(scope.cursor, { regionId, resourceId, generation }).offset : 0;
-  const rows = compactRows(resourceCollection?.data?.resources, { regionId, resourceId });
+  const key = resourceKey(regionId, resourceId);
+  const rows = resourceCollection?.compactPartitions?.get?.(key)
+    ?? compactRows(resourceCollection?.data?.resources, { regionId, resourceId });
   if (offset > rows.length) throw new MapResourcePageError(422, "Map resource cursor offset is outside the current generation");
   const resources = [];
   let serializedBytes = 2;

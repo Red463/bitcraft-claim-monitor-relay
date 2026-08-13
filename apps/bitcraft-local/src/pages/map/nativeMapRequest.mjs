@@ -30,7 +30,7 @@ export function nativeMapResourceRegions(selectedRegionIds = [], availableRegion
 
 export function nativeMapResourceSelectionLimit(regionIds = []) {
   const regionCount = decimalSort(regionIds).length;
-  return regionCount ? Math.min(16, Math.floor(64 / regionCount)) : 0;
+  return regionCount ? 16 : 0;
 }
 
 export function nativeMapRequest({ operationalRegionIds = [], playerRegionIds = [], resourceRegionIds = [], playerIds = [], resourceIds = [], enemyTypes = [] }) {

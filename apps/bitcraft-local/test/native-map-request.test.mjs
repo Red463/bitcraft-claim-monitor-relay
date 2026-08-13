@@ -38,15 +38,15 @@ test("native map request keeps resource and enemy namespaces separate", () => {
   assert.equal(new URL(request.snapshotUrl, "http://local").searchParams.get("enemyTypes"), "123");
 });
 
-test("native map resource planning stays within the public 64-partition contract", () => {
-  const regionIds = ["1", "2", "3", "4", "5"];
-  const resourceIds = Array.from({ length: 13 }, (_, index) => String(index + 1));
+test("native map resource planning keeps all 16 types across all 13 regions", () => {
+  const regionIds = Array.from({ length: 13 }, (_, index) => String(index + 1));
+  const resourceIds = Array.from({ length: 16 }, (_, index) => String(index + 1));
   const request = nativeMapRequest({ operationalRegionIds: ["1"], resourceRegionIds: regionIds, resourceIds });
 
-  assert.equal(nativeMapResourceSelectionLimit(regionIds), 12);
-  assert.equal(request.resourcePartitions.length, 60);
-  assert.deepEqual([...new Set(request.resourcePartitions.map((partition) => partition.resourceId))], resourceIds.slice(0, 12));
-  assert.equal(new URL(request.resourceEventUrl, "http://local").searchParams.get("resourceIds"), resourceIds.slice(0, 12).join(","));
+  assert.equal(nativeMapResourceSelectionLimit(regionIds), 16);
+  assert.equal(request.resourcePartitions.length, 208);
+  assert.deepEqual([...new Set(request.resourcePartitions.map((partition) => partition.resourceId))], resourceIds);
+  assert.equal(new URL(request.resourceEventUrl, "http://local").searchParams.get("resourceIds"), resourceIds.join(","));
 });
 
 test("native map regions discard stale persisted ids and request every ready world region", () => {

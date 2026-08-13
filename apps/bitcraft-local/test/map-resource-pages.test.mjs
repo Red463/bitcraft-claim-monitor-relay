@@ -25,8 +25,12 @@ function point(entityId, regionId = "19", resourceId = "28", name = "") {
 }
 
 function collection(resources) {
+  const compact = resources
+    .map((row) => [row.entityId, row.regionId, row.resourceId, row.locationX, row.locationZ])
+    .sort((left, right) => left[0].length - right[0].length || left[0].localeCompare(right[0]));
   return {
     data: { resources },
+    compactPartitions: new Map([["19|resource:28", compact]]),
     generation: 9,
     freshness: "live",
     provenance: { receivedAt: "2026-08-12T20:00:00.000Z" },
@@ -92,6 +96,44 @@ test("resource selection rejects unknown catalog identities and an oversized Car
     () => parseMapResourceSelectionScope(new URLSearchParams({ regions: "1,2,3,4,5", resourceIds: resourceIds.join(",") }), options),
     (error) => error instanceof MapResourcePageError && error.statusCode === 413 && /partition/.test(error.message),
   );
+});
+
+test("resource selection accepts 16 resources across all 13 Relay regions", () => {
+  const regionIds = Array.from({ length: 13 }, (_, index) => String(index + 1));
+  const resourceIds = Array.from({ length: 16 }, (_, index) => String(index + 1));
+  const scope = parseMapResourceSelectionScope(new URLSearchParams({
+    regions: regionIds.join(","),
+    resourceIds: resourceIds.join(","),
+  }), {
+    allowedRegionIds: regionIds,
+    allowedResourceIds: resourceIds,
+    maxResourceIds: 16,
+    maxPartitions: 256,
+  });
+
+  assert.equal(scope.regionIds.length * scope.resourceIds.length, 208);
+});
+
+test("large resource pages slice an already sorted compact partition without sorting it again", () => {
+  const rows = Array.from({ length: 120_000 }, (_, index) => [String(index + 1), "19", "130", index, index + 1]);
+  let sortCalls = 0;
+  Object.defineProperty(rows, "sort", {
+    value() { sortCalls += 1; throw new Error("compact partitions must not be resorted"); },
+  });
+  const payload = buildMapResourcePartitionPayload({
+    scope: { regionId: "19", resourceId: "130", cursor: null },
+    resourceCollection: {
+      ...collection([]),
+      requestedKeys: ["19|resource:130"],
+      readyKeys: ["19|resource:130"],
+      compactPartitions: new Map([["19|resource:130", rows]]),
+    },
+    cursorCodec,
+  });
+
+  assert.equal(payload.resources.length, 20_000);
+  assert.equal(payload.complete, false);
+  assert.equal(sortCalls, 0);
 });
 
 test("resource pages cover one partition without loss or duplication", () => {

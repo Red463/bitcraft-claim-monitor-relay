@@ -176,6 +176,7 @@ import {
   RelayMapSpatialScopeManager,
   mapSpatialScopeKey,
   RelayMapResourceRuntime,
+  MapResourceAdmissionError,
   RelayMapResourceReadiness,
   mapResourceScopeKey,
   sanitizedMapResourceHealth,
@@ -6028,6 +6029,29 @@ function currentMapResourceIds() {
     .filter((resourceId) => /^\d+$/.test(resourceId));
 }
 
+function mapResourceAdmissionResponse(error, scope = null) {
+  if (!(error instanceof MapResourceAdmissionError) && Number(error?.statusCode) !== 429) return null;
+  const retryAfterSeconds = Math.max(1, Number(error?.retryAfterSeconds) || 1);
+  const reason = errorMessage(error);
+  return {
+    statusCode: 429,
+    headers: { "Retry-After": String(retryAfterSeconds) },
+    payload: scope ? {
+      provider: "relay",
+      generation: "0",
+      generatedAt: null,
+      freshness: "loading",
+      warnings: [reason],
+      partition: { regionId: scope.regionId, resourceId: scope.resourceId },
+      resources: [],
+      nextCursor: null,
+      complete: true,
+      retryAfterSeconds,
+      layerAvailability: { available: false, status: "loading", pending: true, reason },
+    } : { error: reason, pending: true, retryAfterSeconds },
+  };
+}
+
 function regionalMarketReadScope(claimId) {
   const current = currentStateRepository.read(claimId, "regional-market");
   const persistedActiveRegionIds = Array.isArray(current?.data?.activeRegionIds)
@@ -8119,6 +8143,8 @@ const server = createServer(async (req, res) => {
         return send(res, statusCode, payload);
       } catch (error) {
         if (requestClosed) return;
+        const admission = mapResourceAdmissionResponse(error, scope);
+        if (admission) return send(res, admission.statusCode, admission.payload, admission.headers);
         const statusCode = error instanceof MapResourcePageError ? error.statusCode : 503;
         return send(res, statusCode, { error: error instanceof Error ? error.message : String(error) });
       } finally {
@@ -8152,6 +8178,8 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         await releaseLeases();
         if (requestClosed) return;
+        const admission = mapResourceAdmissionResponse(error);
+        if (admission) return send(res, admission.statusCode, admission.payload, admission.headers);
         return send(res, 503, { error: error instanceof Error ? error.message : String(error) });
       }
       res.writeHead(200, {
@@ -8254,6 +8282,8 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         await releaseMapLeases();
         if (requestClosed) return;
+        const admission = mapResourceAdmissionResponse(error);
+        if (admission) return send(res, admission.statusCode, admission.payload, admission.headers);
         return send(res, 503, { error: error instanceof Error ? error.message : String(error) });
       }
       if (url.pathname === "/api/local/map/events") {

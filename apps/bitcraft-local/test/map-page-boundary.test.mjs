@@ -121,7 +121,7 @@ test("native map owns one global Region selector", () => {
   assert.equal((mapPage.match(/regionControl=\{regionControl\}/g) ?? []).length, 1);
 });
 
-test("native resource interactions stop at the server partition budget", () => {
+test("native resource interactions retain the full 16-type selection across ready regions", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 
   assert.match(mapPage, /const maxNativeResourceSelections = React\.useMemo\(\(\) => nativeMapResourceSelectionLimit\(resourceMapRegionIds\)/);
@@ -385,7 +385,8 @@ test("configured-region resource and verified player tracking are enabled withou
   assert.match(server, /resourceIds:\s*\[\]/);
   assert.match(server, /mapResourceLeaseInputs\(scope\)/);
   assert.match(server, /mapResourceScopeKeys/);
-  assert.match(server, /relayMapResourceRuntime\.reconcile\(\{[\s\S]*activeRegionIds:[\s\S]*slice\(0, 4\)/);
+  assert.match(server, /RelayMapResourceReadiness/);
+  assert.match(server, /ensureCurrentMapResourceRegions/);
   assert.match(server, /relayClaimScopeFence[\s\S]*relayMapResourceRuntime\.stop\(\)/);
 });
 
