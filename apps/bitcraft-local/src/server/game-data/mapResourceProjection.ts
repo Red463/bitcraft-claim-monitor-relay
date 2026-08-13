@@ -32,8 +32,8 @@ function integer(value: unknown, label: string): number {
   return result;
 }
 
-function rows(value: unknown[]): WireRecord[] {
-  return value.filter((row): row is WireRecord => Boolean(row && typeof row === "object" && !Array.isArray(row)));
+function wireRecord(value: unknown): value is WireRecord {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function overworldDimension(value: unknown, label: string): "1" {
@@ -75,57 +75,105 @@ export function normalizeMapResourceGeneration({
   locationRows: unknown[];
   observedAt: string;
 }): MapResourceGenerationData {
-  const regionId = decimal(rawRegionId, "Map resource region id");
   const resourceId = decimal(rawResourceId, "Map resource id");
-  const warnings: string[] = [];
-  const selectedResources = rows(resourceRows).flatMap((row, index) => {
+  return normalizeMapResourceRegionGeneration({
+    regionId: rawRegionId,
+    resourceIds: [resourceId],
+    resourceRows,
+    locationRows,
+    observedAt,
+  }).get(resourceId)!;
+}
+
+export function normalizeMapResourceRegionGeneration({
+  regionId: rawRegionId,
+  resourceIds: rawResourceIds,
+  resourceRows,
+  locationRows,
+  observedAt,
+}: {
+  regionId: string;
+  resourceIds: string[];
+  resourceRows: Iterable<unknown>;
+  locationRows: Iterable<unknown>;
+  observedAt: string;
+}): Map<string, MapResourceGenerationData> {
+  const regionId = decimal(rawRegionId, "Map resource region id");
+  const resourceIds = [...new Set(rawResourceIds.map((resourceId) => decimal(resourceId, "Map resource id")))];
+  const selected = new Set(resourceIds);
+  const entitiesByType = new Map(resourceIds.map((resourceId) => [resourceId, [] as string[]]));
+  const warningsByType = new Map(resourceIds.map((resourceId) => [resourceId, [] as string[]]));
+  let resourceIndex = 0;
+  for (const value of resourceRows) {
+    const index = resourceIndex++;
+    if (!wireRecord(value)) continue;
+    let resourceId: string;
     try {
-      if (decimal(row.resourceId ?? row.resource_id, `Map resource ${index} type`) !== resourceId) return [];
-      const entityId = decimal(row.entityId ?? row.entity_id, `Map resource ${index} entity id`);
-      return [entityId];
+      resourceId = decimal(value.resourceId ?? value.resource_id, `Map resource ${index} type`);
     } catch (error) {
-      warnings.push(error instanceof Error ? error.message : String(error));
-      return [];
+      const warning = error instanceof Error ? error.message : String(error);
+      for (const warnings of warningsByType.values()) warnings.push(warning);
+      continue;
     }
-  });
-  const selectedEntityIds = new Set(selectedResources);
-  const locations = new Map<string, WireRecord>();
-  for (const [index, row] of rows(locationRows).entries()) {
+    if (!selected.has(resourceId)) continue;
     try {
-      const entityId = decimal(row.entityId ?? row.entity_id, `Map location ${index} entity id`);
-      if (selectedEntityIds.has(entityId)) locations.set(entityId, row);
+      entitiesByType.get(resourceId)!.push(decimal(value.entityId ?? value.entity_id, `Map resource ${index} entity id`));
     } catch (error) {
-      warnings.push(error instanceof Error ? error.message : String(error));
+      warningsByType.get(resourceId)!.push(error instanceof Error ? error.message : String(error));
     }
   }
-  let complete = true;
-  const resources = selectedResources.flatMap((entityId) => {
-    const location = locations.get(entityId);
-    if (!location) {
-      complete = false;
-      warnings.push(`Map resource ${entityId} has no location_state row.`);
-      return [];
-    }
+
+  const selectedEntityIds = new Set([...entitiesByType.values()].flat());
+  const locations = new Map<string, WireRecord>();
+  let locationIndex = 0;
+  for (const value of locationRows) {
+    const index = locationIndex++;
+    if (!wireRecord(value)) continue;
     try {
-      return [{
-        entityId,
-        resourceId,
-        regionId,
-        locationX: boundedCoordinate(location.x, `Map resource ${entityId} x`),
-        locationZ: boundedCoordinate(location.z, `Map resource ${entityId} z`),
-        dimension: overworldDimension(location.dimension, `Map resource ${entityId}`),
-        observedAt,
-      }];
+      const entityId = decimal(value.entityId ?? value.entity_id, `Map location ${index} entity id`);
+      if (selectedEntityIds.has(entityId)) locations.set(entityId, value);
     } catch (error) {
-      warnings.push(error instanceof Error ? error.message : String(error));
-      return [];
+      const warning = error instanceof Error ? error.message : String(error);
+      for (const warnings of warningsByType.values()) warnings.push(warning);
     }
-  });
-  resources.sort((left, right) => left.entityId.length - right.entityId.length || left.entityId.localeCompare(right.entityId));
-  return {
-    complete,
-    resources,
-    rowCounts: { resourceState: selectedResources.length, locationState: locations.size },
-    warnings,
-  };
+  }
+
+  const result = new Map<string, MapResourceGenerationData>();
+  for (const resourceId of resourceIds) {
+    const entityIds = entitiesByType.get(resourceId)!;
+    const warnings = warningsByType.get(resourceId)!;
+    let complete = true;
+    const resources: MapResourcePoint[] = [];
+    let matchedLocationCount = 0;
+    for (const entityId of entityIds) {
+      const location = locations.get(entityId);
+      if (!location) {
+        complete = false;
+        warnings.push(`Map resource ${entityId} has no location_state row.`);
+        continue;
+      }
+      matchedLocationCount += 1;
+      try {
+        resources.push({
+          entityId,
+          resourceId,
+          regionId,
+          locationX: boundedCoordinate(location.x, `Map resource ${entityId} x`),
+          locationZ: boundedCoordinate(location.z, `Map resource ${entityId} z`),
+          dimension: overworldDimension(location.dimension, `Map resource ${entityId}`),
+          observedAt,
+        });
+      } catch (error) {
+        warnings.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    resources.sort((left, right) => left.entityId.length - right.entityId.length || left.entityId.localeCompare(right.entityId));
+    result.set(resourceId, {
+      complete,
+      resources,
+      rowCounts: { resourceState: entityIds.length, locationState: matchedLocationCount },
+      warnings,
+    });
+  }
+  return result;
 }

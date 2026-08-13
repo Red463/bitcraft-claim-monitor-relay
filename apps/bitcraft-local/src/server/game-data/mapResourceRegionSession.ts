@@ -1,6 +1,6 @@
 import {
   mapResourceQueries,
-  normalizeMapResourceGeneration,
+  normalizeMapResourceRegionGeneration,
   type MapResourcePoint,
 } from "./mapResourceProjection.ts";
 import { assertSchemaFingerprint, schemaBindingsReady } from "./schemaManifest.ts";
@@ -265,7 +265,7 @@ export class RelayMapResourceRegionSession {
         subscription.applied = true;
         this.#refreshAppliedResourceIds();
         this.#attachListeners(connection);
-        this.#applyResource(connection, subscription);
+        this.#applyGeneration(connection, [subscription]);
       })
       .onError((_context, error) => this.#recordError(error))
       .subscribe(mapResourceQueries(resourceId));
@@ -314,64 +314,81 @@ export class RelayMapResourceRegionSession {
       this.#rebuildTimer = null;
       const connection = this.#connection;
       if (!connection) return;
-      for (const subscription of this.#subscriptions.values()) {
-        if (subscription.applied) this.#applyResource(connection, subscription);
-      }
+      this.#applyGeneration(connection);
     }, this.#rebuildDelayMs);
   }
 
-  #applyResource(connection: BindingConnection, subscription: ResourceSubscription): void {
+  #applyGeneration(
+    connection: BindingConnection,
+    selectedSubscriptions = [...this.#subscriptions.values()].filter((subscription) => subscription.applied),
+  ): void {
     const config = this.#config;
-    if (!config || this.#connection !== connection || !subscription.applied) return;
+    const subscriptions = selectedSubscriptions.filter((subscription) => (
+      subscription.applied && this.#subscriptions.get(subscription.resourceId) === subscription
+    ));
+    if (!config || this.#connection !== connection || !subscriptions.length) return;
     try {
       const resourceRows = tableRows(connection.db.resourceState);
       const locationRows = tableRows(connection.db.locationState);
       const receivedAt = this.#now().toISOString();
-      const normalized = normalizeMapResourceGeneration({
+      const normalized = normalizeMapResourceRegionGeneration({
         regionId: config.regionId,
-        resourceId: subscription.resourceId,
+        resourceIds: subscriptions.map((subscription) => subscription.resourceId),
         resourceRows,
         locationRows,
         observedAt: receivedAt,
       });
-      this.#health.rowsPerType[subscription.resourceId] = { ...normalized.rowCounts };
-      const rowCount = Object.values(this.#health.rowsPerType).reduce(
+      const pending: Promise<void>[] = [];
+      const incompleteWarnings: string[] = [];
+      const hardErrors: string[] = [];
+      let publishedSnapshot = false;
+      for (const subscription of subscriptions) {
+        const result = normalized.get(subscription.resourceId);
+        if (!result) continue;
+        this.#health.rowsPerType[subscription.resourceId] = { ...result.rowCounts };
+        if (!result.complete) {
+          const warning = result.warnings.join(" ") || "Relay map resource generation is incomplete";
+          incompleteWarnings.push(warning);
+          pending.push(Promise.resolve(this.#onStatus({
+            regionId: config.regionId,
+            resourceId: subscription.resourceId,
+            warning,
+            receivedAt,
+          })));
+          continue;
+        }
+        if (result.resources.length > config.maxNodes) {
+          const message = `Relay map resource node budget ${config.maxNodes} exceeded by ${result.resources.length} nodes`;
+          hardErrors.push(message);
+          this.#onFailure(message);
+          continue;
+        }
+        publishedSnapshot = true;
+        const snapshot: MapResourceSnapshot = {
+          data: { regionId: config.regionId, resourceId: subscription.resourceId, resources: result.resources },
+          warnings: result.warnings,
+          database: config.database,
+          regionId: config.regionId,
+          resourceId: subscription.resourceId,
+          schemaFingerprint: config.schemaFingerprint,
+          generation: subscription.generation++,
+          receivedAt,
+        };
+        pending.push(Promise.resolve(this.#onSnapshot(snapshot)));
+      }
+      this.#health.rowCount = Object.values(this.#health.rowsPerType).reduce(
         (total, counts) => total + counts.resourceState + counts.locationState,
         0,
       );
-      this.#health.rowCount = rowCount;
-      if (!normalized.complete) {
-        const warning = normalized.warnings.join(" ") || "Relay map resource generation is incomplete";
-        this.#health.stage = "partial";
-        this.#health.lastError = warning;
-        void Promise.resolve(this.#onStatus({
-          regionId: config.regionId,
-          resourceId: subscription.resourceId,
-          warning,
-          receivedAt,
-        })).catch((error) => this.#recordError(error));
-        return;
-      }
-      if (normalized.resources.length > config.maxNodes) {
-        throw new Error(`Relay map resource node budget ${config.maxNodes} exceeded by ${normalized.resources.length} nodes`);
-      }
-      const snapshot: MapResourceSnapshot = {
-        data: { regionId: config.regionId, resourceId: subscription.resourceId, resources: normalized.resources },
-        warnings: normalized.warnings,
-        database: config.database,
-        regionId: config.regionId,
-        resourceId: subscription.resourceId,
-        schemaFingerprint: config.schemaFingerprint,
-        generation: subscription.generation++,
-        receivedAt,
-      };
-      Promise.resolve(this.#onSnapshot(snapshot)).then(() => {
-        this.#health.applied = true;
-        this.#health.stage = "applied";
+      this.#health.stage = hardErrors.length ? "error" : incompleteWarnings.length ? "partial" : "applied";
+      this.#health.lastError = [...hardErrors, ...incompleteWarnings].join(" ") || null;
+      void Promise.all(pending).then(() => {
+        if (publishedSnapshot) this.#health.applied = true;
+        this.#health.stage = hardErrors.length ? "error" : incompleteWarnings.length ? "partial" : "applied";
         this.#refreshAppliedResourceIds();
-        this.#health.lastAppliedAt = receivedAt;
-        this.#health.lastError = null;
-        if (this.#health.firstGenerationLatencyMs === null && this.#startedAt) {
+        if (publishedSnapshot) this.#health.lastAppliedAt = receivedAt;
+        this.#health.lastError = [...hardErrors, ...incompleteWarnings].join(" ") || null;
+        if (publishedSnapshot && this.#health.firstGenerationLatencyMs === null && this.#startedAt) {
           this.#health.firstGenerationLatencyMs = Math.max(0, this.#now().getTime() - this.#startedAt.getTime());
         }
       }).catch((error) => this.#recordError(error));

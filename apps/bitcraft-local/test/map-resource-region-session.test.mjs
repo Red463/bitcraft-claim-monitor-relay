@@ -5,8 +5,9 @@ import { RelayMapResourceRegionSession } from "../src/server/game-data/mapResour
 
 function table(rows) {
   const listeners = { insert: [], update: [], delete: [] };
+  let iterationCount = 0;
   return {
-    iter: () => rows.values(),
+    iter: () => { iterationCount += 1; return rows.values(); },
     onInsert: (callback) => listeners.insert.push(callback),
     onUpdate: (callback) => listeners.update.push(callback),
     onDelete: (callback) => listeners.delete.push(callback),
@@ -15,6 +16,7 @@ function table(rows) {
     removeOnDelete: (callback) => { listeners.delete = listeners.delete.filter((item) => item !== callback); },
     emit(kind) { for (const callback of [...listeners[kind]]) callback(); },
     listenerCount() { return listeners.insert.length + listeners.update.length + listeners.delete.length; },
+    iterationCount() { return iterationCount; },
   };
 }
 
@@ -415,6 +417,47 @@ test("resource session coalesces cache changes and retains a prior generation th
   timers.run(300);
   assert.equal(snapshots.length, 3);
   assert.deepEqual(snapshots[2].data.resources.map((resource) => resource.entityId), ["1", "2"]);
+  await session.stop();
+});
+
+test("coalesced regional rebuild reads each SDK cache once and publishes complete types independently", async () => {
+  const resourceRows = [
+    { entityId: 1n, resourceId: 28 },
+    { entityId: 2n, resourceId: 130 },
+  ];
+  const locationRows = [{ entityId: 1n, x: 100, z: 200, dimension: 1 }];
+  const relay = fixture({ resourceRows, locationRows });
+  const timers = fakeTimers();
+  const snapshots = [];
+  const statuses = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    onStatus: (status) => statuses.push(status),
+    onFailure() {},
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("28", 7);
+  await session.subscribe("130", 8);
+  relay.subscriptions[0].apply();
+  relay.subscriptions[1].apply();
+  await drainMicrotasks();
+  const resourceIterationsBefore = relay.db.resourceState.iterationCount();
+  const locationIterationsBefore = relay.db.locationState.iterationCount();
+  snapshots.length = 0;
+  statuses.length = 0;
+
+  relay.db.resourceState.emit("update");
+  relay.db.locationState.emit("update");
+  timers.run(300);
+  await drainMicrotasks();
+
+  assert.equal(relay.db.resourceState.iterationCount() - resourceIterationsBefore, 1);
+  assert.equal(relay.db.locationState.iterationCount() - locationIterationsBefore, 1);
+  assert.deepEqual(snapshots.map(({ resourceId }) => resourceId), ["28"]);
+  assert.deepEqual(statuses.map(({ resourceId }) => resourceId), ["130"]);
+  assert.equal(session.health().stage, "partial");
   await session.stop();
 });
 

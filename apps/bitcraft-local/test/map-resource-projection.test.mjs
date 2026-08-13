@@ -5,7 +5,17 @@ import {
   mapResourceKey,
   mapResourceQueries,
   normalizeMapResourceGeneration,
+  normalizeMapResourceRegionGeneration,
 } from "../src/server/game-data/mapResourceProjection.ts";
+
+function counted(rows, counter) {
+  return {
+    [Symbol.iterator]() {
+      counter.count += 1;
+      return rows[Symbol.iterator]();
+    },
+  };
+}
 
 test("resource queries are independently bounded by one type and overworld dimension", () => {
   assert.deepEqual(mapResourceQueries("28"), [
@@ -102,4 +112,48 @@ test("resource normalization treats an applied empty pair as complete", () => {
   assert.equal(result.complete, true);
   assert.deepEqual(result.resources, []);
   assert.deepEqual(result.warnings, []);
+});
+
+test("regional resource normalization iterates each shared table once for multiple selected types", () => {
+  const resourceIterations = { count: 0 };
+  const locationIterations = { count: 0 };
+  const result = normalizeMapResourceRegionGeneration({
+    regionId: "19",
+    resourceIds: ["28", "130"],
+    resourceRows: counted([
+      { entityId: 20n, resourceId: 28 },
+      { entityId: 3n, resourceId: 28 },
+      { entityId: 40n, resourceId: 130 },
+      { entityId: 99n, resourceId: 999 },
+    ], resourceIterations),
+    locationRows: counted([
+      { entityId: 3n, x: 3, z: 3, dimension: 1 },
+      { entityId: 20n, x: 20, z: 20, dimension: 1 },
+      { entityId: 40n, x: 40, z: 40, dimension: 1 },
+    ], locationIterations),
+    observedAt: "2026-08-12T12:00:00.000Z",
+  });
+
+  assert.equal(resourceIterations.count, 1);
+  assert.equal(locationIterations.count, 1);
+  assert.deepEqual(result.get("28").resources.map(({ entityId }) => entityId), ["3", "20"]);
+  assert.deepEqual(result.get("130").resources.map(({ entityId }) => entityId), ["40"]);
+});
+
+test("regional resource normalization isolates one incomplete type from complete siblings", () => {
+  const result = normalizeMapResourceRegionGeneration({
+    regionId: "19",
+    resourceIds: ["28", "130"],
+    resourceRows: [
+      { entityId: 1n, resourceId: 28 },
+      { entityId: 2n, resourceId: 130 },
+    ],
+    locationRows: [{ entityId: 1n, x: 10, z: 20, dimension: 1 }],
+    observedAt: "2026-08-12T12:00:00.000Z",
+  });
+
+  assert.equal(result.get("28").complete, true);
+  assert.equal(result.get("130").complete, false);
+  assert.deepEqual(result.get("28").resources.map(({ entityId }) => entityId), ["1"]);
+  assert.match(result.get("130").warnings.join(" "), /resource 2.*location/i);
 });
