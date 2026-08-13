@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -110,6 +110,11 @@ test("malformed replacement pointer retains last-good", async () => {
   await writeFile(path.join(root, "current.json"), "{", "utf8");
   assert.equal((await store.readManifest()).generation, "1");
   assert.equal((await store.readTile({ style: "terrain", z: -1, x: 45, y: -47 })).bytes.toString(), "tile");
+  assert.equal(store.health().pointerReloadFailureCount, 2);
+  assert.equal(JSON.stringify(store.health()).includes("g-1"), false, "health must not expose installed versions");
+  await rm(path.join(root, "current.json"));
+  assert.equal((await store.readManifest()).generation, "1");
+  assert.equal(store.health().pointerReloadFailureCount, 3, "a missing pointer after installation is a reload failure");
   await store.close();
 });
 

@@ -77,6 +77,7 @@ export type ResourceRegionHealth = {
   rowCount: number;
   rowsPerType: Record<string, { resourceState: number; locationState: number }>;
   firstGenerationLatencyMs: number | null;
+  normalizationDurationMs: number | null;
   lastAppliedAt: string | null;
   lastError: string | null;
 };
@@ -134,6 +135,7 @@ export class RelayMapResourceRegionSession {
     rowCount: 0,
     rowsPerType: {},
     firstGenerationLatencyMs: null,
+    normalizationDurationMs: null,
     lastAppliedAt: null,
     lastError: null,
   };
@@ -332,6 +334,7 @@ export class RelayMapResourceRegionSession {
       const resourceRows = tableRows(connection.db.resourceState);
       const locationRows = tableRows(connection.db.locationState);
       const receivedAt = this.#now().toISOString();
+      const normalizationStartedAt = performance.now();
       const normalized = normalizeMapResourceRegionGeneration({
         regionId: config.regionId,
         resourceIds: subscriptions.map((subscription) => subscription.resourceId),
@@ -339,6 +342,7 @@ export class RelayMapResourceRegionSession {
         locationRows,
         observedAt: receivedAt,
       });
+      this.#health.normalizationDurationMs = Math.max(0, performance.now() - normalizationStartedAt);
       const pending: Promise<void>[] = [];
       const incompleteWarnings: string[] = [];
       const hardErrors: string[] = [];

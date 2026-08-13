@@ -97,6 +97,7 @@ export function createMapTilePackStore({
   let checkedAt = -Infinity;
   let closed = false;
   let queue = Promise.resolve();
+  let pointerReloadFailureCount = 0;
 
   async function current(force = false) {
     if (closed) throw new Error("Map tile pack store is closed");
@@ -107,7 +108,9 @@ export function createMapTilePackStore({
       const candidate = JSON.parse(await readFile(path.join(resolvedRoot, "current.json"), "utf8"));
       const installed = await readInstalledPointer(resolvedRoot, candidate);
       if (installed) lastGood = installed;
+      else pointerReloadFailureCount += 1;
     } catch (error) {
+      if (error?.code !== "ENOENT" || lastGood) pointerReloadFailureCount += 1;
       if (!lastGood && error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
     }
     return lastGood;
@@ -262,6 +265,7 @@ export function createMapTilePackStore({
     readTile,
     install(input) { return enqueue(() => installPack(input)); },
     prune(input) { return enqueue(() => prunePacks(input)); },
+    health() { return { pointerReloadFailureCount }; },
     close,
   });
 }

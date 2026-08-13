@@ -19,6 +19,7 @@ type ResourceEntry = {
   idleTimer: unknown | null;
   waiters: Set<SnapshotWaiter>;
   failure: string | null;
+  compactBytes: number;
 };
 type RegionEntry = {
   regionId: string;
@@ -50,7 +51,11 @@ export type MapResourceRuntimeHealth = {
   activeResourceSubscriptionCount: number;
   idleRetainedResourceSubscriptionCount: number;
   rowsPerSubscription: number[];
+  bytesPerSubscription: number[];
+  partitionCounts: Record<MapResourceLeaseState, number>;
+  queueDepth: number;
   firstGenerationLatencyMs: { sampleCount: number; min: number; max: number; average: number } | null;
+  normalizationDurationMs: { sampleCount: number; min: number; max: number; average: number } | null;
   reconnectAttemptCount: number;
   capacityRejectionCount: number;
   regions: Array<{
@@ -66,6 +71,7 @@ export type MapResourceRuntimeHealth = {
       rowCount: number;
       rowsPerSubscription: number[];
       firstGenerationLatencyMs: number | null;
+      normalizationDurationMs: number | null;
       lastAppliedAt: string | null;
       lastError: string | null;
     } | null;
@@ -115,6 +121,12 @@ function sortedRegions(values: unknown[]): string[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compactScalarBytes(value: unknown): number {
+  if (typeof value === "string") return value.length + 2;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value).length;
+  return 4;
 }
 
 export function mapResourceScopeKey(regionId: string, resourceId: string): string {
@@ -207,7 +219,7 @@ export class RelayMapResourceRuntime {
         throw new Error(`Relay map resource capacity ${this.#maxResourceTypesPerRegion} is exhausted for region ${regionId}`);
       }
       this.#recordColdStart();
-      resource = { resourceId, leases: 0, subscribed: false, snapshot: null, nextGeneration: 1, idleTimer: null, waiters: new Set(), failure: region.failure };
+      resource = { resourceId, leases: 0, subscribed: false, snapshot: null, nextGeneration: 1, idleTimer: null, waiters: new Set(), failure: region.failure, compactBytes: 0 };
       region.resources.set(resourceId, resource);
       await this.#subscribe(region, resource);
       if (!region.session && !region.schemaUnavailable) this.#scheduleRestart(region);
@@ -350,14 +362,15 @@ export class RelayMapResourceRuntime {
     if (this.#stopped || this.#regions.get(entry.regionId) !== entry || entry.session !== session || snapshot.regionId !== entry.regionId) return;
     const resource = entry.resources.get(snapshot.resourceId);
     if (!resource) return;
-    snapshot.compactResources = snapshot.data.resources.map((point) => [
-      point.entityId,
-      point.regionId,
-      point.resourceId,
-      point.locationX,
-      point.locationZ,
-    ] as const);
+    let compactBytes = 2;
+    snapshot.compactResources = snapshot.data.resources.map((point, index) => {
+      const tuple = [point.entityId, point.regionId, point.resourceId, point.locationX, point.locationZ] as const;
+      compactBytes += (index ? 1 : 0)
+        + 6 + tuple.reduce<number>((total, value) => total + compactScalarBytes(value), 0);
+      return tuple;
+    });
     resource.snapshot = snapshot;
+    resource.compactBytes = compactBytes;
     resource.nextGeneration = Math.max(resource.nextGeneration, snapshot.generation + 1);
     resource.failure = null;
     entry.failure = null;
@@ -485,31 +498,51 @@ export class RelayMapResourceRuntime {
     const minimum = this.#now() - this.#coldStartWindowMs;
     this.#coldStarts = this.#coldStarts.filter((startedAt) => startedAt > minimum);
     const regions = [...this.#regions.values()].sort((left, right) => BigInt(left.regionId) < BigInt(right.regionId) ? -1 : 1);
-    const subscriptionHealth = regions.flatMap((entry) => entry.session ? [this.#healthSummary(entry.session.health())] : []);
+    const regionHealth = regions.map((entry) => ({ entry, summary: entry.session ? this.#healthSummary(entry.session.health()) : null }));
+    const subscriptionHealth = regionHealth.flatMap(({ summary }) => summary ? [summary] : []);
     const rowsPerSubscription = subscriptionHealth.flatMap((health) => health.rowsPerSubscription).sort((left, right) => left - right);
+    const bytesPerSubscription = regions.flatMap((entry) => [...entry.resources.values()].filter((resource) => resource.snapshot).map((resource) => resource.compactBytes)).sort((left, right) => left - right);
     const latencySamples = subscriptionHealth
       .map((health) => health.firstGenerationLatencyMs)
       .filter((latency): latency is number => Number.isFinite(latency) && latency !== null && latency >= 0);
+    const normalizationSamples = subscriptionHealth
+      .map((health) => health.normalizationDurationMs)
+      .filter((duration): duration is number => Number.isFinite(duration) && duration !== null && duration >= 0);
+    const partitionCounts = { live: 0, loading: 0, stale: 0, unavailable: 0 } satisfies Record<MapResourceLeaseState, number>;
+    for (const entry of regions) for (const resource of entry.resources.values()) {
+      const warning = resource.failure || entry.failure;
+      const state: MapResourceLeaseState = resource.snapshot ? (warning ? "stale" : "live") : (warning ? "unavailable" : "loading");
+      partitionCounts[state] += 1;
+    }
     return {
       configuredRegionIds: [...(this.#config?.activeRegionIds ?? [])],
       pinnedRegionIds: regions.filter((entry) => entry.pinned).map((entry) => entry.regionId),
       coldStartsInWindow: this.#coldStarts.length,
       regionalConnectionCount: subscriptionHealth.filter((health) => health.connected).length,
-      activeResourceSubscriptionCount: regions.reduce((total, entry) => total + (entry.session?.health().connected ? [...entry.resources.values()].filter((resource) => resource.subscribed && resource.leases > 0).length : 0), 0),
-      idleRetainedResourceSubscriptionCount: regions.reduce((total, entry) => total + (entry.session?.health().connected ? [...entry.resources.values()].filter((resource) => resource.subscribed && resource.leases === 0).length : 0), 0),
+      activeResourceSubscriptionCount: regionHealth.reduce((total, { entry, summary }) => total + (summary?.connected ? [...entry.resources.values()].filter((resource) => resource.subscribed && resource.leases > 0).length : 0), 0),
+      idleRetainedResourceSubscriptionCount: regionHealth.reduce((total, { entry, summary }) => total + (summary?.connected ? [...entry.resources.values()].filter((resource) => resource.subscribed && resource.leases === 0).length : 0), 0),
       rowsPerSubscription,
+      bytesPerSubscription,
+      partitionCounts,
+      queueDepth: this.#opening.size + regions.reduce((total, entry) => total + [...entry.resources.values()].filter((resource) => resource.leases > 0 && resource.snapshot === null).length, 0),
       firstGenerationLatencyMs: latencySamples.length ? {
         sampleCount: latencySamples.length,
         min: Math.min(...latencySamples),
         max: Math.max(...latencySamples),
         average: latencySamples.reduce((total, latency) => total + latency, 0) / latencySamples.length,
       } : null,
+      normalizationDurationMs: normalizationSamples.length ? {
+        sampleCount: normalizationSamples.length,
+        min: Math.min(...normalizationSamples),
+        max: Math.max(...normalizationSamples),
+        average: normalizationSamples.reduce((total, duration) => total + duration, 0) / normalizationSamples.length,
+      } : null,
       reconnectAttemptCount: regions.reduce((total, entry) => total + entry.reconnectAttempts, 0),
       capacityRejectionCount: this.#capacityRejectionCount,
-      regions: regions.map((entry) => ({
+      regions: regionHealth.map(({ entry, summary }) => ({
         regionId: entry.regionId, pinned: entry.pinned, resourceCount: entry.resources.size,
         leaseCount: this.#leaseCount(entry), failure: entry.failure,
-        subscription: entry.session ? this.#healthSummary(entry.session.health()) : null,
+        subscription: summary,
       })),
     };
   }
@@ -525,6 +558,7 @@ export class RelayMapResourceRuntime {
       rowCount: health.rowCount,
       rowsPerSubscription,
       firstGenerationLatencyMs: health.firstGenerationLatencyMs,
+      normalizationDurationMs: health.normalizationDurationMs ?? null,
       lastAppliedAt: health.lastAppliedAt,
       lastError: health.lastError,
     };

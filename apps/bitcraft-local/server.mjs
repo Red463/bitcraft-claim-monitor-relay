@@ -41,6 +41,7 @@ import { MapSnapshotError, authorizedMapPlayerIds, buildMapResourcePayload, buil
 import { serveLocalMapTile } from "./src/server/mapTiles.mjs";
 import { createTerrainTileStore } from "./src/server/terrainTileStore.mjs";
 import { createRoadTileStore } from "./src/server/roadTileStore.mjs";
+import { createMapPerformanceTelemetry, publicMapHealth, shouldRecordMapRequestLatency } from "./src/server/mapPerformance.mjs";
 import { createRelayClaimScopeFence } from "./src/server/relayClaimScopeFence.mjs";
 import { createRelayProductionLifecycleCoordinator } from "./src/server/relayProductionLifecycleCoordinator.mjs";
 import { createRelaySettlementTransitionCoordinator } from "./src/server/relaySettlementTransitionCoordinator.mjs";
@@ -261,6 +262,7 @@ setDefaultResultOrder("ipv4first");
 const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
 eventLoopHistogram.enable();
 const requestTelemetry = [];
+const mapPerformanceTelemetry = createMapPerformanceTelemetry();
 const plannerTelemetry = {
   freshCalculations: 0,
   cacheHits: 0,
@@ -7413,11 +7415,25 @@ const server = createServer(async (req, res) => {
     const slowRequestLogPolicy = requestLogPolicy(url.pathname, "slow");
     const closedRequestLogPolicy = requestLogPolicy(url.pathname, "closed");
     let requestFinished = false;
+    let mapResourcePageRows = null;
     res.once("finish", () => {
       requestFinished = true;
       const durationMs = Date.now() - requestStartedAt;
       requestTelemetry.push({ at: Date.now(), path: url.pathname, status: res.statusCode, durationMs });
       if (requestTelemetry.length > 10_000) requestTelemetry.splice(0, requestTelemetry.length - 10_000);
+      if (url.pathname.startsWith("/api/local/map/") && shouldRecordMapRequestLatency(url.pathname)) {
+        mapPerformanceTelemetry.recordMapRequest({ durationMs, statusCode: res.statusCode });
+        if (url.pathname.startsWith("/api/local/map/tiles/")) {
+          mapPerformanceTelemetry.recordTileRequest({ durationMs, statusCode: res.statusCode });
+        }
+        if (url.pathname === "/api/local/map/resources" && mapResourcePageRows !== null) {
+          mapPerformanceTelemetry.recordResourcePage({
+            rows: mapResourcePageRows,
+            bytes: Number(res.getHeader("content-length") ?? 0),
+            statusCode: res.statusCode,
+          });
+        }
+      }
       if (!isTestRuntime && slowRequestLogPolicy.logGeneric && durationMs >= SLOW_REQUEST_LOG_MS) {
         console.warn(`Slow request completed: ${req.method} ${requestLogTarget} status=${res.statusCode} durationMs=${durationMs}`);
       }
@@ -7445,6 +7461,19 @@ const server = createServer(async (req, res) => {
       version: appVersion,
       buildSha: currentAppBuildId(),
     }));
+    if (req.method === "GET" && url.pathname === "/api/local/map/health") {
+      const access = mapRequestAccess(accessControlConfig(), accessControlSubject(req));
+      if (!access.allowed) return send(res, 403, { error: access.reason || "Map access is restricted." });
+      const pointerReloadFailureCount = Number(terrainTileStore.health?.().pointerReloadFailureCount ?? 0)
+        + Number(roadTileStore.health?.().pointerReloadFailureCount ?? 0);
+      return send(res, 200, publicMapHealth({
+        resourceHealth: relayMapResourceRuntime.health(),
+        telemetry: mapPerformanceTelemetry.snapshot(),
+        tileHealth: { pointerReloadFailureCount },
+        eventLoopDelayMs: Number.isFinite(eventLoopHistogram.mean) ? eventLoopHistogram.mean / 1e6 : 0,
+        rssBytes: process.memoryUsage().rss,
+      }));
+    }
     if (req.method === "GET" && url.pathname === "/api/local/collector-status") return send(res, 200, collectorStatusPayload());
     if (req.method === "GET" && url.pathname === "/api/local/game-data/generation") {
       const claimId = String(url.searchParams.get("claimId") ?? "").trim();
@@ -8140,6 +8169,7 @@ const server = createServer(async (req, res) => {
         const resourceCollection = combineMapResourceLeases([lease]);
         const payload = buildMapResourcePartitionPayload({ scope, resourceCollection, cursorCodec: mapResourceCursorCodec });
         const statusCode = payload.layerAvailability.status === "unavailable" ? 503 : 200;
+        mapResourcePageRows = payload.resources.length;
         return send(res, statusCode, payload);
       } catch (error) {
         if (requestClosed) return;

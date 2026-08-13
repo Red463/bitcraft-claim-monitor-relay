@@ -104,6 +104,9 @@ export function createRoadTileStore({ dataDir, now = () => new Date() }) {
     async readTile(request) {
       return packStore.readTile(request);
     },
+    health() {
+      return packStore.health();
+    },
     async close() {
       closed = true;
       await queue;

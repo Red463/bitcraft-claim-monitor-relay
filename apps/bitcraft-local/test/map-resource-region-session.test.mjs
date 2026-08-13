@@ -243,6 +243,8 @@ test("resource session maintains independent applied subscriptions on one region
   assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["54", "28"]);
   assert.equal(snapshots[1].generation, 7);
   assert.equal(session.health().rowCount, 0);
+  assert.equal(Number.isFinite(session.health().normalizationDurationMs), true);
+  assert.equal(session.health().normalizationDurationMs >= 0, true);
   assert.equal(JSON.stringify(session.health()).includes("locationX"), false);
 
   session.unsubscribe("28");

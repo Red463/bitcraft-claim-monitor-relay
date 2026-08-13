@@ -1,9 +1,15 @@
 import { securityHeaders } from "./httpRoutes.mjs";
 
 export function sendJson(res, status, body, headers = {}) {
+  if (status === 204 || status === 304 || (status >= 100 && status < 200)) {
+    res.writeHead(status, securityHeaders(headers));
+    res.end();
+    return;
+  }
   const json = JSON.stringify(body);
   res.writeHead(status, securityHeaders({
     "content-type": "application/json",
+    "content-length": Buffer.byteLength(json),
     ...headers,
   }));
   res.end(json);
