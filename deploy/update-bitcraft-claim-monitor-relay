@@ -206,6 +206,8 @@ generate_native_map_packs() {
   run_logged "Validating served native map" sudo -u "$RUN_USER" node \
     "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
     --data-dir "$DATA_DIR" --serve-base-url "http://127.0.0.1:19430"
+  log "Reporting native map serving diagnostics"
+  node "$CURRENT_LINK/deploy/diagnose-native-map-serving.mjs"
   systemctl enable --now "$MAP_TERRAIN_TIMER" "$MAP_ROADS_TIMER" >>"$LOG_FILE" 2>&1
   printf "Native map terrain and roads generated, validated, and scheduled.\n"
 }

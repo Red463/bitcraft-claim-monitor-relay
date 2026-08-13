@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.10] - 2026-08-14
+
+### Fixed
+
+- Fixed protected native-map diagnostics so they run through the existing restricted updater without requiring broader deployment-host permissions.
+
 ## [0.55.0-beta.9] - 2026-08-14
 
 ### Changed

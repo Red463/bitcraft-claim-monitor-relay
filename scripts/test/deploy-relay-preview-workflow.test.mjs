@@ -101,9 +101,8 @@ test("protected native map generation runs sequentially through the restricted u
 });
 
 test("protected native map generation reports a redacted local and canonical serving comparison", () => {
-  assert.match(generationWorkflow, /Compare installed and canonical map serving/);
-  assert.match(generationWorkflow, /diagnose-native-map-serving\.mjs/);
-  assert.match(generationWorkflow, /if: always\(\)/);
+  assert.match(generationWorkflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --generate-map all/);
+  assert.doesNotMatch(generationWorkflow, /sudo \/usr\/bin\/node/);
   assert.doesNotMatch(generationWorkflow, /cat \/etc\/bitcraft-claim-monitor-relay\.env|\/proc\/[^\s]+\/environ/);
 });
 
