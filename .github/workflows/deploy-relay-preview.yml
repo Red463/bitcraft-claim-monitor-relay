@@ -39,10 +39,14 @@ jobs:
         run: corepack pnpm --filter @workspace/bitcraft-local run build
       - name: Validate native map static bundle
         run: |
-          tar -tzf deploy/native-map-static-bundle.tar.gz > /dev/null
-          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-overview/'
-          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-tiles/current.json$'
-          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-road-tiles/current.json$'
+          tar -tzf deploy/native-map-static-bundle.tar.gz > native-map-bundle-files.txt
+          grep -q '^map-overview/' native-map-bundle-files.txt
+          grep -q '^map-tiles/current.json$' native-map-bundle-files.txt
+          grep -q '^map-road-tiles/current.json$' native-map-bundle-files.txt
+          ! grep -E '(^/|(^|/)\.\.(/|$)|\\)' native-map-bundle-files.txt
+          ! grep -Ev '^(map-overview|map-tiles|map-road-tiles)/' native-map-bundle-files.txt
+          tar -tvzf deploy/native-map-static-bundle.tar.gz | awk 'substr($1, 1, 1) != "d" && substr($1, 1, 1) != "-" { exit 1 }'
+          node --check apps/bitcraft-local/scripts/install-native-map-bundle.mjs
       - name: Test deployment contracts
         # These contracts exercise root-owned production metadata and chown semantics.
         run: sudo "$(command -v node)" --test scripts/test/deploy-*.test.mjs
@@ -55,7 +59,11 @@ jobs:
             deploy/bitcraft-claim-monitor-relay-collector.service \
             deploy/bitcraft-claim-monitor-relay-collector.timer \
             deploy/bitcraft-claim-monitor-relay-backup.service \
-            deploy/bitcraft-claim-monitor-relay-backup.timer
+            deploy/bitcraft-claim-monitor-relay-backup.timer \
+            deploy/bitcraft-claim-monitor-relay-map-terrain.service \
+            deploy/bitcraft-claim-monitor-relay-map-terrain.timer \
+            deploy/bitcraft-claim-monitor-relay-map-roads.service \
+            deploy/bitcraft-claim-monitor-relay-map-roads.timer
       - name: Install Caddy validator
         run: |
           sudo apt-get update

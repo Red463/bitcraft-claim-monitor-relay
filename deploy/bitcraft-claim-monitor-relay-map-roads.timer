@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate BitCraft world road tiles daily off peak
+
+[Timer]
+OnCalendar=*-*-* 02:10:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=bitcraft-claim-monitor-relay-map-roads.service
+
+[Install]
+WantedBy=timers.target
+

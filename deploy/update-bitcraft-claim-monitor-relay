@@ -461,6 +461,12 @@ snapshot_live_installation() {
   snapshot_live_path collector-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer"
   snapshot_live_path backup-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service"
   snapshot_live_path backup-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer"
+  snapshot_live_path map-terrain-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service"
+  snapshot_live_path map-terrain-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer"
+  snapshot_live_path map-roads-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service"
+  snapshot_live_path map-roads-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer"
+  snapshot_live_path map-terrain-pointer "$DATA_DIR/map-tiles/current.json"
+  snapshot_live_path map-roads-pointer "$DATA_DIR/map-road-tiles/current.json"
 
   if systemctl is-active --quiet "$WEB_SERVICE"; then web_was_active=1; fi
   if systemctl is-active --quiet "$WORKER_SERVICE"; then worker_was_active=1; fi
@@ -482,6 +488,12 @@ restore_live_installation() {
   restore_live_path collector-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer" || status=1
   restore_live_path backup-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service" || status=1
   restore_live_path backup-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer" || status=1
+  restore_live_path map-terrain-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service" || status=1
+  restore_live_path map-terrain-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer" || status=1
+  restore_live_path map-roads-unit "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service" || status=1
+  restore_live_path map-roads-timer "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer" || status=1
+  restore_live_path map-terrain-pointer "$DATA_DIR/map-tiles/current.json" || status=1
+  restore_live_path map-roads-pointer "$DATA_DIR/map-road-tiles/current.json" || status=1
   systemctl daemon-reload || status=1
   return "$status"
 }
@@ -615,6 +627,10 @@ validate_release_config() {
     "$release_dir/deploy/bitcraft-claim-monitor-relay-worker.service"
     "$release_dir/deploy/bitcraft-claim-monitor-relay-collector.service"
     "$release_dir/deploy/bitcraft-claim-monitor-relay-collector.timer"
+    "$release_dir/deploy/bitcraft-claim-monitor-relay-map-terrain.service"
+    "$release_dir/deploy/bitcraft-claim-monitor-relay-map-terrain.timer"
+    "$release_dir/deploy/bitcraft-claim-monitor-relay-map-roads.service"
+    "$release_dir/deploy/bitcraft-claim-monitor-relay-map-roads.timer"
   )
   if [[ -f "$release_dir/deploy/bitcraft-claim-monitor-relay-backup.service" \
     && -f "$release_dir/deploy/bitcraft-claim-monitor-relay-backup.timer" ]]; then
@@ -647,6 +663,14 @@ install_release_config() {
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.service"
   install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-collector.timer" \
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer"
+  install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-map-terrain.service" \
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service"
+  install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-map-terrain.timer" \
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer"
+  install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-map-roads.service" \
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service"
+  install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-map-roads.timer" \
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer"
   if [[ -f "$release_dir/deploy/bitcraft-claim-monitor-relay-backup.service" \
     && -f "$release_dir/deploy/bitcraft-claim-monitor-relay-backup.timer" ]]; then
     install -m 0644 "$release_dir/deploy/bitcraft-claim-monitor-relay-backup.service" \
@@ -661,19 +685,45 @@ install_release_config() {
 install_native_map_bundle() {
   local release_dir="$1"
   local bundle="$release_dir/deploy/native-map-static-bundle.tar.gz"
-  local -a map_directories=(
-    "$DATA_DIR/map-overview"
-    "$DATA_DIR/map-tiles"
-    "$DATA_DIR/map-road-tiles"
-  )
+  local staging_root="$DATA_DIR/.map-install-$REVISION"
+  local entry
   [[ -f "$bundle" && ! -L "$bundle" ]] || {
     printf "Native map static bundle is missing: %s\n" "$bundle" >&2
     return 1
   }
-  run_logged "Installing native map static bundle" \
-    tar --no-same-owner -xzf "$bundle" -C "$DATA_DIR"
-  chown -R "$RUN_USER:$RUN_USER" "${map_directories[@]}"
-  chmod -R u=rwX,g=rX,o= "${map_directories[@]}"
+  while IFS= read -r entry; do
+    [[ -n "$entry" \
+      && "$entry" != /* \
+      && "$entry" != *\\* \
+      && "$entry" != ../* \
+      && "$entry" != */../* \
+      && ( "$entry" == map-overview/* || "$entry" == map-tiles/* || "$entry" == map-road-tiles/* ) ]] || {
+      printf "Native map static bundle contains an unsafe path: %s\n" "$entry" >&2
+      return 1
+    }
+  done < <(tar -tzf "$bundle")
+  tar -tvzf "$bundle" | awk 'substr($1, 1, 1) != "d" && substr($1, 1, 1) != "-" { exit 1 }' || {
+    printf "Native map static bundle contains links or special files.\n" >&2
+    return 1
+  }
+  [[ ! -e "$staging_root" && ! -L "$staging_root" ]] || {
+    printf "Native map staging path already exists: %s\n" "$staging_root" >&2
+    return 1
+  }
+  install -d -o "$RUN_USER" -g "$RUN_USER" -m 0750 "$staging_root"
+  if ! run_logged "Staging native map static bundle" \
+    sudo -u "$RUN_USER" tar --no-same-owner --no-same-permissions -xzf "$bundle" -C "$staging_root"; then
+    rm -rf -- "$staging_root"
+    return 1
+  fi
+  if ! run_logged "Installing native map static bundle" \
+    sudo -u "$RUN_USER" env BITCRAFT_LOCAL_DATA_DIR="$DATA_DIR" node \
+      "$release_dir/apps/bitcraft-local/scripts/install-native-map-bundle.mjs" \
+      --source "$staging_root" --data-dir "$DATA_DIR" --revision "$REVISION"; then
+    rm -rf -- "$staging_root"
+    return 1
+  fi
+  rm -rf -- "$staging_root"
 }
 
 prune_releases() {

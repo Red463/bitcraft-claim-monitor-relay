@@ -32,7 +32,7 @@ test("map tile route serves installed negative-Y terrain tiles through the store
   assert.equal(await tileModule.serveLocalMapTile("/api/local/map/tiles/terrain/-5/0/-2.webp", res, store), true);
   assert.equal(res.status, 200);
   assert.equal(res.headers["content-type"], "image/webp");
-  assert.match(res.headers["cache-control"], /^public, max-age=/);
+  assert.equal(res.headers["cache-control"], "public, max-age=31536000, immutable");
   assert.deepEqual(res.body, expected);
 });
 
@@ -152,7 +152,28 @@ test("map tile status returns unavailable or a public installed manifest", async
   await tileModule.serveLocalMapTile("/api/local/map/tiles/status", withRoads, { readManifest: async () => manifest }, () => new Date("2026-08-11T16:00:00.000Z"), null, {
     readManifest: async () => ({ generation: "9", generatedAt: "2026-08-11T15:00:00.000Z", regionIds: ["19"], tileCount: 20, totalBytes: 500, featureCount: 600 }),
   });
-  assert.deepEqual(JSON.parse(withRoads.body).roads, { available: true, generation: "9", generatedAt: "2026-08-11T15:00:00.000Z", regionIds: ["19"], tileCount: 20, totalBytes: 500, featureCount: 600 });
+  assert.deepEqual(JSON.parse(withRoads.body).roads, {
+    available: true, generation: "9", generatedAt: "2026-08-11T15:00:00.000Z", ageMs: 3_600_000, freshness: "live",
+    regionIds: ["19"], tileCount: 20, totalBytes: 500, featureCount: 600, warnings: [],
+  });
+});
+
+test("static layer status uses weekly terrain and daily road freshness windows", async () => {
+  const terrainManifest = {
+    generation: "42", generatedAt: "2026-08-01T00:00:00.000Z", observedAt: "2026-08-01T00:00:00.000Z",
+    regionIds: ["3", "19"], dimension: "1", bounds: null, zoomRange: { min: -5, max: 0 }, tileCount: 1, totalBytes: 1,
+    biomes: [], waterTypes: [], channels: { terrain: { tileCount: 1, totalBytes: 1 }, water: { tileCount: 0, totalBytes: 0 }, biomeMasks: { tileCount: 0, totalBytes: 0 } },
+  };
+  const roadManifest = { generation: "9", generatedAt: "2026-08-01T00:00:00.000Z", regionIds: ["3", "19"], tileCount: 1, totalBytes: 1, featureCount: 2 };
+  async function statusAt(now) {
+    const response = responseRecorder();
+    await tileModule.serveLocalMapTile("/api/local/map/tiles/status", response, { readManifest: async () => terrainManifest }, () => new Date(now), null, { readManifest: async () => roadManifest });
+    return JSON.parse(response.body);
+  }
+  assert.equal((await statusAt("2026-08-08T00:00:00.000Z")).freshness, "live");
+  assert.equal((await statusAt("2026-08-10T00:00:00.000Z")).freshness, "stale");
+  assert.equal((await statusAt("2026-08-02T06:00:00.000Z")).roads.freshness, "live");
+  assert.equal((await statusAt("2026-08-02T16:00:00.000Z")).roads.freshness, "stale");
 });
 
 test("production server handles same-origin map tiles before map snapshot acquisition", async () => {

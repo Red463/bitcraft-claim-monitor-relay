@@ -19,6 +19,7 @@ test("failure after unit installation restores every live artifact and prior run
     source "$1"
     APP_ROOT="$2"
     CURRENT_LINK="$2/current"
+    DATA_DIR="$2/data"
     SYSTEMD_DIR="$2/systemd"
     BACKUP_HELPER_PATH="$2/bin/backup"
     BACKUP_CRYPTO_HELPER_PATH="$2/lib/crypto"
@@ -27,7 +28,7 @@ test("failure after unit installation restores every live artifact and prior run
     LOG_FILE="$2/update.log"
     TMPDIR="$2/tmp"
     TEST_ROOT="$2"
-    mkdir -p "$2/releases/previous" "$2/releases/candidate" "$SYSTEMD_DIR" "$2/bin" "$2/lib" "$TMPDIR"
+    mkdir -p "$2/releases/previous" "$2/releases/candidate" "$SYSTEMD_DIR" "$2/bin" "$2/lib" "$TMPDIR" "$DATA_DIR/map-tiles" "$DATA_DIR/map-road-tiles"
     ln -s "releases/previous" "$CURRENT_LINK"
     : >"$LOG_FILE"
     for path in \
@@ -40,7 +41,13 @@ test("failure after unit installation restores every live artifact and prior run
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.service" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service" \
-      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer"; do
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer" \
+      "$DATA_DIR/map-tiles/current.json" \
+      "$DATA_DIR/map-road-tiles/current.json"; do
       printf 'original:%s\n' "$path" >"$path"
     done
     systemctl() {
@@ -65,7 +72,13 @@ test("failure after unit installation restores every live artifact and prior run
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.service" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service" \
-      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer"; do
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer" \
+      "$DATA_DIR/map-tiles/current.json" \
+      "$DATA_DIR/map-road-tiles/current.json"; do
       printf 'candidate\n' >"$path"
     done
     atomic_switch "$2/releases/candidate"
@@ -82,7 +95,13 @@ test("failure after unit installation restores every live artifact and prior run
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.service" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer" \
       "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service" \
-      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer"; do
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service" \
+      "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer" \
+      "$DATA_DIR/map-tiles/current.json" \
+      "$DATA_DIR/map-road-tiles/current.json"; do
       grep -Fqx "original:$path" "$path"
     done
     cleanup_deployment_transaction
@@ -103,6 +122,7 @@ test("failure after backup timer enable is restored by EXIT cleanup", { skip: !h
     source "$1"
     APP_ROOT="$2"
     CURRENT_LINK="$2/current"
+    DATA_DIR="$2/data"
     SYSTEMD_DIR="$2/systemd"
     BACKUP_HELPER_PATH="$2/bin/backup"
     BACKUP_CRYPTO_HELPER_PATH="$2/lib/crypto"
@@ -111,7 +131,7 @@ test("failure after backup timer enable is restored by EXIT cleanup", { skip: !h
     LOG_FILE="$2/update.log"
     TMPDIR="$2/tmp"
     TEST_ROOT="$2"
-    mkdir -p "$2/releases/previous" "$SYSTEMD_DIR" "$2/bin" "$2/lib" "$TMPDIR"
+    mkdir -p "$2/releases/previous" "$SYSTEMD_DIR" "$2/bin" "$2/lib" "$TMPDIR" "$DATA_DIR/map-tiles" "$DATA_DIR/map-road-tiles"
     ln -s "releases/previous" "$CURRENT_LINK"
     : >"$LOG_FILE"
     printf 'original-updater\n' >"$UPDATER_PATH"
@@ -207,7 +227,7 @@ test("individual restore failure attempts every path and retains the recovery sn
 
     [[ "$rollback_status" -ne 0 ]]
     [[ "$cleanup_status" -ne 0 ]]
-    [[ "$(wc -l <"$2/restore-attempts")" -eq 11 ]]
+    [[ "$(wc -l <"$2/restore-attempts")" -eq 17 ]]
     [[ -f "$2/daemon-reload-attempted" ]]
     [[ -d "$transaction_dir" ]]
     grep -Fq "Recovery snapshot retained at: $transaction_dir" "$LOG_FILE"

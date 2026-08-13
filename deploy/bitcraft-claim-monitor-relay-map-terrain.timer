@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate BitCraft world terrain tiles weekly off peak
+
+[Timer]
+OnCalendar=Sun *-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=bitcraft-claim-monitor-relay-map-terrain.service
+
+[Install]
+WantedBy=timers.target
+

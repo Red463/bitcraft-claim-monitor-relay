@@ -1,0 +1,23 @@
+[Unit]
+Description=Generate the BitCraft Claim Monitor Relay world road tile pack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay
+ExecStart=/usr/bin/flock -n /run/lock/bitcraft-claim-monitor-relay-map-generation.lock /usr/sbin/runuser -u bitcraft -- /usr/bin/env BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/build-relay-road-world.mjs
+MemoryHigh=60%
+MemoryMax=70%
+Nice=10
+CPUWeight=20
+IOWeight=10
+RuntimeMaxSec=3h
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/bitcraft-claim-monitor-relay /run/lock
+

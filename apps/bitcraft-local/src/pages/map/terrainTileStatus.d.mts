@@ -22,7 +22,18 @@ export type TerrainTileStatus = {
     water: { tileCount: number; totalBytes: number };
     biomeMasks: { tileCount: number; totalBytes: number };
   };
-  roads?: { available: boolean; generation: string | null; generatedAt: string | null; regionIds: string[]; tileCount: number; totalBytes: number; featureCount: number };
+  roads?: {
+    available: boolean;
+    generation: string | null;
+    generatedAt: string | null;
+    ageMs: number | null;
+    freshness: "live" | "stale" | "unavailable";
+    regionIds: string[];
+    tileCount: number;
+    totalBytes: number;
+    featureCount: number;
+    warnings: string[];
+  };
 };
 
 export type TerrainBiomeStatus = {

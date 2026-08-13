@@ -5,6 +5,8 @@ const TILE_PATH = /^\/api\/local\/map\/tiles\/(terrain|water|game|roads|biome-(\
 const MIN_ZOOM = -5;
 const MAX_ZOOM = 0;
 const MAX_TILE_INDEX = 1_000_000;
+const TERRAIN_FRESH_MS = 8 * 24 * 60 * 60_000;
+const ROADS_FRESH_MS = 36 * 60 * 60_000;
 const EMPTY_CHANNELS = Object.freeze({
   terrain: Object.freeze({ tileCount: 0, totalBytes: 0 }),
   water: Object.freeze({ tileCount: 0, totalBytes: 0 }),
@@ -45,15 +47,22 @@ function finish(res, status, body = null, headers = {}) {
 async function terrainStatus(tileStore, now, runtimeHealth, roadTileStore) {
   const manifest = typeof tileStore?.readManifest === "function" ? await tileStore.readManifest() : null;
   const roadManifest = typeof roadTileStore?.readManifest === "function" ? await roadTileStore.readManifest() : null;
+  const nowMs = now().getTime();
+  const roadObservedTime = Date.parse(roadManifest?.observedAt ?? roadManifest?.generatedAt ?? "");
+  const roadAgeMs = Number.isFinite(roadObservedTime) ? Math.max(0, nowMs - roadObservedTime) : null;
+  const roadFreshness = roadManifest && roadAgeMs != null && roadAgeMs <= ROADS_FRESH_MS ? "live" : roadManifest ? "stale" : "unavailable";
   const roads = roadManifest ? {
     available: true,
     generation: String(roadManifest.generation),
     generatedAt: roadManifest.generatedAt ?? null,
+    ageMs: roadAgeMs,
+    freshness: roadFreshness,
     regionIds: Array.isArray(roadManifest.regionIds) ? roadManifest.regionIds.map(String) : [],
     tileCount: Number(roadManifest.tileCount ?? 0),
     totalBytes: Number(roadManifest.totalBytes ?? 0),
     featureCount: Number(roadManifest.featureCount ?? 0),
-  } : { available: false, generation: null, generatedAt: null, regionIds: [], tileCount: 0, totalBytes: 0, featureCount: 0 };
+    warnings: roadFreshness === "stale" ? ["Relay roads are stale; showing the last-good installed generation."] : [],
+  } : { available: false, generation: null, generatedAt: null, ageMs: null, freshness: "unavailable", regionIds: [], tileCount: 0, totalBytes: 0, featureCount: 0, warnings: [] };
   const roadStatus = roadTileStore ? { roads } : {};
   const buildStage = String(runtimeHealth?.buildStage ?? "idle");
   const lastError = String(runtimeHealth?.lastError ?? "").trim().slice(0, 500);
@@ -70,8 +79,8 @@ async function terrainStatus(tileStore, now, runtimeHealth, roadTileStore) {
         : "Relay terrain has not been installed yet."], ...roadStatus,
   };
   const observedTime = Date.parse(manifest.observedAt ?? manifest.generatedAt ?? "");
-  const ageMs = Number.isFinite(observedTime) ? Math.max(0, now().getTime() - observedTime) : null;
-  const freshness = ageMs != null && ageMs <= 5 * 60_000 ? "live" : "stale";
+  const ageMs = Number.isFinite(observedTime) ? Math.max(0, nowMs - observedTime) : null;
+  const freshness = ageMs != null && ageMs <= TERRAIN_FRESH_MS ? "live" : "stale";
   return {
     provider: "relay", available: true, generation: String(manifest.generation),
     generatedAt: manifest.generatedAt ?? null, observedAt: manifest.observedAt ?? null,
@@ -112,7 +121,7 @@ export async function serveLocalMapTile(pathname, res, tileStore, now = () => ne
     if (tile.bytes.byteLength > 2 * 1024 * 1024) throw new RangeError("Installed map tile exceeds response budget");
     finish(res, 200, tile.bytes, {
       "content-type": tile.contentType,
-      "cache-control": "public, max-age=86400, immutable",
+      "cache-control": "public, max-age=31536000, immutable",
     });
   } else {
     finish(res, 404, null, { "cache-control": "public, max-age=60" });

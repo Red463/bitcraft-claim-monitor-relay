@@ -64,9 +64,10 @@ test("Relay updater builds an immutable release before cutover", () => {
 test("Relay updater installs the verified native map bundle before service cutover", () => {
   assert.match(script, /install_native_map_bundle\(\)/);
   assert.match(script, /deploy\/native-map-static-bundle\.tar\.gz/);
-  assert.match(script, /tar --no-same-owner -xzf "\$bundle" -C "\$DATA_DIR"/);
-  assert.match(script, /chown -R "\$RUN_USER:\$RUN_USER"/);
-  assert.match(script, /chmod -R u=rwX,g=rX,o= /);
+  assert.doesNotMatch(script, /tar --no-same-owner -xzf "\$bundle" -C "\$DATA_DIR"/);
+  assert.match(script, /\.map-install-\$REVISION/);
+  assert.match(script, /install-native-map-bundle\.mjs/);
+  assert.doesNotMatch(script, /chown -R "\$RUN_USER:\$RUN_USER"/);
   assert.match(
     script,
     /install_release_config "\$release_dir"[\s\S]*install_native_map_bundle "\$release_dir"[\s\S]*atomic_switch "\$release_dir"/,
@@ -163,6 +164,12 @@ test("Relay updater snapshots and restores every live install target transaction
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-collector.timer",
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.service",
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-backup.timer",
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.service",
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-terrain.timer",
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.service",
+    "$SYSTEMD_DIR/bitcraft-claim-monitor-relay-map-roads.timer",
+    "$DATA_DIR/map-tiles/current.json",
+    "$DATA_DIR/map-road-tiles/current.json",
   ]) {
     assert.match(script, new RegExp(target.replaceAll("$", "\\$").replaceAll(".", "\\.")));
   }
@@ -179,7 +186,7 @@ test("Relay rollback accumulates every restore failure and retains incomplete sn
     script.indexOf("restore_service_runtime()"),
   );
   assert.match(restore, /local status=0/);
-  assert.equal((restore.match(/restore_live_path [^\n]+ \|\| status=1/g) || []).length, 11);
+  assert.equal((restore.match(/restore_live_path [^\n]+ \|\| status=1/g) || []).length, 17);
   assert.match(restore, /systemctl daemon-reload \|\| status=1/);
   assert.match(restore, /return "\$status"/);
   assert.match(script, /rollback_attempted=1/);
@@ -230,10 +237,15 @@ test("Relay updater validates and installs only Relay units", () => {
     "bitcraft-claim-monitor-relay-collector.timer",
     "bitcraft-claim-monitor-relay-backup.service",
     "bitcraft-claim-monitor-relay-backup.timer",
+    "bitcraft-claim-monitor-relay-map-terrain.service",
+    "bitcraft-claim-monitor-relay-map-terrain.timer",
+    "bitcraft-claim-monitor-relay-map-roads.service",
+    "bitcraft-claim-monitor-relay-map-roads.timer",
   ]) {
     assert.match(script, new RegExp(unit.replaceAll(".", "\\.")));
   }
   assert.match(script, /systemctl enable --now "\$BACKUP_TIMER"/);
+  assert.doesNotMatch(script, /systemctl enable(?: --now)? "\$(?:MAP_TERRAIN_TIMER|MAP_ROADS_TIMER)"/);
 });
 
 test("routine Relay updates validate but never overwrite or reload Caddy", () => {
