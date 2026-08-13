@@ -100,6 +100,13 @@ test("protected native map generation runs sequentially through the restricted u
   assert.doesNotMatch(generationWorkflow, /systemctl start|build-relay-terrain-world|build-relay-road-world/);
 });
 
+test("protected native map generation reports a redacted local and canonical serving comparison", () => {
+  assert.match(generationWorkflow, /Compare installed and canonical map serving/);
+  assert.match(generationWorkflow, /diagnose-native-map-serving\.mjs/);
+  assert.match(generationWorkflow, /if: always\(\)/);
+  assert.doesNotMatch(generationWorkflow, /cat \/etc\/bitcraft-claim-monitor-relay\.env|\/proc\/[^\s]+\/environ/);
+});
+
 test("active deployment paths never target the maintained application", () => {
   for (const content of [workflow, deployment]) {
     for (const target of maintainedTargets) {

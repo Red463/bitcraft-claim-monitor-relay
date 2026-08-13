@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.9] - 2026-08-14
+
+### Changed
+
+- Added redacted native-map deployment diagnostics that compare installed packs with local and canonical serving without exposing map selections or coordinates.
+
 ## [0.55.0-beta.8] - 2026-08-13
 
 ### Fixed

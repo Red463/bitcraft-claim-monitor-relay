@@ -42,3 +42,18 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
             "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA' --generate-map all"
+      - name: Compare installed and canonical map serving
+        if: always()
+        env:
+          RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
+          RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
+        run: |
+          ssh -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
+            "sudo /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/deploy/diagnose-native-map-serving.mjs"
