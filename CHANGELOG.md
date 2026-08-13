@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.4] - 2026-08-13
+
+### Fixed
+
+- Shipped the accepted pre-generated native map terrain, water, biome masks, and Region 19 roads as a verified static release artifact, avoiding memory-heavy generation on the live server.
+
 ## [0.55.0-beta.3] - 2026-08-13
 
 ### Fixed

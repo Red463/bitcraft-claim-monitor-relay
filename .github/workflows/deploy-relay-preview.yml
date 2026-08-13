@@ -37,6 +37,12 @@ jobs:
         run: corepack pnpm --filter @workspace/bitcraft-local test
       - name: Build application
         run: corepack pnpm --filter @workspace/bitcraft-local run build
+      - name: Validate native map static bundle
+        run: |
+          tar -tzf deploy/native-map-static-bundle.tar.gz > /dev/null
+          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-overview/'
+          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-tiles/current.json$'
+          tar -tzf deploy/native-map-static-bundle.tar.gz | grep -q '^map-road-tiles/current.json$'
       - name: Test deployment contracts
         # These contracts exercise root-owned production metadata and chown semantics.
         run: sudo "$(command -v node)" --test scripts/test/deploy-*.test.mjs
@@ -104,13 +110,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           exit "$DEPLOY_STATUS"
-      - name: Provision native map terrain and roads
+      - name: Install native map terrain and roads
         env:
           RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
           RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
         run: |
           set +e
-          MAP_BUILD_OUTPUT="$(ssh -i "$HOME/.ssh/id_ed25519" \
+          MAP_INSTALL_OUTPUT="$(ssh -i "$HOME/.ssh/id_ed25519" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o ServerAliveInterval=30 \
@@ -118,14 +124,14 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
-            "sudo -u bitcraft /usr/bin/env BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/build-relay-terrain-overview.mjs > /var/lib/bitcraft-claim-monitor-relay/map-terrain-build.log 2>&1 && sudo -u bitcraft /usr/bin/env BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay BITCRAFT_INSTALL_ROAD_TILES=true RELAY_MAP_VERIFY_TIMEOUT_MS=300000 /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/verify-relay-roads-live.mjs > /var/lib/bitcraft-claim-monitor-relay/map-road-build.log 2>&1 && sudo systemctl restart bitcraft-claim-monitor-relay.service" 2>&1)"
-          MAP_BUILD_STATUS=$?
+            "sudo -u bitcraft tar -xzf /opt/bitcraft-claim-monitor-relay/current/deploy/native-map-static-bundle.tar.gz -C /var/lib/bitcraft-claim-monitor-relay && sudo systemctl restart bitcraft-claim-monitor-relay.service" 2>&1)"
+          MAP_INSTALL_STATUS=$?
           set -e
 
           {
             printf '## Native map artifact provisioning\n\n'
-            printf 'Result: `%s`\n\n' "$([[ "$MAP_BUILD_STATUS" -eq 0 ]] && printf success || printf failed)"
-            printf 'Terrain and road build diagnostics remain on the VPS.\n'
+            printf 'Result: `%s`\n\n' "$([[ "$MAP_INSTALL_STATUS" -eq 0 ]] && printf success || printf failed)"
+            printf 'The verified static bundle was installed without production-side generation.\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          exit "$MAP_BUILD_STATUS"
+          exit "$MAP_INSTALL_STATUS"

@@ -84,11 +84,11 @@ test("workflow supports explicit backups and long-running SSH keepalives", () =>
 });
 
 test("workflow provisions the slow-changing native map artifacts and reloads the web reader", () => {
-  assert.match(workflow, /build-relay-terrain-overview\.mjs/);
-  assert.match(workflow, /BITCRAFT_INSTALL_ROAD_TILES=true[\s\S]*verify-relay-roads-live\.mjs/);
-  assert.match(workflow, /BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay/);
+  assert.match(workflow, /Validate native map static bundle[\s\S]*tar -tzf deploy\/native-map-static-bundle\.tar\.gz/);
+  assert.match(workflow, /sudo -u bitcraft tar -xzf \/opt\/bitcraft-claim-monitor-relay\/current\/deploy\/native-map-static-bundle\.tar\.gz -C \/var\/lib\/bitcraft-claim-monitor-relay/);
   assert.match(workflow, /sudo systemctl restart bitcraft-claim-monitor-relay\.service/);
-  assert.doesNotMatch(workflow, /printf[^\n]*MAP_BUILD_OUTPUT/);
+  assert.doesNotMatch(workflow, /build-relay-terrain-overview\.mjs|BITCRAFT_INSTALL_ROAD_TILES=true/);
+  assert.doesNotMatch(workflow, /printf[^\n]*MAP_INSTALL_OUTPUT/);
 });
 
 test("active deployment paths never target the maintained application", () => {
