@@ -60,7 +60,7 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     environment: relay-preview
     steps:
       - name: Configure pinned SSH identity
@@ -104,3 +104,28 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           exit "$DEPLOY_STATUS"
+      - name: Provision native map terrain and roads
+        env:
+          RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
+          RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
+        run: |
+          set +e
+          MAP_BUILD_OUTPUT="$(ssh -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
+            "sudo -u bitcraft /usr/bin/env BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/build-relay-terrain-overview.mjs > /var/lib/bitcraft-claim-monitor-relay/map-terrain-build.log 2>&1 && sudo -u bitcraft /usr/bin/env BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay BITCRAFT_INSTALL_ROAD_TILES=true RELAY_MAP_VERIFY_TIMEOUT_MS=300000 /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/verify-relay-roads-live.mjs > /var/lib/bitcraft-claim-monitor-relay/map-road-build.log 2>&1 && sudo systemctl restart bitcraft-claim-monitor-relay.service" 2>&1)"
+          MAP_BUILD_STATUS=$?
+          set -e
+
+          {
+            printf '## Native map artifact provisioning\n\n'
+            printf 'Result: `%s`\n\n' "$([[ "$MAP_BUILD_STATUS" -eq 0 ]] && printf success || printf failed)"
+            printf 'Terrain and road build diagnostics remain on the VPS.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$MAP_BUILD_STATUS"

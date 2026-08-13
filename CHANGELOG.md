@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.3] - 2026-08-13
+
+### Fixed
+
+- Installed the pre-generated world terrain, water, and Region 19 road overlays during production deployment so the native map does not fall back to an empty coordinate grid.
+
 ## [0.55.0-beta.2] - 2026-08-13
 
 ### Fixed

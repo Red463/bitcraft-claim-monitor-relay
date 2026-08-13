@@ -77,10 +77,18 @@ test("workflow does not publish raw VPS output or journals", () => {
 
 test("workflow supports explicit backups and long-running SSH keepalives", () => {
   assert.match(workflow, /force_database_backup:[\s\S]*type: boolean[\s\S]*default: false/);
-  assert.match(workflow, /deploy:[\s\S]*timeout-minutes: 45/);
+  assert.match(workflow, /deploy:[\s\S]*timeout-minutes: 75/);
   assert.match(workflow, /ServerAliveInterval=30/);
   assert.match(workflow, /ServerAliveCountMax=10/);
   assert.match(workflow, /FORCE_DATABASE_BACKUP/);
+});
+
+test("workflow provisions the slow-changing native map artifacts and reloads the web reader", () => {
+  assert.match(workflow, /build-relay-terrain-overview\.mjs/);
+  assert.match(workflow, /BITCRAFT_INSTALL_ROAD_TILES=true[\s\S]*verify-relay-roads-live\.mjs/);
+  assert.match(workflow, /BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay/);
+  assert.match(workflow, /sudo systemctl restart bitcraft-claim-monitor-relay\.service/);
+  assert.doesNotMatch(workflow, /printf[^\n]*MAP_BUILD_OUTPUT/);
 });
 
 test("active deployment paths never target the maintained application", () => {
