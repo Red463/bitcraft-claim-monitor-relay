@@ -29,8 +29,8 @@ test("Relay unit launch commands own immutable web and worker roles", () => {
   assert.doesNotMatch(environment, /^\s*BITCRAFT_PROCESS_ROLE=/m);
   assert.doesNotMatch(web, /^Environment=BITCRAFT_PROCESS_ROLE=/m);
   assert.doesNotMatch(worker, /^Environment=BITCRAFT_PROCESS_ROLE=/m);
-  assert.match(web, /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=web \/usr\/bin\/node /m);
-  assert.match(worker, /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=worker \/usr\/bin\/node /m);
+  assert.match(web, /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=web BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay \/usr\/bin\/node /m);
+  assert.match(worker, /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=worker BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay \/usr\/bin\/node /m);
 });
 
 test("Relay preview deployment excludes maintained service artifacts", () => {

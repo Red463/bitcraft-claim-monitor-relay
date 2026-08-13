@@ -13,7 +13,7 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ### Fixed
 
-- Fixed native map generation verification so only hashed installed packs that the live web service can read and serve are accepted.
+- Fixed native map generation verification so only hashed installed packs that the live web service can read and serve are accepted, with the production data directory pinned at process launch.
 
 ## [0.55.0-beta.7] - 2026-08-13
 

@@ -34,11 +34,11 @@ test("systemd launch commands pin each process role outside the shared environme
   assert.doesNotMatch(worker, /^Environment=BITCRAFT_PROCESS_ROLE=/m);
   assert.match(
     web,
-    /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=web \/usr\/bin\/node \/opt\/bitcraft-claim-monitor-relay\/current\/apps\/bitcraft-local\/server\.mjs$/m,
+    /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=web BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay \/usr\/bin\/node \/opt\/bitcraft-claim-monitor-relay\/current\/apps\/bitcraft-local\/server\.mjs$/m,
   );
   assert.match(
     worker,
-    /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=worker \/usr\/bin\/node \/opt\/bitcraft-claim-monitor-relay\/current\/apps\/bitcraft-local\/worker\.mjs$/m,
+    /^ExecStart=\/usr\/bin\/env BITCRAFT_PROCESS_ROLE=worker BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay \/usr\/bin\/node \/opt\/bitcraft-claim-monitor-relay\/current\/apps\/bitcraft-local\/worker\.mjs$/m,
   );
 });
 

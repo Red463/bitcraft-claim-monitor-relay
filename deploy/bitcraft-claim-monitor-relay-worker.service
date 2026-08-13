@@ -16,7 +16,7 @@ Environment=PRIVACY_LEDGER_PATH=/var/backups/bitcraft-claim-monitor-relay/privac
 Environment=PRIVACY_LEDGER_KEY_FILE=/etc/bitcraft-claim-monitor-relay/privacy-ledger.key
 Environment=MALLOC_TRIM_THRESHOLD_=131072
 EnvironmentFile=-/etc/bitcraft-claim-monitor-relay.env
-ExecStart=/usr/bin/env BITCRAFT_PROCESS_ROLE=worker /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/worker.mjs
+ExecStart=/usr/bin/env BITCRAFT_PROCESS_ROLE=worker BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay /usr/bin/node /opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/worker.mjs
 Restart=always
 RestartSec=5
 UMask=0077
