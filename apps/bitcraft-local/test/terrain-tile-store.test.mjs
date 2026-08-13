@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -124,4 +124,16 @@ test("terrain tile reads do not prune the bundle currently being built", async (
   await building;
   assert.equal((await store.readTile({ style: "terrain", z: -5, x: 0, y: -1 })).bytes.toString(), "2:terrain:-5:0:-1");
   await store.close();
+});
+
+test("terrain reads delegate to the immutable pack store and perform no pruning", async () => {
+  const source = await readFile(new URL("../src/server/terrainTileStore.mjs", import.meta.url), "utf8");
+  const readStart = source.indexOf("async readTile");
+  const readEnd = source.indexOf("async close", readStart);
+  assert.notEqual(readStart, -1);
+  assert.notEqual(readEnd, -1);
+  const body = source.slice(readStart, readEnd);
+  assert.match(source, /createMapTilePackStore/);
+  assert.match(body, /packStore\.readTile/);
+  assert.doesNotMatch(body, /pruneVersions|readdir|\brm\(/);
 });

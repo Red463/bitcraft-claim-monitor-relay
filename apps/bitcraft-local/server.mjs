@@ -41,7 +41,6 @@ import { MapSnapshotError, authorizedMapPlayerIds, buildMapResourcePayload, buil
 import { serveLocalMapTile } from "./src/server/mapTiles.mjs";
 import { createTerrainTileStore } from "./src/server/terrainTileStore.mjs";
 import { createRoadTileStore } from "./src/server/roadTileStore.mjs";
-import { createLayeredTerrainTileStore, createTerrainOverviewStore } from "./src/server/terrainOverviewStore.mjs";
 import { createRelayClaimScopeFence } from "./src/server/relayClaimScopeFence.mjs";
 import { createRelayProductionLifecycleCoordinator } from "./src/server/relayProductionLifecycleCoordinator.mjs";
 import { createRelaySettlementTransitionCoordinator } from "./src/server/relaySettlementTransitionCoordinator.mjs";
@@ -418,8 +417,6 @@ const terrainTileStore = createTerrainTileStore({
   },
 });
 const roadTileStore = createRoadTileStore({ dataDir });
-const terrainOverviewStore = createTerrainOverviewStore({ dataDir });
-const layeredTerrainTileStore = createLayeredTerrainTileStore({ detailStore: terrainTileStore, overviewStore: terrainOverviewStore });
 const privacyLedgerPath = process.env.PRIVACY_LEDGER_PATH
   ?? (isProduction && !isTestRuntime ? "/var/backups/bitcraft-claim-monitor-relay/privacy-deletion-ledger.jsonl" : path.join(dataDir, "privacy-deletion-ledger.jsonl"));
 const readCachedServerHealthFiles = createCachedServerHealthReader(() => readServerHealthFiles(dataDir), { ttlMs: 30_000 });
@@ -8037,7 +8034,7 @@ const server = createServer(async (req, res) => {
         staleAfterMs: relayGlobalCatalogStaleMs,
       }));
     }
-    if (req.method === "GET" && await serveLocalMapTile(url.pathname, res, layeredTerrainTileStore, undefined, relayTerrainRuntime.health(), roadTileStore)) return;
+    if (req.method === "GET" && await serveLocalMapTile(url.pathname, res, terrainTileStore, undefined, relayTerrainRuntime.health(), roadTileStore)) return;
     if (req.method === "GET" && url.pathname === "/api/local/map/catalog") {
       if (!rateLimit(req, res, "map-catalog", RATE_LIMITS.expensiveLocal)) return;
       const status = globalCatalogReadStatus();

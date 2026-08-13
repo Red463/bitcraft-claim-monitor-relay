@@ -70,7 +70,7 @@ test("Relay terrain builds run only through the background runtime while HTTP re
   assert.match(source, /const relayTerrainRuntime = new RelayTerrainRuntime/);
   assert.match(source, /if \(!relayTerrainStarted\) \{[\s\S]*?relayTerrainRuntime\.start/);
   assert.match(source, /relayTerrainRuntime\.reconcile/);
-  assert.match(source, /serveLocalMapTile\(url\.pathname, res, layeredTerrainTileStore, undefined, relayTerrainRuntime\.health\(\), roadTileStore\)/);
+  assert.match(source, /serveLocalMapTile\(url\.pathname, res, terrainTileStore, undefined, relayTerrainRuntime\.health\(\), roadTileStore\)/);
   assert.match(source, /if \(processRoleConfig\.runBackgroundJobs\) startBackgroundTasks\(\)/);
   assert.doesNotMatch(source, /renderTerrainTile\([^\n]*url\.pathname/);
 });

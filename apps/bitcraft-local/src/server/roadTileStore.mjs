@@ -1,100 +1,113 @@
-import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, open, rm } from "node:fs/promises";
 import path from "node:path";
 
-const VERSION = /^g-\d+-\d+-\d+$/;
+import { createMapTilePackStore } from "./mapTilePackStore.mjs";
+
+const MAX_TILE_BYTES = 2 * 1024 * 1024;
 
 function within(parent, child) {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-async function writeJson(filePath, value) {
-  const handle = await open(filePath, "w");
-  try { await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8"); await handle.sync(); }
-  finally { await handle.close(); }
+function currentDate(now) {
+  const value = now();
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new TypeError("Road tile store clock returned an invalid date");
+  return date;
+}
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function durableJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function writeDurableBytes(filePath, bytes) {
+  const handle = await open(filePath, "wx");
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 export function createRoadTileStore({ dataDir, now = () => new Date() }) {
   const root = path.resolve(dataDir, "map-road-tiles");
-  const versions = path.join(root, "versions");
-  const pointerPath = path.join(root, "current.json");
   if (!within(path.resolve(dataDir), root)) throw new TypeError("Road tile store path escapes data directory");
-  let current;
+  const packStore = createMapTilePackStore({ root, allowedStyles: ["roads"], maxTileBytes: MAX_TILE_BYTES });
+  let queue = Promise.resolve();
+  let closed = false;
 
-  async function readPointer() {
-    if (current !== undefined) return current;
+  async function installRoads({ generation, regionIds, observedAt, bounds, tiles, featureCount }) {
+    if (closed) throw new Error("Road tile store is closed");
+    const generationId = String(generation ?? "");
+    if (!/^\d+$/.test(generationId)) throw new TypeError("Road generation must be a decimal integer");
+    const generatedAt = currentDate(now);
+    const version = `g-${generationId}-${generatedAt.getTime()}-${process.pid}`;
+    const staging = path.resolve(root, `.staging-${version}`);
+    if (!within(root, staging)) throw new TypeError("Road bundle staging path escapes store");
+    let totalBytes = 0;
+    const files = [];
     try {
-      const value = JSON.parse(await readFile(pointerPath, "utf8"));
-      current = value && VERSION.test(value.version) ? value : null;
+      await mkdir(root, { recursive: true });
+      await mkdir(staging, { recursive: false });
+      for (const tile of tiles) {
+        if (!Number.isSafeInteger(tile.z) || !Number.isSafeInteger(tile.x) || !Number.isSafeInteger(tile.y)) throw new TypeError("Road tile coordinates must be safe integers");
+        const bytes = Buffer.from(tile.bytes ?? []);
+        if (!bytes.byteLength) throw new TypeError("Road tile must not be empty");
+        if (bytes.byteLength > MAX_TILE_BYTES) throw new RangeError("Road tile exceeds byte budget");
+        totalBytes += bytes.byteLength;
+        const relativeTilePath = path.posix.join("tiles", "roads", String(tile.z), String(tile.x), `${tile.y}.webp`);
+        const directory = path.join(staging, "tiles", "roads", String(tile.z), String(tile.x));
+        await mkdir(directory, { recursive: true });
+        await writeDurableBytes(path.join(directory, `${tile.y}.webp`), bytes);
+        files.push({ path: relativeTilePath, bytes: bytes.byteLength, sha256: sha256(bytes) });
+      }
+      const manifest = {
+        provider: "relay",
+        generation: generationId,
+        generatedAt: generatedAt.toISOString(),
+        observedAt,
+        regionIds: [...new Set(regionIds.map(String))].sort((left, right) => Number(left) - Number(right)),
+        dimension: "1",
+        bounds,
+        zoomRange: { min: -5, max: 0 },
+        tileCount: files.length,
+        totalBytes,
+        featureCount,
+        files,
+      };
+      const manifestBytes = durableJsonBytes(manifest);
+      const manifestHash = sha256(manifestBytes);
+      await writeDurableBytes(path.join(staging, "manifest.json"), manifestBytes);
+      return await packStore.install({ stagedVersionDir: staging, version, manifestHash });
     } catch (error) {
-      if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
-      current = null;
-    }
-    return current;
-  }
-
-  async function prune() {
-    let entries;
-    try { entries = await readdir(versions, { withFileTypes: true }); }
-    catch (error) { if (error?.code === "ENOENT") return; throw error; }
-    for (const entry of entries) if (entry.isDirectory() && entry.name !== current?.version) {
-      const target = path.resolve(versions, entry.name);
-      if (within(versions, target)) await rm(target, { recursive: true, force: true });
+      await rm(staging, { recursive: true, force: true });
+      throw error;
     }
   }
 
   return {
-    async install({ generation, regionIds, observedAt, bounds, tiles, featureCount }) {
-      if (!/^\d+$/.test(String(generation))) throw new TypeError("Road generation must be a decimal integer");
-      await mkdir(versions, { recursive: true });
-      await readPointer();
-      const stamp = now().getTime();
-      const version = `g-${generation}-${stamp}-${process.pid}`;
-      const staging = path.join(versions, `.staging-${version}`);
-      const installed = path.join(versions, version);
-      let totalBytes = 0;
-      try {
-        await mkdir(staging);
-        for (const tile of tiles) {
-          const bytes = Buffer.from(tile.bytes);
-          totalBytes += bytes.byteLength;
-          const directory = path.join(staging, "tiles", String(tile.z), String(tile.x));
-          await mkdir(directory, { recursive: true });
-          const handle = await open(path.join(directory, `${tile.y}.webp`), "wx");
-          try { await handle.writeFile(bytes); } finally { await handle.close(); }
-        }
-        const manifest = {
-          provider: "relay", generation: String(generation), generatedAt: now().toISOString(), observedAt,
-          regionIds: [...new Set(regionIds.map(String))], dimension: "1", bounds,
-          zoomRange: { min: -5, max: 0 }, tileCount: tiles.length, totalBytes, featureCount,
-        };
-        await writeJson(path.join(staging, "manifest.json"), manifest);
-        await rename(staging, installed);
-        const pointer = { version, manifest };
-        const temporary = path.join(root, `.current-${process.pid}-${stamp}.tmp`);
-        await writeJson(temporary, pointer);
-        await rename(temporary, pointerPath);
-        current = pointer;
-        await prune();
-        return { ...manifest };
-      } catch (error) {
-        await rm(staging, { recursive: true, force: true });
-        throw error;
-      }
+    install(input) {
+      const operation = queue.then(() => installRoads(input));
+      queue = operation.catch(() => undefined);
+      return operation;
     },
-    async readManifest() { return (await readPointer())?.manifest ?? null; },
-    async readTile({ style, z, x, y }) {
-      if (style !== "roads") return null;
-      const pointer = await readPointer();
-      if (!pointer) return null;
-      try {
-        const target = path.resolve(versions, pointer.version, "tiles", String(z), String(x), `${y}.webp`);
-        if (!within(path.join(versions, pointer.version), target)) return null;
-        return { bytes: await readFile(target), contentType: "image/webp", generation: pointer.manifest.generation };
-      } catch (error) {
-        if (error?.code === "ENOENT") return null;
-        throw error;
-      }
+    async readManifest() {
+      return packStore.readManifest();
+    },
+    async readTile(request) {
+      return packStore.readTile(request);
+    },
+    async close() {
+      closed = true;
+      await queue;
+      await packStore.close();
     },
   };
 }

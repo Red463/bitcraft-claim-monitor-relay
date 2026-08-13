@@ -190,7 +190,8 @@ test("production terrain keeps collection in the worker and bundle reads in the 
   assert.equal(packageJson.dependencies.sharp, "0.35.3");
   assert.match(server, /const relayTerrainRuntime = new RelayTerrainRuntime/);
   assert.match(server, /if \(processRoleConfig\.runBackgroundJobs\) startBackgroundTasks\(\)/);
-  assert.match(server, /serveLocalMapTile\(url\.pathname, res, layeredTerrainTileStore, undefined, relayTerrainRuntime\.health\(\), roadTileStore\)/);
+  assert.match(server, /serveLocalMapTile\(url\.pathname, res, terrainTileStore, undefined, relayTerrainRuntime\.health\(\), roadTileStore\)/);
+  assert.doesNotMatch(server, /layeredTerrainTileStore|createTerrainOverviewStore/);
   assert.match(server, /await import\("\.\/src\/server\/terrainTileRenderer\.mjs"\)/);
   assert.doesNotMatch(server, /fetch\([^\n]*(?:terrain|map\/tiles)[^\n]*https?:/i);
   assert.deepEqual(processRole.processRoleCapabilities("web"), {

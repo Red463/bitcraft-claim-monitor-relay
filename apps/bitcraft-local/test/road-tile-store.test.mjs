@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,4 +19,10 @@ test("road tile store atomically installs and reads a same-origin bundle", async
   assert.equal(manifest.featureCount, 10);
   assert.equal((await store.readTile({ style: "roads", z: -5, x: 0, y: -1 })).bytes.toString(), "road");
   assert.equal(await store.readTile({ style: "terrain", z: -5, x: 0, y: -1 }), null);
+});
+
+test("road reads delegate to the immutable pack store", async () => {
+  const source = await readFile(new URL("../src/server/roadTileStore.mjs", import.meta.url), "utf8");
+  assert.match(source, /createMapTilePackStore/);
+  assert.match(source, /packStore\.readTile/);
 });
