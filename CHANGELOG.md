@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.2] - 2026-08-13
+
+### Fixed
+
+- Made the native map the only Map-page renderer and removed the legacy iframe, renderer setting, and selection-bearing external map URLs.
+
 ## [0.55.0-beta.1] - 2026-08-13
 
 ### Added

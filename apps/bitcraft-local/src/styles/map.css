@@ -79,22 +79,7 @@
 .map-player-row-copy { display: grid; gap: 3px; min-width: 0; }
 .map-player-list strong { color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.05; }
 .map-player-list small { color: #8f9aaa; font-size: 11px; line-height: 1.05; }
-.map-frame {
-  width: 100%;
-  min-height: 0;
-  height: 100%;
-  border: 1px solid rgba(108,123,145,.28);
-  border-radius: 7px;
-  background: #05080d;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 12px 28px rgba(0,0,0,.28);
-}
-.map-frame-host { position: relative; min-width: 0; min-height: 0; height: 100%; }
-.map-frame-host.is-loading .map-frame,
-.map-frame-host.is-timed-out .map-frame,
-.map-frame-host.is-failed .map-frame { visibility: hidden; }
-.map-frame-state { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 9px; padding: 24px; border: 1px solid rgba(108,123,145,.28); border-radius: 7px; background: #05080d; color: var(--text); text-align: center; }
-.map-frame-state span { max-width: 54ch; color: var(--muted); }
-.map-frame-state > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.native-map-host { position: relative; min-width: 0; min-height: 0; height: 100%; background: #0e1517; }
 .map-focus { min-height: 54px; border: 1px solid rgba(240,198,79,.34); border-radius: 7px; background: linear-gradient(180deg, rgba(240,198,79,.1), rgba(5,8,12,.76)); padding: 9px 12px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
 .map-focus svg, .map-focus strong { color: var(--gold); }
 .map-focus div { min-width: 0; display: grid; gap: 2px; }
@@ -268,7 +253,6 @@
 @media (max-width: 700px) {
   .map-resource-panel { max-height: 42dvh; }
   .map-resource-panel.collapsed { max-height: 48px; }
-  .map-frame { min-height: 420px; height: 58dvh; }
 }
 .native-map-shell {
   position: relative;
@@ -325,8 +309,6 @@
   font: inherit;
 }
 .native-map-region-select select:focus { outline: none; }
-.map-external-region-control { display: flex; align-items: center; }
-.map-external-region-control .native-map-region-select { box-shadow: none; }
 .native-map-tool-trigger {
   min-height: 34px;
   display: inline-flex;
@@ -594,10 +576,6 @@ button.native-map-biome-key-row { cursor: pointer; }
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   color: var(--muted);
   font-size: 0.75rem;
-}
-
-.map-frame-host.is-native {
-  background: #0e1517;
 }
 
 .native-map-shell .leaflet-control-zoom a {

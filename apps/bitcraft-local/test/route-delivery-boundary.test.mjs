@@ -66,16 +66,18 @@ test("each feature route owns its stylesheet", () => {
   }
 });
 
-test("map and sync own recoverable iframe host state", () => {
-  for (const page of ["MapPage.tsx", "SyncPage.tsx"]) {
-    const pageSource = source(`../src/pages/${page}`);
-    assert.match(pageSource, /type FrameState = "loading" \| "ready" \| "timed-out" \| "failed"/);
-    assert.match(pageSource, /setTimeout/);
-    assert.match(pageSource, /onLoad=/);
-    assert.match(pageSource, /onError=/);
-    assert.match(pageSource, /Loading embedded/);
-    assert.match(pageSource, /taking longer than expected/);
-    assert.match(pageSource, /Retry/);
-    assert.match(pageSource, /Open full page/);
-  }
+test("sync owns recoverable iframe state while map is first-party", () => {
+  const syncSource = source("../src/pages/SyncPage.tsx");
+  assert.match(syncSource, /type FrameState = "loading" \| "ready" \| "timed-out" \| "failed"/);
+  assert.match(syncSource, /setTimeout/);
+  assert.match(syncSource, /onLoad=/);
+  assert.match(syncSource, /onError=/);
+  assert.match(syncSource, /Loading embedded/);
+  assert.match(syncSource, /taking longer than expected/);
+  assert.match(syncSource, /Retry/);
+  assert.match(syncSource, /Open full page/);
+
+  const mapSource = source("../src/pages/MapPage.tsx");
+  assert.match(mapSource, /<NativeMap/);
+  assert.doesNotMatch(mapSource, /<iframe|FrameState|Loading embedded map/);
 });

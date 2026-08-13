@@ -15,7 +15,7 @@ export const defaultTheme = {
   danger: "#ef6461",
 };
 
-export const obsoleteAppSettingKeys = ["analytics_json", "collector_settings_json"];
+export const obsoleteAppSettingKeys = ["analytics_json", "collector_settings_json", "map_renderer_mode"];
 
 export function defaultAppSettingRows({ serverRefreshSeconds, updatedAt }) {
   return [
@@ -27,7 +27,6 @@ export function defaultAppSettingRows({ serverRefreshSeconds, updatedAt }) {
     settingRow("server_refresh_seconds", String(serverRefreshSeconds), updatedAt),
     settingRow("default_page", "dashboard", updatedAt),
     settingRow("default_region", defaultRegionId, updatedAt),
-    settingRow("map_renderer_mode", "external", updatedAt),
     settingRow("toast_json", JSON.stringify({ marketListings: true, marketSales: true, production: true }), updatedAt),
     settingRow("market_deal_watch_json", JSON.stringify({ maxWatchesPerUser: 10, thresholdPercent: 30, minActiveListings: 3, discordDmEnabled: true }), updatedAt),
     settingRow("branding_json", JSON.stringify({}), updatedAt),

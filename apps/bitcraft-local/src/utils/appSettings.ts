@@ -126,9 +126,6 @@ export function normalizeAppSettings(config: Partial<AppSettings> | AnyRecord | 
     defaultPage,
     excludedMemberIds,
     additionalActiveRegions: String((config as AnyRecord)?.additionalActiveRegions ?? ""),
-    mapRendererMode: ["external", "native-beta", "native"].includes(String((config as AnyRecord)?.mapRendererMode))
-      ? (config as AnyRecord).mapRendererMode
-      : "external",
     theme: { ...DEFAULT_THEME, ...((config as AnyRecord)?.theme ?? {}) },
     toastSettings: { ...DEFAULT_SETTINGS.toastSettings, ...((config as AnyRecord)?.toastSettings ?? {}) },
     marketDealWatch: {

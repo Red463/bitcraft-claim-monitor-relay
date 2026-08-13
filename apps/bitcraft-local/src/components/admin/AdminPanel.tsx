@@ -1542,7 +1542,6 @@ export function AdminPanel({
             <label className="field"><span>Default opening page</span><select value={draft.defaultPage} onChange={(event) => updateDraft("defaultPage", event.target.value as ActivePanel)}>{NAV.filter(([id]) => id !== "admin").map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <label className="field"><span>Public Crafts default region ID</span><input value={draft.defaultRegion} onChange={(event) => updateDraft("defaultRegion", event.target.value)} placeholder="Use settlement region" /></label>
             <label className="field"><span>Additional active region IDs</span><input value={draft.additionalActiveRegions} onChange={(event) => updateDraft("additionalActiveRegions", event.target.value)} placeholder="Optional, e.g. 22,24" /></label>
-            <label className="field"><span>Map renderer</span><select value={draft.mapRendererMode} onChange={(event) => updateDraft("mapRendererMode", event.target.value as AppSettings["mapRendererMode"])}><option value="external">External iframe</option><option value="native-beta">Native beta</option><option value="native">Native only</option></select></label>
             <div className="configuration-timing-grid">
               <label className="field unit-field">
                 <span>Display refresh interval</span>

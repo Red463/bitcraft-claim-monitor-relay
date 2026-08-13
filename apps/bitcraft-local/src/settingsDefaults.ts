@@ -146,7 +146,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPage: "dashboard",
   defaultRegion: "19",
   additionalActiveRegions: "",
-  mapRendererMode: "external",
   toastSettings: { marketListings: true, marketSales: true, production: true },
   marketDealWatch: { maxWatchesPerUser: 10, thresholdPercent: 30, minActiveListings: 3, discordDmEnabled: true },
   branding: {},

@@ -1,10 +1,4 @@
 export const DEFAULT_APP_PAGE = "dashboard";
-export const MAP_RENDERER_MODES = ["external", "native-beta", "native"];
-
-export function normalizeMapRendererMode(value) {
-  return MAP_RENDERER_MODES.includes(value) ? value : "external";
-}
-
 export const VALID_APP_PAGES = [
   "dashboard",
   "leaderboard",

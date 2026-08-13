@@ -128,7 +128,7 @@ import { adminMutationRejection } from "./src/server/adminRequestGuards.mjs";
 import { discordProfileDisplayName, validAdminUsername, validDiscordId } from "./src/server/authIdentity.mjs";
 import { createAdminLoginAttemptStore, loginAttemptKey } from "./src/server/adminLoginAttempts.mjs";
 import { hashPassword, validLegacyAdminPassword, verifyPassword } from "./src/server/passwordAuth.mjs";
-import { DEFAULT_APP_PAGE, normalizeMapRendererMode, normalizeSavedRefreshIntervalSeconds, normalizeStoredExcludedMemberIds, normalizeSubmittedExcludedMemberIds, parseRegionIds, validAppPage, validBitcraftSyncUrl, validClaimId, validRefreshIntervalSeconds, validRegionId } from "./src/server/appSettingsPolicy.mjs";
+import { DEFAULT_APP_PAGE, normalizeSavedRefreshIntervalSeconds, normalizeStoredExcludedMemberIds, normalizeSubmittedExcludedMemberIds, parseRegionIds, validAppPage, validBitcraftSyncUrl, validClaimId, validRefreshIntervalSeconds, validRegionId } from "./src/server/appSettingsPolicy.mjs";
 import { applyDefaultAppSettings, defaultTheme } from "./src/server/defaultAppSettings.mjs";
 import { applySchemaBootstrap } from "./src/server/schemaBootstrap.mjs";
 import { installRetiredTableAuthorizer } from "./src/server/retiredTableAuthorizer.mjs";
@@ -1417,7 +1417,6 @@ function getSettings() {
     defaultPage: validAppPage(savedDefaultPage) ? savedDefaultPage : DEFAULT_APP_PAGE,
     defaultRegion: statements.getSetting.get("default_region")?.value ?? "",
     additionalActiveRegions: statements.getSetting.get("active_region_overrides")?.value ?? "",
-    mapRendererMode: normalizeMapRendererMode(statements.getSetting.get("map_renderer_mode")?.value),
     toastSettings: { marketListings: true, marketSales: true, production: true, ...toastSettings },
     marketDealWatch: marketDealWatchSettings(),
     branding,
@@ -8670,7 +8669,6 @@ const server = createServer(async (req, res) => {
         const additionalActiveRegions = parseRegionIds(body.additionalActiveRegions).join(",");
         if (String(body.additionalActiveRegions ?? "").trim() && !additionalActiveRegions) return send(res, 400, { error: "Additional active regions must be numeric IDs separated by commas or spaces" });
         const excludedMemberIds = normalizeSubmittedExcludedMemberIds(body.excludedMemberIds);
-        const mapRendererMode = normalizeMapRendererMode(body.mapRendererMode);
         const previousVisitorSecurity = visitorSecuritySettings(true);
         const visitorSecurity = normalizeVisitorSecuritySettings(body.visitorSecurity ?? {}, {
           includeSecrets: true,
@@ -8703,7 +8701,6 @@ const server = createServer(async (req, res) => {
         statements.upsertSetting.run("default_page", defaultPage, updatedAt);
         statements.upsertSetting.run("default_region", defaultRegion, updatedAt);
         statements.upsertSetting.run("active_region_overrides", additionalActiveRegions, updatedAt);
-        statements.upsertSetting.run("map_renderer_mode", mapRendererMode, updatedAt);
         statements.upsertSetting.run("excluded_member_ids_json", JSON.stringify(excludedMemberIds), updatedAt);
         statements.upsertSetting.run("visitor_security_json", JSON.stringify(visitorSecurity), updatedAt);
         statements.upsertSetting.run("toast_json", JSON.stringify(toastSettings), updatedAt);
@@ -8717,7 +8714,7 @@ const server = createServer(async (req, res) => {
         if (body.discord?.clearBotToken === true) statements.deleteSecret.run("discord_bot_token");
         pollStatus.intervalMs = serverRefreshSeconds * 1000;
         scheduleServerPolling(serverRefreshSeconds * 1000);
-        audit(user, "settings.update", { claimId: nextClaimId, refreshSeconds, serverRefreshSeconds, defaultPage, defaultRegion, additionalActiveRegions, mapRendererMode, excludedMemberCount: excludedMemberIds.length, visitorSecurity: { fullIpRetentionDays: visitorSecurity.fullIpRetentionDays, statsRetentionDays: visitorSecurity.statsRetentionDays, geoipProvider: visitorSecurity.geoipProvider, geoipConfigured: visitorSecurity.geoipProvider === "ipapi" || Boolean(visitorSecurity.geoipSourceUrl) }, discordEnabled: discordSettings.enabled });
+        audit(user, "settings.update", { claimId: nextClaimId, refreshSeconds, serverRefreshSeconds, defaultPage, defaultRegion, additionalActiveRegions, excludedMemberCount: excludedMemberIds.length, visitorSecurity: { fullIpRetentionDays: visitorSecurity.fullIpRetentionDays, statsRetentionDays: visitorSecurity.statsRetentionDays, geoipProvider: visitorSecurity.geoipProvider, geoipConfigured: visitorSecurity.geoipProvider === "ipapi" || Boolean(visitorSecurity.geoipSourceUrl) }, discordEnabled: discordSettings.enabled });
         startDiscordGateway();
         void announceDiscordAppUpdateIfNeeded().catch((error) => console.warn(`Discord app update announcement failed: ${error instanceof Error ? error.message : String(error)}`));
         requestRelayRuntimeRefresh?.("manual");

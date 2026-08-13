@@ -87,7 +87,6 @@ test("map mobile queries do not duplicate desktop player-control declarations", 
   for (const selector of duplicatedDesktopSelectors) {
     assert.equal(mobile.includes(selector), false, `${selector} belongs to the desktop owning block`);
   }
-  assert.match(mobile, /\.map-frame\s*\{[^}]*min-height:\s*420px;[^}]*height:\s*58dvh;/s);
 });
 
 test("native map controls stay viewport-contained with touch-sized phone toggles", () => {
@@ -808,7 +807,7 @@ test("map page styles live in the map stylesheet", () => {
   const mapSelectors = [
     ".map-panel.full-height",
     ".map-topbar",
-    ".map-frame",
+    ".native-map-host",
     ".map-focus",
     ".map-workspace",
     ".map-resource-panel",

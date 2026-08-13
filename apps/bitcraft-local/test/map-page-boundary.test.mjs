@@ -13,16 +13,11 @@ test("Map page lives outside the legacy MainPages bundle", () => {
   assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/MapPage"\)/);
 });
 
-test("Map iframe host exposes loading, timeout, failure, retry, and full-page recovery", () => {
+test("Map page has one first-party renderer and no iframe recovery path", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 
-  assert.match(mapPage, /type FrameState = "loading" \| "ready" \| "timed-out" \| "failed"/);
-  assert.match(mapPage, /Loading embedded map/);
-  assert.match(mapPage, /taking longer than expected/);
-  assert.match(mapPage, /onLoad=/);
-  assert.match(mapPage, /onError=/);
-  assert.match(mapPage, /Retry/);
-  assert.match(mapPage, /Open full page/);
+  assert.match(mapPage, /<NativeMap/);
+  assert.doesNotMatch(mapPage, /<iframe|FrameState|Loading embedded map|Open full page|currentFrameUrl/);
 });
 
 test("Map page supplies the complete player panel to the native map", () => {
@@ -34,22 +29,12 @@ test("Map page supplies the complete player panel to the native map", () => {
   assert.match(mapPage, /playerTool=\{\{/);
   assert.doesNotMatch(mapPage, /MapPlayerTrackingControls|Manage players|<Dialog/);
 });
-test("Map iframe is not remounted on every generated URL refresh", () => {
-  const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
-
-  assert.doesNotMatch(mapPage, /<iframe\s+key=\{currentFrameUrl\}/);
-  assert.match(mapPage, /const \[currentFrameUrl, setCurrentFrameUrl\] = React\.useState\(mapUrl\)/);
-  assert.match(mapPage, /mapSignature/);
-});
-
-test("Map iframe URL updates when auto-online tracked players change", () => {
+test("Map player selection feeds the native renderer directly", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 
   assert.match(mapPage, /const currentPlayerIds = React\.useMemo\(\(\) => \[\.\.\.current\]\.sort\(\), \[current\]\)/);
-  assert.match(mapPage, /playerIds: currentPlayerIds/);
-  assert.match(mapPage, /bitcraftMapUrl\(currentPlayerIds,/);
-  assert.match(mapPage, /setCurrentFrameUrl\(\(previousUrl\) => previousUrl === mapUrl \? previousUrl : mapUrl\)/);
-  assert.doesNotMatch(mapPage, /autoFramePlayerIds/);
+  assert.match(mapPage, /playerIds=\{currentPlayerIds\}/);
+  assert.doesNotMatch(mapPage, /bitcraftMapUrl|mapEmbedSignature|currentFrameUrl/);
 });
 
 test("Native map tools use a full-width desktop workspace and mobile bottom sheet", () => {
@@ -129,21 +114,19 @@ test("Map page owns the region selector and supplies its selected scope to the n
   assert.match(mapCss, /@media \(max-width:\s*620px\)[\s\S]*\.native-map-region-select\s*\{[^}]*min-width:\s*0;[^}]*max-width:[^;]+;/s);
 });
 
-test("external map mode retains one global Region selector without duplicating the native toolbar control", () => {
+test("native map owns one global Region selector", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 
-  assert.match(mapPage, /!nativeRenderer \? <div className="map-external-region-control">\{regionControl\}<\/div> : null/);
-  assert.match(mapPage, /regionIds:\s*resourceMapRegionIds/);
-  assert.match(mapPage, /bitcraftMapUrl\(currentPlayerIds, mapMarker, Boolean\(focus\), selectedResourceIds, resourceMapRegionIds,/);
-  assert.equal((mapPage.match(/\{regionControl\}/g) ?? []).length, 2, "one external render and one NativeMap prop are expected");
+  assert.doesNotMatch(mapPage, /map-external-region-control|nativeRenderer/);
+  assert.equal((mapPage.match(/regionControl=\{regionControl\}/g) ?? []).length, 1);
 });
 
-test("native resource interactions stop at the server partition budget while external mode stays unchanged", () => {
+test("native resource interactions stop at the server partition budget", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 
   assert.match(mapPage, /const maxNativeResourceSelections = React\.useMemo\(\(\) => nativeMapResourceSelectionLimit\(resourceMapRegionIds\)/);
-  assert.match(mapPage, /if \(nativeRenderer && normalizedToken\.startsWith\("resource:"\) && !next\.has\(normalizedToken\) && selectedResourceCount >= maxNativeResourceSelections\)/);
-  assert.match(mapPage, /nativeRenderer \? resourceIds\.slice\(0, maxNativeResourceSelections\) : resourceIds/);
+  assert.match(mapPage, /normalizedToken\.startsWith\("resource:"\) && !next\.has\(normalizedToken\) && selectedResourceCount >= maxNativeResourceSelections/);
+  assert.match(mapPage, /resourceIds\.slice\(0, maxNativeResourceSelections\)/);
 });
 
 test("phone toolbar gives all four tools and Region a bounded five-column layout", () => {

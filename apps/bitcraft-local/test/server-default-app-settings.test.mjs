@@ -17,7 +17,7 @@ test("defaultAppSettingRows preserves bootstrap app settings and timestamps", ()
     updatedAt: "2026-06-29T12:00:00.000Z",
   });
 
-  assert.equal(rows.length, 19);
+  assert.equal(rows.length, 18);
   assert.deepEqual(rows.map((row) => row.key), [
     "claim_id",
     "bitcraft_sync_url",
@@ -27,7 +27,6 @@ test("defaultAppSettingRows preserves bootstrap app settings and timestamps", ()
     "server_refresh_seconds",
     "default_page",
     "default_region",
-    "map_renderer_mode",
     "toast_json",
     "market_deal_watch_json",
     "branding_json",
@@ -46,7 +45,6 @@ test("defaultAppSettingRows preserves bootstrap app settings and timestamps", ()
   assert.equal(rows.find((row) => row.key === "server_refresh_seconds")?.value, "45");
   assert.equal(rows.find((row) => row.key === "default_page")?.value, "dashboard");
   assert.equal(rows.find((row) => row.key === "default_region")?.value, defaultRegionId);
-  assert.equal(rows.find((row) => row.key === "map_renderer_mode")?.value, "external");
 });
 
 test("defaultAppSettingRows preserves JSON defaults used by admin and notification flows", () => {
@@ -79,7 +77,7 @@ test("defaultAppSettingRows preserves JSON defaults used by admin and notificati
 });
 
 test("obsoleteAppSettingKeys removes retired configuration from existing databases", () => {
-  assert.deepEqual(obsoleteAppSettingKeys, ["analytics_json", "collector_settings_json"]);
+  assert.deepEqual(obsoleteAppSettingKeys, ["analytics_json", "collector_settings_json", "map_renderer_mode"]);
 });
 test("applyDefaultAppSettings inserts defaults and removes obsolete settings", () => {
   const calls = [];
@@ -125,7 +123,7 @@ test("applyDefaultAppSettings derives default rows when rows are not supplied", 
     updatedAt: "2026-06-29T12:45:00.000Z",
   });
 
-  assert.equal(inserted.length, 19);
+  assert.equal(inserted.length, 18);
   assert.deepEqual(inserted.find(([key]) => key === "server_refresh_seconds"), ["server_refresh_seconds", "75", "2026-06-29T12:45:00.000Z"]);
-  assert.deepEqual(deleted, [["analytics_json"], ["collector_settings_json"]]);
+  assert.deepEqual(deleted, [["analytics_json"], ["collector_settings_json"], ["map_renderer_mode"]]);
 });

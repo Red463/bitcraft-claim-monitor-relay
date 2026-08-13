@@ -1,18 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeMapRendererMode } from "../src/server/appSettingsPolicy.mjs";
 import { defaultAppSettingRows } from "../src/server/defaultAppSettings.mjs";
+import { readFileSync } from "node:fs";
 
-test("map renderer mode accepts staged rollout values and defaults safely", () => {
-  assert.equal(normalizeMapRendererMode("external"), "external");
-  assert.equal(normalizeMapRendererMode("native-beta"), "native-beta");
-  assert.equal(normalizeMapRendererMode("native"), "native");
-  assert.equal(normalizeMapRendererMode("unknown"), "external");
-  assert.equal(normalizeMapRendererMode(null), "external");
+test("map renderer setting is retired from fresh installations", () => {
+  const rows = defaultAppSettingRows({ serverRefreshSeconds: 30, updatedAt: "2026-08-11T12:00:00.000Z" });
+  assert.equal(rows.some((row) => row.key === "map_renderer_mode"), false);
 });
 
-test("fresh installations retain the external renderer until beta is enabled", () => {
-  const rows = defaultAppSettingRows({ serverRefreshSeconds: 30, updatedAt: "2026-08-11T12:00:00.000Z" });
-  assert.equal(rows.find((row) => row.key === "map_renderer_mode")?.value, "external");
+test("Map page is native-only and contains no external renderer path", () => {
+  const source = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /<NativeMap/);
+  assert.doesNotMatch(source, /rendererMode|nativeRenderer|<iframe|bitcraftmap\.com|mapRendererPolicy|bitcraftMapUrl/);
 });

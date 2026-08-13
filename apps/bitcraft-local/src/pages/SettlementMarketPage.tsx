@@ -78,7 +78,7 @@ import { trackAnalyticsEvent } from "../utils/analytics";
 import type { ActivePanel, LoadState } from "../types/app";
 import { useManualRefresh } from "../refresh/ManualRefreshContext";
 import { manualRefreshHeaders } from "../refresh/manualRefresh.mjs";
-import { bitcraftMapUrl, mapResourceCategory, mapResourceToken, normalizeMapResourceToken, parseBitcraftMapUrl, type MapFocus } from "./map/mapUtils";
+import { mapResourceCategory, mapResourceToken, normalizeMapResourceToken, type MapFocus } from "./map/mapUtils";
 import { BEST_SELLER_SORTS, bestSellerSortValue, buildMarketRangeAnalytics, formatMarketDay, type BestSellerSortKey } from "./market/marketAnalytics";
 import { displayItemName, listingDate, listingTrackingKey, liveDaysSince, safeDisplayJson, settlementListingState } from "./market/listingUtils";
 
