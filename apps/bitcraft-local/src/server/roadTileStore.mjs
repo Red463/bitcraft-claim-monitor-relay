@@ -3,6 +3,7 @@ import { mkdir, open, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { createMapTilePackStore } from "./mapTilePackStore.mjs";
+import { canonicalMapRegionIds } from "./mapRegionIds.mjs";
 
 const MAX_TILE_BYTES = 2 * 1024 * 1024;
 
@@ -73,7 +74,7 @@ export function createRoadTileStore({ dataDir, now = () => new Date() }) {
         generation: generationId,
         generatedAt: generatedAt.toISOString(),
         observedAt,
-        regionIds: [...new Set(regionIds.map(String))].sort((left, right) => Number(left) - Number(right)),
+        regionIds: canonicalMapRegionIds(regionIds),
         dimension: "1",
         bounds,
         zoomRange: { min: -5, max: 0 },

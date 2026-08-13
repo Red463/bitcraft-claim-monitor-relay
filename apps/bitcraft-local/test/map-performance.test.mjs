@@ -133,6 +133,7 @@ test("benchmark runner probes health and tiles while paging resource partitions 
     httpClient,
     sseClient,
     requestHeaders: { authorization: "Bearer benchmark" },
+    verifyReleaseLifecycle: false,
   });
 
   assert.equal(result.samples.healthMs.length, 2);
@@ -157,9 +158,21 @@ test("benchmark fails closed on missing samples and unexpected HTTP responses", 
     regionIds: ["19"], resourceIds: ["28"], tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2,
     httpClient: { request: async () => ({ status: 403, durationMs: 1, bytes: 20, json: { error: "denied" } }) },
     sseClient: { open: async () => ({ status: 403, close() {} }) },
+    verifyReleaseLifecycle: false,
   });
   assert.equal(result.ok, false);
   assert.match(result.failures.join(" "), /unexpected http|successful health|successful cold tile|resource page/i);
+});
+
+test("benchmark requires one accepted first and complete sample for every requested partition", () => {
+  const result = benchmarkModule.evaluateMapBenchmark({
+    expectedPartitionCount: 2,
+    healthMs: [20], cachedTileMs: [20], coldTileMs: [30],
+    firstResourcePageMs: [100], completePartitionMs: [150], warmReselectMs: [20],
+    http429: 0, http503: 0,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join(" "), /1 of 2.*partition/i);
 });
 
 test("benchmark waits for an accepted generation instead of treating a loading empty page as a result", async () => {
@@ -178,11 +191,111 @@ test("benchmark waits for an accepted generation instead of treating a loading e
       queueMicrotask(() => onEvent({ changedDomains: ["map-resources"] }));
       return { status: 200, close() {} };
     } },
+    verifyReleaseLifecycle: false,
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.samples.firstResourcePageMs, [180]);
   assert.deepEqual(result.samples.completePartitionMs, [180]);
   assert.equal(resourceRequests, 3, "loading, accepted cold retry, and warm reselect are distinct");
+});
+
+test("benchmark starts later resource partitions without waiting for an earlier partition", async () => {
+  let releaseFirst;
+  const firstCanFinish = new Promise((resolve) => { releaseFirst = resolve; });
+  const startedRegions = [];
+  const benchmark = benchmarkModule.runNativeMapBenchmark({
+    baseUrl: "http://127.0.0.1:18449", regionIds: ["19", "24"], resourceIds: ["28"],
+    tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2, selectionDeadlineMs: 1_000,
+    httpClient: { async request(url) {
+      if (url.endsWith("/health")) return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0 } } };
+      if (url.includes("/tiles/")) return { status: 200, durationMs: 20, bytes: 100, json: null };
+      const regionId = new URL(url).searchParams.get("region");
+      startedRegions.push(regionId);
+      if (regionId === "24") releaseFirst();
+      if (regionId === "19" && startedRegions.filter((value) => value === "19").length === 1) await firstCanFinish;
+      return { status: 200, durationMs: 40, bytes: 100, json: { resources: [], complete: true, nextCursor: null, layerAvailability: { status: "live" } } };
+    } },
+    sseClient: { async open() { return { status: 200, close() {} }; } },
+    verifyReleaseLifecycle: false,
+  });
+
+  const result = await Promise.race([
+    benchmark,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`later partition did not start concurrently: ${startedRegions.join(",")}`)), 500)),
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(startedRegions.slice(0, 2).sort(), ["19", "24"]);
+});
+
+test("benchmark keeps health and tile probes running until resource selection finishes", async () => {
+  let healthCalls = 0;
+  let releasePartition;
+  const probesContinued = new Promise((resolve) => { releasePartition = resolve; });
+  const result = await benchmarkModule.runNativeMapBenchmark({
+    baseUrl: "http://127.0.0.1:18449", regionIds: ["19"], resourceIds: ["28"],
+    tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2,
+    httpClient: { async request(url) {
+      if (url.endsWith("/health")) {
+        healthCalls += 1;
+        if (healthCalls === 3) releasePartition();
+        return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0 } } };
+      }
+      if (url.includes("/tiles/")) return { status: 200, durationMs: 20, bytes: 100, json: null };
+      if (healthCalls < 3) await probesContinued;
+      return { status: 200, durationMs: 40, bytes: 100, json: { resources: [], complete: true, nextCursor: null, layerAvailability: { status: "live" } } };
+    } },
+    sseClient: { async open() { return { status: 200, close() {} }; } },
+    verifyReleaseLifecycle: false,
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(healthCalls >= 3, `expected probes beyond the minimum iteration count, got ${healthCalls}`);
+});
+
+test("benchmark observes resource subscriptions become idle and then close after stream release", async () => {
+  let streamClosed = false;
+  let releaseHealthCalls = 0;
+  const result = await benchmarkModule.runNativeMapBenchmark({
+    baseUrl: "http://127.0.0.1:18449", regionIds: ["19"], resourceIds: ["28"],
+    tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2,
+    releaseDeadlineMs: 100, releasePollMs: 1,
+    httpClient: { async request(url) {
+      if (url.endsWith("/health")) {
+        if (!streamClosed) return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0, activeResourceSubscriptionCount: 1, idleRetainedResourceSubscriptionCount: 0 } } };
+        releaseHealthCalls += 1;
+        return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0, activeResourceSubscriptionCount: 0, idleRetainedResourceSubscriptionCount: releaseHealthCalls === 1 ? 1 : 0 } } };
+      }
+      if (url.includes("/tiles/")) return { status: 200, durationMs: 20, bytes: 100, json: null };
+      return { status: 200, durationMs: 40, bytes: 100, json: { resources: [], complete: true, nextCursor: null, layerAvailability: { status: "live" } } };
+    } },
+    sseClient: { async open() { return { status: 200, close() { streamClosed = true; } }; } },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.samples.releaseActiveObserved, true);
+  assert.equal(result.samples.releaseIdleObserved, true);
+  assert.equal(result.samples.releaseClosedObserved, true);
+});
+
+test("benchmark rejects repeated resource pagination cursors without unbounded requests", async () => {
+  let resourceRequests = 0;
+  const result = await benchmarkModule.runNativeMapBenchmark({
+    baseUrl: "http://127.0.0.1:18449", regionIds: ["19"], resourceIds: ["28"],
+    tilePath: "/api/local/map/tiles/terrain/-5/0/-1.webp", iterations: 2,
+    httpClient: { async request(url) {
+      if (url.endsWith("/health")) return { status: 200, durationMs: 20, bytes: 50, json: { resources: { queueDepth: 0 } } };
+      if (url.includes("/tiles/")) return { status: 200, durationMs: 20, bytes: 100, json: null };
+      resourceRequests += 1;
+      return { status: 200, durationMs: 40, bytes: 100, json: { resources: [], complete: false, nextCursor: "same", layerAvailability: { status: "live" } } };
+    } },
+    sseClient: { async open() { return { status: 200, close() {} }; } },
+    verifyReleaseLifecycle: false,
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join(" "), /unexpected|completed/i);
+  assert.equal(resourceRequests, 3, "two bounded partition pages plus the separate warm reselect");
 });
 
 test("streaming map routes are excluded from completion-latency distributions", () => {

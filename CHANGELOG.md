@@ -15,6 +15,8 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 - Improved native map resource loading so dense selections page progressively across every Relay-ready region without a global 50,000-node limit.
 - Moved slow-changing terrain, water, and roads to verified pre-generated tile packs with atomic last-good installation and off-peak schedules.
+- Changed application deployments to preserve the installed map packs; full-world terrain and road generators now activate replacements independently after complete validation.
+- Added a protected full-world map generation workflow that runs terrain and roads sequentially under systemd memory limits, verifies both packs, and then enables their off-peak schedules.
 - Added aggregate map performance and reliability diagnostics for tiles, resource partitions, queue pressure, and generation latency without exposing tracked selections or coordinates.
 
 ### Fixed
@@ -22,6 +24,7 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 - Fixed full-world terrain and road coverage so zoomed-out maps remain detailed without generating tiles during normal web requests.
 - Fixed resource generation processing to normalize each regional update once and retain usable partitions while other regions continue loading.
 - Prevented invalid tile-pack pointers, failed generations, and overloaded resource subscriptions from replacing last-good map data.
+- Prevented incomplete bundled maps, schema-mismatched resource regions, malformed tile manifests, and incomplete road joins from being advertised or activated.
 
 ## [0.55.0-beta.6] - 2026-08-13
 

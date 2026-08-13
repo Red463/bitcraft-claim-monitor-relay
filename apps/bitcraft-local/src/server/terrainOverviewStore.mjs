@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { createTerrainTileStore } from "./terrainTileStore.mjs";
+import { canonicalMapRegionIds } from "./mapRegionIds.mjs";
 
 function unionBounds(manifests) {
   const bounds = manifests.map((manifest) => manifest?.bounds).filter(Boolean);
@@ -72,7 +73,7 @@ export function createTerrainOverviewStore({ dataDir }) {
         generation: String(Date.parse(generatedAt ?? "") || 1),
         generatedAt,
         observedAt: manifests.map(({ observedAt }) => observedAt).filter(Boolean).sort().at(0) ?? null,
-        regionIds: [...new Set(manifests.flatMap(({ regionIds = [] }) => regionIds.map(String)))].sort((left, right) => Number(left) - Number(right)),
+        regionIds: canonicalMapRegionIds(manifests.flatMap(({ regionIds = [] }) => regionIds)),
         dimension: "1",
         bounds: unionBounds(manifests),
         zoomRange: { min: -5, max: -2 },

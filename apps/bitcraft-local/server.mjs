@@ -641,6 +641,7 @@ const relayMapResourceRuntime = new RelayMapResourceRuntime({
   }),
 });
 const relayMapResourceReadiness = new RelayMapResourceReadiness({
+  manifest: relayBindingManifest,
   runtime: relayMapResourceRuntime,
 });
 const mapResourceCursorCodec = createMapResourceCursorCodec(randomBytes(32));

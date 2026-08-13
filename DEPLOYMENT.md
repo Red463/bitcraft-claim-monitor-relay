@@ -348,6 +348,15 @@ To deploy:
    remains on the host for an authorized operator and is not copied into
    GitHub output.
 
+Application deployment preserves the currently installed native-map terrain
+and road packs. After deploying a revision that changes map generation, run
+**Generate native map packs** from `main` and approve the same protected
+`relay-preview` environment. That workflow invokes only the restricted updater,
+runs terrain and roads sequentially through their memory-limited systemd units,
+validates complete zoom `-5..0` manifests, and enables the weekly terrain and
+daily road timers only after both packs pass. A failed generation leaves the
+previous pointers active.
+
 Break-glass use of the same exact revision:
 
 ```sh

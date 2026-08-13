@@ -2,15 +2,13 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { canonicalMapRegionIds, compareMapRegionIds } from "./mapRegionIds.mjs";
+
 const HASH = /^[a-f0-9]{64}$/;
 const SAFE_STYLE = /^[a-z][a-z0-9-]{0,63}$/;
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function numericStrings(values) {
-  return [...new Set(values.map(String))].sort((left, right) => Number(left) - Number(right) || left.localeCompare(right));
 }
 
 function within(parent, child) {
@@ -75,19 +73,26 @@ async function readBatch(batchRoot, allowedStyles) {
   const files = [];
   for (const file of manifest.files) {
     const coordinates = tileCoordinates(file?.path, allowedStyles);
-    if (!coordinates) continue;
+    if (!coordinates) throw new TypeError(`Map tile input manifest file path is invalid: ${file?.path}`);
     if (!Number.isSafeInteger(file.bytes) || file.bytes <= 0 || !HASH.test(String(file.sha256 ?? ""))) throw new TypeError(`Map tile input file metadata is invalid: ${file?.path}`);
     const absolutePath = path.resolve(versionRoot, ...file.path.split("/"));
     if (!within(versionRoot, absolutePath)) throw new TypeError(`Map tile input path escapes its version: ${file.path}`);
     files.push({ ...coordinates, absolutePath, bytes: file.bytes, sha256: file.sha256 });
   }
+  if (!Number.isSafeInteger(manifest.tileCount) || manifest.tileCount !== files.length) {
+    throw new Error(`Map tile input manifest tile count differs from accepted files: ${batchRoot}`);
+  }
+  const acceptedBytes = files.reduce((total, file) => total + file.bytes, 0);
+  if (!Number.isSafeInteger(manifest.totalBytes) || manifest.totalBytes !== acceptedBytes) {
+    throw new Error(`Map tile input manifest byte total differs from accepted files: ${batchRoot}`);
+  }
   return { root: path.resolve(batchRoot), versionRoot, manifest, manifestHash, files };
 }
 
 function batchOrder(left, right) {
-  const leftRegions = numericStrings(left.manifest.regionIds);
-  const rightRegions = numericStrings(right.manifest.regionIds);
-  return Number(leftRegions[0]) - Number(rightRegions[0])
+  const leftRegions = canonicalMapRegionIds(left.manifest.regionIds);
+  const rightRegions = canonicalMapRegionIds(right.manifest.regionIds);
+  return compareMapRegionIds(leftRegions[0], rightRegions[0])
     || leftRegions.join(",").localeCompare(rightRegions.join(","), undefined, { numeric: true })
     || left.root.localeCompare(right.root);
 }
@@ -135,7 +140,7 @@ export async function composeMapTilePack({ batchRoots, outputRoot, product, expe
   if (typeof product !== "string" || !SAFE_STYLE.test(product)) throw new TypeError("Map tile composition requires a safe product");
   const allowedStyles = new Set(styles ?? []);
   if (!allowedStyles.size || [...allowedStyles].some((style) => typeof style !== "string" || !SAFE_STYLE.test(style))) throw new TypeError("Map tile composition requires safe styles");
-  const expected = numericStrings(expectedRegionIds ?? []);
+  const expected = canonicalMapRegionIds(expectedRegionIds ?? []);
   if (!expected.length) throw new TypeError("Map tile composition requires expected regions");
   if (!/^\d+$/.test(String(manifestBase?.generation ?? ""))) throw new TypeError("Map tile composition requires a decimal generation");
   const generatedAt = new Date(manifestBase.generatedAt ?? Date.now());
@@ -146,7 +151,7 @@ export async function composeMapTilePack({ batchRoots, outputRoot, product, expe
   if (!within(resolvedOutputRoot, stagedVersionDir)) throw new TypeError("Map tile composition staging path escapes output root");
 
   const batches = (await Promise.all(batchRoots.map((batchRoot) => readBatch(batchRoot, allowedStyles)))).sort(batchOrder);
-  const actual = numericStrings(batches.flatMap(({ manifest }) => manifest.regionIds));
+  const actual = canonicalMapRegionIds(batches.flatMap(({ manifest }) => manifest.regionIds));
   for (const regionId of expected) if (!actual.includes(regionId)) throw new Error(`Map tile composition is missing region ${regionId}`);
   for (const regionId of actual) if (!expected.includes(regionId)) throw new Error(`Map tile composition includes unexpected region ${regionId}`);
 
@@ -207,7 +212,7 @@ export async function composeMapTilePack({ batchRoots, outputRoot, product, expe
       waterTypes: manifestBase.waterTypes ?? [...new Set(batches.flatMap(({ manifest }) => manifest.waterTypes ?? []))].sort(),
       channels: manifestBase.channels ?? channelTotals,
       files,
-      sources: batches.map(({ manifest, manifestHash }) => ({ regionIds: numericStrings(manifest.regionIds), generation: String(manifest.generation), manifestHash })),
+      sources: batches.map(({ manifest, manifestHash }) => ({ regionIds: canonicalMapRegionIds(manifest.regionIds), generation: String(manifest.generation), manifestHash })),
     };
     const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const manifestHash = sha256(manifestBytes);

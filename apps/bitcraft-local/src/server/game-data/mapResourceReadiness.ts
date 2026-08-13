@@ -1,4 +1,7 @@
 import { discoverRelayTopology, type RelayTopology } from "./topology.ts";
+import { assertSchemaFingerprint } from "./schemaManifest.ts";
+
+type BindingManifest = Parameters<typeof assertSchemaFingerprint>[0];
 
 export type MapResourceRegionCatalog = {
   provider: "relay";
@@ -25,6 +28,7 @@ type Runtime = {
 };
 
 type Dependencies = {
+  manifest: BindingManifest;
   runtime: Runtime;
   discoverTopology?: (baseUrl: string) => Promise<RelayTopology>;
   now?: () => number;
@@ -77,6 +81,7 @@ function errorMessage(error: unknown) {
 }
 
 export class RelayMapResourceReadiness {
+  readonly #manifest: BindingManifest;
   readonly #runtime: Runtime;
   readonly #discoverTopology: (baseUrl: string) => Promise<RelayTopology>;
   readonly #now: () => number;
@@ -87,6 +92,7 @@ export class RelayMapResourceReadiness {
   #inflight: { key: string; promise: Promise<MapResourceRegionCatalog> } | null = null;
 
   constructor(dependencies: Dependencies) {
+    this.#manifest = dependencies.manifest;
     this.#runtime = dependencies.runtime;
     this.#discoverTopology = dependencies.discoverTopology ?? discoverRelayTopology;
     this.#now = dependencies.now ?? Date.now;
@@ -116,9 +122,17 @@ export class RelayMapResourceReadiness {
   async #refresh(input: ReturnType<typeof normalizedInput>): Promise<MapResourceRegionCatalog> {
     try {
       const topology = await this.#discoverTopology(input.relayBaseUrl);
-      const regionIds = decimalList([...topology.regions.entries()].flatMap(([regionId, source]) => (
-        source.ready && String(source.schemaFingerprint ?? "").trim() ? [regionId] : []
-      )), "Map resource ready region id");
+      const warnings: string[] = [];
+      const regionIds = decimalList([...topology.regions.entries()].flatMap(([regionId, source]) => {
+        if (!source.ready) return [];
+        try {
+          assertSchemaFingerprint(this.#manifest, "regional", String(source.schemaFingerprint ?? ""));
+          return [regionId];
+        } catch (error) {
+          warnings.push(`Relay map resource region ${regionId} ${errorMessage(error)}.`);
+          return [];
+        }
+      }), "Map resource ready region id");
       await this.#runtime.reconcile({
         relayBaseUrl: input.relayBaseUrl,
         primaryRegionId: input.primaryRegionId,
@@ -128,7 +142,7 @@ export class RelayMapResourceReadiness {
         regionIds,
         regionIds.length ? "live" : "unavailable",
         topology.discoveredAt ?? new Date(this.#now()).toISOString(),
-        regionIds.length ? [] : ["No Relay regional source is currently schema-ready."],
+        regionIds.length ? warnings : [...warnings, "No Relay regional source is currently schema-ready."],
       );
       this.#lastGood = catalog;
       this.#lastKey = input.key;
@@ -138,7 +152,7 @@ export class RelayMapResourceReadiness {
       const warning = `Relay map resource readiness is stale: ${errorMessage(error)}`;
       const fallbackIds = this.#lastGood && this.#lastKey === input.key
         ? this.#lastGood.regionIds
-        : input.configuredRegionIds;
+        : [];
       const degraded = catalogFor(fallbackIds, fallbackIds.length ? "stale" : "unavailable", this.#lastGood?.generatedAt ?? null, [warning]);
       this.#lastGood = degraded;
       this.#lastKey = input.key;

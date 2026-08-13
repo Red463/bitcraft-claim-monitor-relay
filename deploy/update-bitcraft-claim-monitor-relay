@@ -23,6 +23,10 @@ WEB_SERVICE="${WEB_SERVICE:-bitcraft-claim-monitor-relay.service}"
 WORKER_SERVICE="${WORKER_SERVICE:-bitcraft-claim-monitor-relay-worker.service}"
 COLLECTOR_TIMER="${COLLECTOR_TIMER:-bitcraft-claim-monitor-relay-collector.timer}"
 BACKUP_TIMER="${BACKUP_TIMER:-bitcraft-claim-monitor-relay-backup.timer}"
+MAP_TERRAIN_SERVICE="${MAP_TERRAIN_SERVICE:-bitcraft-claim-monitor-relay-map-terrain.service}"
+MAP_TERRAIN_TIMER="${MAP_TERRAIN_TIMER:-bitcraft-claim-monitor-relay-map-terrain.timer}"
+MAP_ROADS_SERVICE="${MAP_ROADS_SERVICE:-bitcraft-claim-monitor-relay-map-roads.service}"
+MAP_ROADS_TIMER="${MAP_ROADS_TIMER:-bitcraft-claim-monitor-relay-map-roads.timer}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:19430/api/local/health}"
 PUBLIC_URL="${PUBLIC_URL:-https://relay.timbersteeltrade.com}"
 LOG_DIR="${LOG_DIR:-/var/log/bitcraft-claim-monitor-relay}"
@@ -38,6 +42,8 @@ CUTOVER_CONFIRMATION_SEEN=0
 CUTOVER_MANIFEST_HASH=""
 CUTOVER_MANIFEST_HASH_SEEN=0
 SKIP_CUTOVER_SOAK=0
+MAP_GENERATION_MODE=""
+MAP_GENERATION_MODE_SEEN=0
 HEALTH_SUMMARY="Health: not checked"
 PUBLIC_SUMMARY="Public: skipped"
 deployment_succeeded=0
@@ -56,6 +62,7 @@ Usage: update-bitcraft-claim-monitor-relay --revision <full-sha> [--verbose] [--
        update-bitcraft-claim-monitor-relay --revision <full-sha> --prepare-cutover --confirmation app.timbersteeltrade.com
        update-bitcraft-claim-monitor-relay --revision <full-sha> --apply-cutover --manifest-hash <64hex> [--skip-soak]
        update-bitcraft-claim-monitor-relay --revision <full-sha> --abort-cutover --manifest-hash <64hex>
+       update-bitcraft-claim-monitor-relay --revision <full-sha> --generate-map all
 
   --revision <sha>  Deploy this full lowercase commit SHA from origin/main.
   --verbose         Stream install/build output while also logging it.
@@ -65,6 +72,7 @@ Usage: update-bitcraft-claim-monitor-relay --revision <full-sha> [--verbose] [--
   --apply-cutover   Apply the matching prepared cutover.
   --abort-cutover   Restore the matching prepared cutover before admission.
   --skip-soak       Explicitly skip the timed post-admission soak during apply.
+  --generate-map    Generate terrain then roads for the active revision and enable their timers.
 USAGE
 }
 
@@ -115,6 +123,13 @@ parse_args() {
         SKIP_CUTOVER_SOAK=1
         shift
         ;;
+      --generate-map)
+        [[ $# -ge 2 ]] || { echo "--generate-map requires a value."; exit 2; }
+        [[ "$MAP_GENERATION_MODE_SEEN" == "0" && "$2" == "all" ]] || { echo "--generate-map accepts exactly 'all' once."; exit 2; }
+        MAP_GENERATION_MODE_SEEN=1
+        MAP_GENERATION_MODE="$2"
+        shift 2
+        ;;
       -h|--help)
         usage
         exit 0
@@ -162,6 +177,34 @@ parse_args() {
     echo "Unknown or mixed cutover mode."
     exit 2
   fi
+  if [[ -n "$MAP_GENERATION_MODE" && ( -n "$CUTOVER_MODE" || "$VERBOSE" == "1" || "$SKIP_PUBLIC_CHECK" == "1" || "$FORCE_BACKUP" == "1" ) ]]; then
+    echo "Unknown or mixed map generation mode."
+    exit 2
+  fi
+}
+
+start_and_wait_for_map_generation() {
+  local service="$1"
+  run_logged "Running $service" systemctl start "$service"
+}
+
+generate_native_map_packs() {
+  local current_revision
+  current_revision="$(basename "$(readlink -f "$CURRENT_LINK")")"
+  [[ "$current_revision" == "$REVISION" ]] || {
+    printf "Active revision %s does not match requested map revision %s.\n" "$current_revision" "$REVISION" >&2
+    return 1
+  }
+  start_and_wait_for_map_generation "$MAP_TERRAIN_SERVICE"
+  run_logged "Validating terrain map pack" node \
+    "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
+    --data-dir "$DATA_DIR" --product terrain
+  start_and_wait_for_map_generation "$MAP_ROADS_SERVICE"
+  run_logged "Validating road map pack" node \
+    "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
+    --data-dir "$DATA_DIR" --product roads
+  systemctl enable --now "$MAP_TERRAIN_TIMER" "$MAP_ROADS_TIMER" >>"$LOG_FILE" 2>&1
+  printf "Native map terrain and roads generated, validated, and scheduled.\n"
 }
 
 delegate_cutover_mode() {
@@ -682,50 +725,6 @@ install_release_config() {
   systemctl daemon-reload
 }
 
-install_native_map_bundle() {
-  local release_dir="$1"
-  local bundle="$release_dir/deploy/native-map-static-bundle.tar.gz"
-  local staging_root="$DATA_DIR/.map-install-$REVISION"
-  local entry
-  [[ -f "$bundle" && ! -L "$bundle" ]] || {
-    printf "Native map static bundle is missing: %s\n" "$bundle" >&2
-    return 1
-  }
-  while IFS= read -r entry; do
-    [[ -n "$entry" \
-      && "$entry" != /* \
-      && "$entry" != *\\* \
-      && "$entry" != ../* \
-      && "$entry" != */../* \
-      && ( "$entry" == map-overview/* || "$entry" == map-tiles/* || "$entry" == map-road-tiles/* ) ]] || {
-      printf "Native map static bundle contains an unsafe path: %s\n" "$entry" >&2
-      return 1
-    }
-  done < <(tar -tzf "$bundle")
-  tar -tvzf "$bundle" | awk 'substr($1, 1, 1) != "d" && substr($1, 1, 1) != "-" { exit 1 }' || {
-    printf "Native map static bundle contains links or special files.\n" >&2
-    return 1
-  }
-  [[ ! -e "$staging_root" && ! -L "$staging_root" ]] || {
-    printf "Native map staging path already exists: %s\n" "$staging_root" >&2
-    return 1
-  }
-  install -d -o "$RUN_USER" -g "$RUN_USER" -m 0750 "$staging_root"
-  if ! run_logged "Staging native map static bundle" \
-    sudo -u "$RUN_USER" tar --no-same-owner --no-same-permissions -xzf "$bundle" -C "$staging_root"; then
-    rm -rf -- "$staging_root"
-    return 1
-  fi
-  if ! run_logged "Installing native map static bundle" \
-    sudo -u "$RUN_USER" env BITCRAFT_LOCAL_DATA_DIR="$DATA_DIR" node \
-      "$release_dir/apps/bitcraft-local/scripts/install-native-map-bundle.mjs" \
-      --source "$staging_root" --data-dir "$DATA_DIR" --revision "$REVISION"; then
-    rm -rf -- "$staging_root"
-    return 1
-  fi
-  rm -rf -- "$staging_root"
-}
-
 prune_releases() {
   local active_path
   active_path="$(readlink -f "$1")"
@@ -820,6 +819,10 @@ main() {
   flock -n 9 || { echo "Another deployment is already running."; exit 1; }
   initialize_log
   printf "Full log: %s\n" "$LOG_FILE"
+  if [[ "$MAP_GENERATION_MODE" == "all" ]]; then
+    generate_native_map_packs
+    return
+  fi
   local deploy_started prepare_finished cutover_started cutover_finished
   deploy_started="$(date +%s)"
 
@@ -839,7 +842,6 @@ main() {
   backup_kind="$(schema_backup_kind "$previous_release" "$release_dir")"
   create_required_backup "$backup_kind"
   install_release_config "$release_dir"
-  install_native_map_bundle "$release_dir"
   prepare_finished="$(date +%s)"
   cutover_started="$prepare_finished"
   atomic_switch "$release_dir"

@@ -23,7 +23,7 @@ async function solidTile({ r, g, b, alpha = 1 }) {
   return sharp({ create: { width: 4, height: 4, channels: 4, background: { r, g, b, alpha } } }).webp({ lossless: true }).toBuffer();
 }
 
-async function batchFixture(parent, name, { regionId, tile, style = "terrain", x = 0 }) {
+async function batchFixture(parent, name, { regionId, tile, style = "terrain", x = 0, extraFiles = [] }) {
   const root = path.join(parent, name);
   const version = `g-${regionId}`;
   const versionRoot = path.join(root, "versions", version);
@@ -42,7 +42,7 @@ async function batchFixture(parent, name, { regionId, tile, style = "terrain", x
     zoomRange: { min: -5, max: 0 },
     tileCount: 1,
     totalBytes: tile.byteLength,
-    files: [{ path: relativeTilePath, bytes: tile.byteLength, sha256: sha256(tile) }],
+    files: [{ path: relativeTilePath, bytes: tile.byteLength, sha256: sha256(tile) }, ...extraFiles],
   };
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   const manifestHash = sha256(manifestBytes);
@@ -117,4 +117,21 @@ test("missing expected region prevents output", async () => {
     styles: ["terrain"],
     manifestBase: { provider: "relay", generation: "102", generatedAt: "2026-08-13T01:00:00.000Z", dimension: "1" },
   }), /missing region 19/i);
+});
+
+test("malformed manifest file entries reject the complete batch instead of producing a partial pack", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "bitcraft-map-compose-invalid-"));
+  const north = await batchFixture(workspace, "north", {
+    regionId: "3",
+    tile: await solidTile({ r: 1, g: 2, b: 3 }),
+    extraFiles: [{ path: "tiles/terrain/-5/not-a-tile.webp", bytes: 1, sha256: "a".repeat(64) }],
+  });
+  await assert.rejects(composerModule.composeMapTilePack({
+    batchRoots: [north],
+    outputRoot: path.join(workspace, "output"),
+    product: "terrain",
+    expectedRegionIds: ["3"],
+    styles: ["terrain"],
+    manifestBase: { provider: "relay", generation: "103", generatedAt: "2026-08-13T01:00:00.000Z", dimension: "1" },
+  }), /manifest file path is invalid/i);
 });

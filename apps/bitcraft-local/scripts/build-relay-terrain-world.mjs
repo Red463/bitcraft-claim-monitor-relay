@@ -2,10 +2,12 @@ import { mkdir, readFile, rm, mkdtemp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
+
 function canonicalRegions(values) {
-  const regions = [...new Set(values.map((value) => String(value ?? "").trim()))];
-  if (!regions.length || regions.some((regionId) => !/^\d+$/.test(regionId))) throw new TypeError("Terrain world generation requires decimal region IDs");
-  return regions.sort((left, right) => Number(left) - Number(right));
+  const regions = canonicalMapRegionIds(values);
+  if (!regions.length) throw new TypeError("Terrain world generation requires decimal region IDs");
+  return regions;
 }
 
 function boundedBatchSize(value) {
@@ -25,6 +27,7 @@ export async function runTerrainWorldGeneration({
   buildBatch,
   compose,
   install,
+  prune = async () => {},
   generation = String(Date.now()),
   generatedAt = new Date().toISOString(),
 }) {
@@ -55,6 +58,7 @@ export async function runTerrainWorldGeneration({
     },
   });
   const manifest = await install(candidate);
+  await prune();
   return { manifest, batches: built.map(({ manifest: value }) => value) };
 }
 
@@ -153,6 +157,7 @@ export async function runTerrainWorldCli() {
         version: path.basename(candidate.stagedVersionDir).replace(/^\.staging-/, ""),
         manifestHash: candidate.manifestHash,
       }),
+      prune: () => outputStore.prune({ graceMs: 24 * 60 * 60_000, keepGenerations: 2 }),
     });
     console.log(JSON.stringify({ ok: true, dataDir, manifest: result.manifest, batches: result.batches }, null, 2));
     return result.manifest;

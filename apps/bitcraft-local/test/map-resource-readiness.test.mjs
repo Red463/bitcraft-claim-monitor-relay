@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { RelayMapResourceReadiness } from "../src/server/game-data/mapResourceReadiness.ts";
 
+const manifest = {
+  schemas: { regional: { fingerprint: "regional-v1", bindingsGenerated: true } },
+};
+
 const input = {
   relayBaseUrl: "https://relay.example/",
   primaryRegionId: "19",
@@ -18,7 +22,7 @@ function topology(regionIds = ["3", "19"]) {
       sourceKey: `region:${regionId}`,
       database: `relay-region-${regionId}`,
       port: 4000 + Number(regionId),
-      schemaFingerprint: `schema-${regionId}`,
+      schemaFingerprint: "regional-v1",
       ready: true,
     }])),
   };
@@ -27,6 +31,7 @@ function topology(regionIds = ["3", "19"]) {
 test("web readiness configures every schema-ready resource region without worker jobs", async () => {
   const reconciliations = [];
   const readiness = new RelayMapResourceReadiness({
+    manifest,
     discoverTopology: async () => topology(),
     runtime: { reconcile: async (value) => reconciliations.push(value) },
     now: () => 1_000,
@@ -49,6 +54,7 @@ test("concurrent readiness callers share one topology discovery and reconciliati
   const discovery = new Promise((resolve) => { releaseDiscovery = () => resolve(topology()); });
   const reconciliations = [];
   const readiness = new RelayMapResourceReadiness({
+    manifest,
     discoverTopology: async () => { discoveryCalls += 1; return discovery; },
     runtime: { reconcile: async (value) => reconciliations.push(value) },
     now: () => 1_000,
@@ -68,6 +74,7 @@ test("expired discovery failure returns stale last-good regions instead of empty
   let now = 1_000;
   let shouldFail = false;
   const readiness = new RelayMapResourceReadiness({
+    manifest,
     discoverTopology: async () => {
       if (shouldFail) throw new Error("Relay health timed out");
       return topology(["19", "24"]);
@@ -88,8 +95,9 @@ test("expired discovery failure returns stale last-good regions instead of empty
   assert.equal(readiness.catalog(), degraded);
 });
 
-test("initial discovery failure exposes only configured fallback regions as stale", async () => {
+test("initial discovery failure advertises no unverified regions", async () => {
   const readiness = new RelayMapResourceReadiness({
+    manifest,
     discoverTopology: async () => { throw new Error("Relay unavailable"); },
     runtime: { reconcile: async () => {} },
     now: () => 1_000,
@@ -97,7 +105,25 @@ test("initial discovery failure exposes only configured fallback regions as stal
 
   const catalog = await readiness.ensure(input);
 
-  assert.deepEqual(catalog.regionIds, ["3", "19", "24"]);
-  assert.equal(catalog.freshness, "stale");
+  assert.deepEqual(catalog.regionIds, []);
+  assert.equal(catalog.freshness, "unavailable");
   assert.match(catalog.warnings.join(" "), /unavailable/i);
+});
+
+test("schema-mismatched regions are not advertised or reconciled", async () => {
+  const discovered = topology(["3", "19"]);
+  discovered.regions.get("3").schemaFingerprint = "unexpected";
+  const reconciliations = [];
+  const readiness = new RelayMapResourceReadiness({
+    manifest,
+    discoverTopology: async () => discovered,
+    runtime: { reconcile: async (value) => reconciliations.push(value) },
+    now: () => 1_000,
+  });
+
+  const catalog = await readiness.ensure(input);
+
+  assert.deepEqual(catalog.regionIds, ["19"]);
+  assert.deepEqual(reconciliations[0].activeRegionIds, ["19"]);
+  assert.match(catalog.warnings.join(" "), /region 3.*fingerprint mismatch/i);
 });

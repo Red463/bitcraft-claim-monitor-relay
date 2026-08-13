@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const workflowUrl = new URL("../../.github/workflows/deploy-relay-preview.yml", import.meta.url);
+const generationWorkflowUrl = new URL("../../.github/workflows/generate-native-map.yml", import.meta.url);
 const deploymentUrl = new URL("../../DEPLOYMENT.md", import.meta.url);
 
 const workflow = readFileSync(workflowUrl, "utf8");
+const generationWorkflow = readFileSync(generationWorkflowUrl, "utf8");
 const deployment = readFileSync(deploymentUrl, "utf8");
 
 const maintainedTargets = [
@@ -83,10 +85,19 @@ test("workflow supports explicit backups and long-running SSH keepalives", () =>
   assert.match(workflow, /FORCE_DATABASE_BACKUP/);
 });
 
-test("workflow provisions the slow-changing native map artifacts and reloads the web reader", () => {
-  assert.match(workflow, /Validate native map static bundle[\s\S]*tar -tzf deploy\/native-map-static-bundle\.tar\.gz/);
-  assert.doesNotMatch(workflow, /Install native map terrain and roads|native-map-static-bundle-\$\{GITHUB_SHA\}/);
+test("workflow preserves slow-changing native map packs for independent validated generators", () => {
+  assert.doesNotMatch(workflow, /native-map-static-bundle\.tar\.gz/);
+  assert.doesNotMatch(workflow, /Install native map terrain and roads/);
   assert.doesNotMatch(workflow, /build-relay-terrain-overview\.mjs|BITCRAFT_INSTALL_ROAD_TILES=true/);
+});
+
+test("protected native map generation runs sequentially through the restricted updater", () => {
+  assert.match(generationWorkflow, /workflow_dispatch:/);
+  assert.match(generationWorkflow, /GITHUB_REF.*refs\/heads\/main/);
+  assert.match(generationWorkflow, /environment: relay-preview/);
+  assert.match(generationWorkflow, /timeout-minutes: 360/);
+  assert.match(generationWorkflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --generate-map all/);
+  assert.doesNotMatch(generationWorkflow, /systemctl start|build-relay-terrain-world|build-relay-road-world/);
 });
 
 test("active deployment paths never target the maintained application", () => {
