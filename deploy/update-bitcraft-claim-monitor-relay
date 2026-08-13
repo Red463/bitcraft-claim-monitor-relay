@@ -196,13 +196,16 @@ generate_native_map_packs() {
     return 1
   }
   start_and_wait_for_map_generation "$MAP_TERRAIN_SERVICE"
-  run_logged "Validating terrain map pack" node \
+  run_logged "Validating terrain map pack" sudo -u "$RUN_USER" node \
     "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
     --data-dir "$DATA_DIR" --product terrain
   start_and_wait_for_map_generation "$MAP_ROADS_SERVICE"
-  run_logged "Validating road map pack" node \
+  run_logged "Validating road map pack" sudo -u "$RUN_USER" node \
     "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
     --data-dir "$DATA_DIR" --product roads
+  run_logged "Validating served native map" sudo -u "$RUN_USER" node \
+    "$CURRENT_LINK/apps/bitcraft-local/scripts/verify-native-map-pack.mjs" \
+    --data-dir "$DATA_DIR" --serve-base-url "http://127.0.0.1:19430"
   systemctl enable --now "$MAP_TERRAIN_TIMER" "$MAP_ROADS_TIMER" >>"$LOG_FILE" 2>&1
   printf "Native map terrain and roads generated, validated, and scheduled.\n"
 }
