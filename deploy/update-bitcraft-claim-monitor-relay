@@ -816,6 +816,9 @@ print_failure_summary() {
 main() {
   [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run this script as root."; exit 1; }
   parse_args "$@"
+  if [[ "$MAP_GENERATION_MODE" == "all" && "$APP_ROOT" == "/opt/bitcraft-claim-monitor-relay" ]]; then
+    DATA_DIR="/var/lib/bitcraft-claim-monitor-relay"
+  fi
   if [[ -n "$CUTOVER_MODE" ]]; then
     delegate_cutover_mode
   fi

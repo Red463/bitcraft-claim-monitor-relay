@@ -71,6 +71,7 @@ test("Relay updater exposes a revision-pinned sequential native map generation m
   assert.match(script, /sudo -u "\$RUN_USER" node[\s\S]*--serve-base-url "http:\/\/127\.0\.0\.1:19430"/);
   assert.match(script, /Validating served native map[\s\S]*systemctl enable --now/);
   assert.match(script, /Reporting native map serving diagnostics[\s\S]*diagnose-native-map-serving\.mjs/);
+  assert.match(script, /MAP_GENERATION_MODE.*all[\s\S]*APP_ROOT.*\/opt\/bitcraft-claim-monitor-relay[\s\S]*DATA_DIR="\/var\/lib\/bitcraft-claim-monitor-relay"/);
   assert.match(script, /systemctl enable --now "\$MAP_TERRAIN_TIMER" "\$MAP_ROADS_TIMER"/);
 });
 

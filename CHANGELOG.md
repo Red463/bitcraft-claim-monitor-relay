@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.11] - 2026-08-14
+
+### Fixed
+
+- Fixed protected terrain and road generation so production validators cannot inherit a different data directory from the web service and generation units.
+
 ## [0.55.0-beta.10] - 2026-08-14
 
 ### Fixed
