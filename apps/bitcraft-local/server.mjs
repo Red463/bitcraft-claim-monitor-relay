@@ -176,6 +176,7 @@ import {
   RelayMapSpatialScopeManager,
   mapSpatialScopeKey,
   RelayMapResourceRuntime,
+  RelayMapResourceReadiness,
   mapResourceScopeKey,
   sanitizedMapResourceHealth,
   RelayStorageActivityService,
@@ -635,6 +636,9 @@ const relayMapResourceRuntime = new RelayMapResourceRuntime({
     changedDomains: ["map-resources"],
     mapResourceScopeKey: mapResourceScopeKey(snapshot.regionId, snapshot.resourceId),
   }),
+});
+const relayMapResourceReadiness = new RelayMapResourceReadiness({
+  runtime: relayMapResourceRuntime,
 });
 const mapResourceCursorCodec = createMapResourceCursorCodec(randomBytes(32));
 const relayMarketTransitionWriter = createRelayMarketTransitionWriter(db, {
@@ -5984,11 +5988,38 @@ function configuredRegionalMarketRegionIds(claimId) {
 }
 
 function currentMapResourceRegions(claimId) {
-  return mapResourceRegionCatalog({
+  const fallback = mapResourceRegionCatalog({
     providerHealth: gameDataProviderHealth(),
     regionSnapshot: currentStateRepository.read(claimId, "region"),
     fallbackRegionIds: configuredRegionalMarketRegionIds(claimId),
   });
+  const readiness = relayMapResourceReadiness.catalog();
+  if (!readiness) return fallback;
+  const names = new Map(fallback.regions.map((region) => [region.regionId, region.regionName]));
+  return {
+    ...readiness,
+    generatedAt: readiness.generatedAt ?? fallback.generatedAt,
+    regions: readiness.regions.map((region) => ({
+      ...region,
+      regionName: names.get(region.regionId) ?? region.regionName,
+    })),
+  };
+}
+
+async function ensureCurrentMapResourceRegions(claimId) {
+  const settings = getSettings();
+  const claim = currentStateRepository.read(claimId, "claim")?.data ?? {};
+  const configuredRegionIds = configuredRegionalMarketRegionIds(claimId);
+  const primaryRegionId = [
+    claim.regionId,
+    claim.region_id,
+    claim.region,
+    settings.defaultRegion,
+    configuredRegionIds[0],
+  ].map((value) => String(value ?? "").trim()).find((value) => /^\d+$/.test(value));
+  if (!primaryRegionId) return currentMapResourceRegions(claimId);
+  await relayMapResourceReadiness.ensure({ relayBaseUrl, primaryRegionId, configuredRegionIds });
+  return currentMapResourceRegions(claimId);
 }
 
 function currentMapResourceIds() {
@@ -8056,7 +8087,7 @@ const server = createServer(async (req, res) => {
       const access = mapRequestAccess(accessControlConfig(), accessControlSubject(req));
       if (!access.allowed) return send(res, 403, { error: access.reason || "Map access is restricted." });
       const claimId = currentClaimId();
-      const payload = currentMapResourceRegions(claimId);
+      const payload = await ensureCurrentMapResourceRegions(claimId);
       return send(res, payload.regionIds.length ? 200 : 503, payload);
     }
     if (req.method === "GET" && url.pathname === "/api/local/map/resources") {
@@ -8064,7 +8095,7 @@ const server = createServer(async (req, res) => {
       const access = mapRequestAccess(accessControlConfig(), accessControlSubject(req));
       if (!access.allowed) return send(res, 403, { error: access.reason || "Map access is restricted." });
       const claimId = currentClaimId();
-      const readyRegions = currentMapResourceRegions(claimId);
+      const readyRegions = await ensureCurrentMapResourceRegions(claimId);
       let scope;
       try {
         scope = parseMapResourcePartitionScope(url.searchParams, { allowedRegionIds: readyRegions.regionIds, allowedResourceIds: currentMapResourceIds() });
@@ -8099,7 +8130,7 @@ const server = createServer(async (req, res) => {
       const access = mapRequestAccess(accessControlConfig(), accessControlSubject(req));
       if (!access.allowed) return send(res, 403, { error: access.reason || "Map access is restricted." });
       const claimId = currentClaimId();
-      const readyRegions = currentMapResourceRegions(claimId);
+      const readyRegions = await ensureCurrentMapResourceRegions(claimId);
       let scope;
       try {
         scope = parseMapResourceSelectionScope(url.searchParams, { allowedRegionIds: readyRegions.regionIds, allowedResourceIds: currentMapResourceIds() });
@@ -8152,7 +8183,7 @@ const server = createServer(async (req, res) => {
       const access = mapRequestAccess(accessControlConfig(), accessControlSubject(req));
       if (!access.allowed) return send(res, 403, { error: access.reason || "Map access is restricted." });
       const claimId = currentClaimId();
-      const readyMapRegionIds = currentMapResourceRegions(claimId).regionIds;
+      const readyMapRegionIds = (await ensureCurrentMapResourceRegions(claimId)).regionIds;
       let scope;
       try {
         scope = parseMapScope(url.searchParams, {
@@ -9769,14 +9800,6 @@ function startBackgroundTasks() {
       const regionId = String(claim.regionId ?? getSettings().defaultRegion ?? "").trim();
       if (!regionId) {
         throw new Error("Relay regional sessions are waiting for a claim region");
-      }
-      {
-        const readyRegionIds = currentMapResourceRegions(claimId).regionIds;
-        await relayMapResourceRuntime.reconcile({
-          relayBaseUrl,
-          primaryRegionId: regionId,
-          activeRegionIds: parseRegionIds(`${regionId},${readyRegionIds.join(",")}`),
-        });
       }
       if (terrainLiveRebuildEnabled) try {
         const settings = getSettings();

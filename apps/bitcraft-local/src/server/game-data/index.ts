@@ -17,6 +17,7 @@ export * from "./http.ts";
 export * from "./inventoryProjection.ts";
 export * from "./marketProjection.ts";
 export * from "./mapResourceProjection.ts";
+export * from "./mapResourceReadiness.ts";
 export * from "./mapResourceRegionSession.ts";
 export * from "./mapResourceRuntime.ts";
 export * from "./mapSpatialProjection.ts";

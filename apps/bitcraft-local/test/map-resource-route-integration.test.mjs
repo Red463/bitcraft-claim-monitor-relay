@@ -309,6 +309,28 @@ test("server resource routes derive catalog validation before acquiring leases w
   assert.ok(server.indexOf("parseMapResourceSelectionScope") < server.indexOf("relayMapResourceRuntime.acquire({ regionId, resourceId })"));
 });
 
+test("every resource route authorizes before web readiness discovery or lease acquisition", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const routeMarkers = [
+    'url.pathname === "/api/local/map/regions"',
+    'url.pathname === "/api/local/map/resources"',
+    'url.pathname === "/api/local/map/resource-events"',
+    '["/api/local/map/snapshot", "/api/local/map/resources", "/api/local/map/events"].includes(url.pathname)',
+  ];
+  for (const marker of routeMarkers) {
+    const start = server.indexOf(marker);
+    assert.ok(start >= 0, marker);
+    const nextRoute = server.indexOf("if (req.method ===", start + marker.length);
+    const route = server.slice(start, nextRoute === -1 ? undefined : nextRoute);
+    const denied = route.indexOf("if (!access.allowed)");
+    const readiness = route.indexOf("ensureCurrentMapResourceRegions(claimId)");
+    assert.ok(denied >= 0, `${marker} must enforce Map access`);
+    assert.ok(readiness > denied, `${marker} must authorize before readiness discovery`);
+    const acquisition = route.indexOf("relayMapResourceRuntime.acquire");
+    if (acquisition >= 0) assert.ok(acquisition > readiness, `${marker} must ensure readiness before acquiring a lease`);
+  }
+});
+
 test("server preserves requested spatial regions when combining lease snapshots", () => {
   const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
 
