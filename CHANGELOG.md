@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.17] - 2026-08-14
+
+### Changed
+
+- Added the allow-listed road generator failure category to deployment logs for automated diagnosis while continuing to suppress raw VPS output.
+
 ## [0.55.0-beta.16] - 2026-08-14
 
 ### Changed

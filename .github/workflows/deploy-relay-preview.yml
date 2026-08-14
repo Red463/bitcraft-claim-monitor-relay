@@ -105,6 +105,7 @@ jobs:
             empty-region|join-mismatch|timeout|schema|invalid-coordinate|other|unavailable) ;;
             *) ROAD_FAILURE_CATEGORY="unavailable" ;;
           esac
+          printf 'Road generator failure category: %s\n' "$ROAD_FAILURE_CATEGORY"
 
           {
             printf '## Relay preview deployment\n\n'
