@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.18] - 2026-08-14
+
+### Added
+
+- Filled the native map's ungenerated world-corner gaps with a lightweight ocean underlay that follows the canonical water palette.
+
 ## [0.55.0-beta.17] - 2026-08-14
 
 ### Changed

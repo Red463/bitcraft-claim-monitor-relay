@@ -317,7 +317,7 @@ git diff --check
 rg -n "https?://|bitcraftmap|prism|bitjita" apps/bitcraft-local/src/pages/map/syntheticOceanUnderlay.mjs apps/bitcraft-local/src/pages/map/NativeMap.tsx
 ```
 
-Expected: `git diff --check` exits 0. The URL scan finds only pre-existing imports or no matches; it must find no URL in `syntheticOceanUnderlay.mjs` and no new provider URL in `NativeMap.tsx`.
+Expected: `git diff --check` exits 0. The URL scan may find only the standard W3C SVG namespace identifier in `syntheticOceanUnderlay.mjs`; it must find no remote asset, map, or provider URL and no new provider URL in `NativeMap.tsx`.
 
 - [ ] **Step 7: Commit Task 2**
 
