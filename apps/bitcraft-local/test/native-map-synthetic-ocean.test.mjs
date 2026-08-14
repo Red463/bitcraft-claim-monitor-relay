@@ -35,7 +35,7 @@ const fakeDocument = {
 
 function svgAttributeText(element) {
   const ownAttributes = [...element.attributes].flat();
-  return [...ownAttributes, ...element.children.flatMap(svgAttributeText)].join(" ");
+  return [element.tagName, ...ownAttributes, ...element.children.flatMap(svgAttributeText)].join(" ");
 }
 
 test("synthetic ocean spans the full world in Leaflet z-x order", () => {
