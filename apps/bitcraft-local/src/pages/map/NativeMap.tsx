@@ -21,6 +21,7 @@ import { mapResourceFeatures } from "./mapResourceSnapshotState.mjs";
 import { createMapSnapshotLoader, mapEventNeedsSnapshot } from "./mapSnapshotLoader.mjs";
 import { replaceMapSnapshot } from "./mapSnapshotState.mjs";
 import { RESOURCE_NODE_FALLBACK_COLOUR, resourceFeatureColour } from "./resourceNodeColours.mjs";
+import { SYNTHETIC_OCEAN_LEAFLET_BOUNDS, createSyntheticOceanSvg } from "./syntheticOceanUnderlay.mjs";
 import { biomeTileUrl, loadTerrainTileStatus, mapTileUrl, type TerrainTileStatus } from "./terrainTileStatus.mjs";
 import type { MapFocus } from "./mapUtils";
 
@@ -279,6 +280,7 @@ export function NativeMap({
   const ordinaryRendererRef = React.useRef<L.Canvas | null>(null);
   const resourcesRef = React.useRef<DensePointLayer | null>(null);
   const enemiesRef = React.useRef<DensePointLayer | null>(null);
+  const syntheticOceanRef = React.useRef<L.SVGOverlay | null>(null);
   const terrainTilesRef = React.useRef<L.TileLayer | null>(null);
   const waterTilesRef = React.useRef<L.TileLayer | null>(null);
   const biomeMaskTilesRef = React.useRef<L.TileLayer | null>(null);
@@ -332,6 +334,12 @@ export function NativeMap({
   React.useEffect(() => {
     if (!hostRef.current || mapRef.current) return;
     const map = L.map(hostRef.current, { crs: NATIVE_CRS, minZoom: -6, maxZoom: 5, zoomControl: true, preferCanvas: true, attributionControl: false });
+    const gridPane = map.createPane("native-map-grid");
+    gridPane.style.zIndex = "100";
+    gridPane.style.pointerEvents = "none";
+    const oceanPane = map.createPane("native-map-ocean");
+    oceanPane.style.zIndex = "190";
+    oceanPane.style.pointerEvents = "none";
     const terrainPane = map.createPane("native-map-terrain");
     terrainPane.style.zIndex = "200";
     const waterPane = map.createPane("native-map-water");
@@ -353,7 +361,7 @@ export function NativeMap({
     map.setMaxBounds(bounds.pad(0.25));
     map.on("zoomend", updateClaimScale);
     updateClaimScale();
-    new CoordinateGridLayer({ tileSize: 256, noWrap: false }).addTo(map);
+    new CoordinateGridLayer({ tileSize: 256, noWrap: false, pane: "native-map-grid" }).addTo(map);
     ordinaryRendererRef.current = L.canvas({ padding: 0.25 });
     const markerGroups = Object.fromEntries(MARKER_LAYER_KEYS.map((key) => [key, key === "players" ? L.layerGroup([], { pane: "native-map-players" }) : L.layerGroup()]));
     for (const [key, group] of Object.entries(markerGroups)) if (layerVisibility[key as MapLayerKey]) group.addTo(map);
@@ -371,6 +379,7 @@ export function NativeMap({
       ordinaryRendererRef.current = null;
       resourcesRef.current = null;
       enemiesRef.current = null;
+      syntheticOceanRef.current = null;
       terrainTilesRef.current = null;
       waterTilesRef.current = null;
       biomeMaskTilesRef.current = null;
@@ -426,12 +435,29 @@ export function NativeMap({
   React.useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    syntheticOceanRef.current?.removeFrom(map);
+    syntheticOceanRef.current = null;
     if (!terrainStatus?.available || !terrainStatus.generation) {
       terrainTilesRef.current?.removeFrom(map);
       waterTilesRef.current?.removeFrom(map);
       terrainTilesRef.current = null;
       waterTilesRef.current = null;
       return;
+    }
+    let syntheticOcean: L.SVGOverlay | null = null;
+    try {
+      const syntheticOceanBounds = L.latLngBounds(
+        [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][1]],
+        [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][1]],
+      );
+      syntheticOcean = L.svgOverlay(
+        createSyntheticOceanSvg(document),
+        syntheticOceanBounds,
+        { pane: "native-map-ocean", interactive: false },
+      ).addTo(map);
+      syntheticOceanRef.current = syntheticOcean;
+    } catch {
+      console.warn("Synthetic ocean underlay is unavailable.");
     }
     const tileOptions = {
       tileSize: 256,
@@ -451,8 +477,10 @@ export function NativeMap({
     terrainTilesRef.current = terrainTiles;
     waterTilesRef.current = waterTiles;
     return () => {
+      syntheticOcean?.removeFrom(map);
       terrainTiles.removeFrom(map);
       waterTiles.removeFrom(map);
+      if (syntheticOceanRef.current === syntheticOcean) syntheticOceanRef.current = null;
       if (terrainTilesRef.current === terrainTiles) terrainTilesRef.current = null;
       if (waterTilesRef.current === waterTiles) waterTilesRef.current = null;
     };

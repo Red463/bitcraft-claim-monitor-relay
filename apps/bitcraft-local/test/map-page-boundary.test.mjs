@@ -265,6 +265,22 @@ test("Native map requests only same-origin locally provisioned terrain tiles", (
   assert.ok(nativeMap.indexOf("new CoordinateGridLayer") < nativeMap.indexOf('mapTileUrl("terrain", terrainStatus.generation)'));
 });
 
+test("Native map fills verified terrain gaps with a bounded synthetic ocean underlay", () => {
+  const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/styles/map.css", import.meta.url), "utf8");
+  assert.match(nativeMap, /createPane\("native-map-grid"\)/);
+  assert.match(nativeMap, /gridPane\.style\.zIndex\s*=\s*"100"/);
+  assert.match(nativeMap, /createPane\("native-map-ocean"\)/);
+  assert.match(nativeMap, /oceanPane\.style\.zIndex\s*=\s*"190"/);
+  assert.match(nativeMap, /oceanPane\.style\.pointerEvents\s*=\s*"none"/);
+  assert.match(nativeMap, /new CoordinateGridLayer\(\{[^}]*pane:\s*"native-map-grid"/s);
+  assert.match(nativeMap, /const syntheticOceanBounds = L\.latLngBounds\([\s\S]*SYNTHETIC_OCEAN_LEAFLET_BOUNDS[\s\S]*L\.svgOverlay\([\s\S]*createSyntheticOceanSvg\(document\)[\s\S]*syntheticOceanBounds[\s\S]*pane:\s*"native-map-ocean"[\s\S]*interactive:\s*false/);
+  assert.match(nativeMap, /if \(!terrainStatus\?\.available \|\| !terrainStatus\.generation\)/);
+  assert.match(nativeMap, /syntheticOceanRef\.current\?\.removeFrom\(map\)/);
+  assert.doesNotMatch(nativeMap, /syntheticOcean[^\n]*(?:https?:|mapTileUrl)/i);
+  assert.match(css, /is-biome-highlight-active[^}]*leaflet-native-map-ocean-pane[^}]*filter:\s*brightness\(32%\)/s);
+});
+
 test("Native map browser source excludes bank tracking and remote map assets", () => {
   const sources = [
     readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8"),
