@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
+import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 
 function canonicalRegions(values) {
   const regions = canonicalMapRegionIds(values);
@@ -233,6 +234,6 @@ export async function runRoadWorldCli() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isExecutedMainModule(import.meta.url)) {
   await runRoadWorldCli();
 }

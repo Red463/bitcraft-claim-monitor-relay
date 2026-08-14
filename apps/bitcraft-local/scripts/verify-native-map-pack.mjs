@@ -1,7 +1,7 @@
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { createMapTilePackStore } from "../src/server/mapTilePackStore.mjs";
+import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 
 const PRODUCTS = Object.freeze({
   terrain: { directory: "map-tiles", allowedStyles: ["terrain", "water", ...Array.from({ length: 256 }, (_, biomeType) => `biome-${biomeType}`)], sampleStyles: ["terrain", "water"] },
@@ -88,7 +88,7 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isExecutedMainModule(import.meta.url)) {
   const dataDir = argument("--data-dir");
   const baseUrl = argument("--serve-base-url");
   const operation = baseUrl

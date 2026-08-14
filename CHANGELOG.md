@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.14] - 2026-08-14
+
+### Fixed
+
+- Fixed terrain, road, and pack-verifier CLIs so production execution through the active-release symlink actually runs instead of returning a false success.
+
 ## [0.55.0-beta.13] - 2026-08-14
 
 ### Changed
