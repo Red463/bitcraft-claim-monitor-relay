@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.12] - 2026-08-14
+
+### Fixed
+
+- Fixed the production native-map directory pin for deployments whose application root includes a different textual path form.
+
 ## [0.55.0-beta.11] - 2026-08-14
 
 ### Fixed
