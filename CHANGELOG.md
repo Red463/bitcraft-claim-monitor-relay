@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.15] - 2026-08-14
+
+### Changed
+
+- Added privacy-safe native-map generator failure categories so production road failures can be diagnosed without exposing raw Relay rows, entity IDs, or coordinates.
+
 ## [0.55.0-beta.14] - 2026-08-14
 
 ### Fixed
