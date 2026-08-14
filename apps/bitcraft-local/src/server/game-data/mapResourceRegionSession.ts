@@ -29,6 +29,7 @@ type BindingConnection = {
 type ConnectionBuilder = {
   withUri(uri: string): ConnectionBuilder;
   withDatabaseName(database: string): ConnectionBuilder;
+  withLightMode(lightMode: boolean): ConnectionBuilder;
   onConnect(callback: (connection: BindingConnection) => void): ConnectionBuilder;
   onConnectError(callback: (context: unknown, error: Error) => void): ConnectionBuilder;
   onDisconnect(callback: (context: unknown, error?: Error) => void): ConnectionBuilder;
@@ -223,6 +224,7 @@ export class RelayMapResourceRegionSession {
           builtConnection = bindings.DbConnection.builder()
             .withUri(config.uri)
             .withDatabaseName(config.database)
+            .withLightMode(true)
             .onConnect((connection) => {
               if (settled || cancelled) return;
               settled = true;

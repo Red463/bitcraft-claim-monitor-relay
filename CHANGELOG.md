@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.21] - 2026-08-14
+
+### Fixed
+
+- Reduced live resource subscription memory and network pressure by enabling the Relay SDK's light mode.
+
 ## [0.55.0-beta.20] - 2026-08-14
 
 ### Fixed

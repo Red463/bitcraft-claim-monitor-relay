@@ -49,6 +49,7 @@ function fixture({ resourceRows = [], locationRows = [], connectOnBuild = true }
   let disconnected = () => {};
   let disconnectCount = 0;
   let buildCount = 0;
+  const lightModes = [];
   const connection = {
     db,
     subscriptionBuilder() {
@@ -71,6 +72,7 @@ function fixture({ resourceRows = [], locationRows = [], connectOnBuild = true }
     return {
       withUri() { return this; },
       withDatabaseName() { return this; },
+      withLightMode(value) { lightModes.push(value); return this; },
       onConnect(callback) { connected = callback; return this; },
       onConnectError(callback) { connectError = callback; return this; },
       onDisconnect(callback) { disconnected = callback; return this; },
@@ -85,6 +87,7 @@ function fixture({ resourceRows = [], locationRows = [], connectOnBuild = true }
     connectError: (error) => connectError(undefined, error),
     buildCount: () => buildCount,
     disconnectCount: () => disconnectCount,
+    lightModes,
   };
 }
 
@@ -124,6 +127,16 @@ test("resource session waits for asynchronous Relay connection readiness before 
   await starting;
   await session.subscribe("28", 7);
   assert.equal(relay.subscriptions.length, 1);
+  await session.stop();
+});
+
+test("resource session enables Relay light mode before connecting", async () => {
+  const relay = fixture();
+  const session = new RelayMapResourceRegionSession({ loadBindings: relay.loadBindings, onSnapshot() {}, onFailure() {} });
+
+  await session.start(config());
+
+  assert.deepEqual(relay.lightModes, [true]);
   await session.stop();
 });
 

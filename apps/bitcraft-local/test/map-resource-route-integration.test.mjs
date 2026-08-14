@@ -128,6 +128,7 @@ test("incomplete Relay generations retain last-good rows, notify the scoped coll
   };
   const bindings = { DbConnection: { builder: () => ({
     withUri() { return this; }, withDatabaseName() { return this; },
+    withLightMode() { return this; },
     onConnect(callback) { this.connected = callback; return this; },
     onConnectError() { return this; }, onDisconnect() { return this; },
     build() { this.connected(connection); return connection; },
