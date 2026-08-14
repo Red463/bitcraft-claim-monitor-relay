@@ -21,6 +21,36 @@ export function syntheticOceanColours() {
   });
 }
 
+export function terrainStatusSupportsSyntheticOcean(status) {
+  return Boolean(status?.available && status.generation);
+}
+
+export function createSyntheticOceanLayerController({ map, createLayer, onUnavailable = () => {} }) {
+  let layer = null;
+  const removeLayer = () => {
+    if (!layer) return;
+    const currentLayer = layer;
+    layer = null;
+    currentLayer.removeFrom(map);
+  };
+  return Object.freeze({
+    sync(enabled) {
+      removeLayer();
+      if (!enabled) return null;
+      try {
+        layer = createLayer().addTo(map);
+        return layer;
+      } catch {
+        onUnavailable();
+        return null;
+      }
+    },
+    dispose() {
+      removeLayer();
+    },
+  });
+}
+
 function svgElement(documentLike, tagName, attributes) {
   const element = documentLike.createElementNS(SVG_NAMESPACE, tagName);
   for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);

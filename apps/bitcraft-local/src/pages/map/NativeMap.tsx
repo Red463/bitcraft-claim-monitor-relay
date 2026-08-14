@@ -21,7 +21,13 @@ import { mapResourceFeatures } from "./mapResourceSnapshotState.mjs";
 import { createMapSnapshotLoader, mapEventNeedsSnapshot } from "./mapSnapshotLoader.mjs";
 import { replaceMapSnapshot } from "./mapSnapshotState.mjs";
 import { RESOURCE_NODE_FALLBACK_COLOUR, resourceFeatureColour } from "./resourceNodeColours.mjs";
-import { SYNTHETIC_OCEAN_LEAFLET_BOUNDS, createSyntheticOceanSvg } from "./syntheticOceanUnderlay.mjs";
+import {
+  SYNTHETIC_OCEAN_LEAFLET_BOUNDS,
+  createSyntheticOceanLayerController,
+  createSyntheticOceanSvg,
+  terrainStatusSupportsSyntheticOcean,
+  type SyntheticOceanLayerController,
+} from "./syntheticOceanUnderlay.mjs";
 import { biomeTileUrl, loadTerrainTileStatus, mapTileUrl, type TerrainTileStatus } from "./terrainTileStatus.mjs";
 import type { MapFocus } from "./mapUtils";
 
@@ -280,7 +286,7 @@ export function NativeMap({
   const ordinaryRendererRef = React.useRef<L.Canvas | null>(null);
   const resourcesRef = React.useRef<DensePointLayer | null>(null);
   const enemiesRef = React.useRef<DensePointLayer | null>(null);
-  const syntheticOceanRef = React.useRef<L.SVGOverlay | null>(null);
+  const syntheticOceanControllerRef = React.useRef<SyntheticOceanLayerController<L.SVGOverlay> | null>(null);
   const terrainTilesRef = React.useRef<L.TileLayer | null>(null);
   const waterTilesRef = React.useRef<L.TileLayer | null>(null);
   const biomeMaskTilesRef = React.useRef<L.TileLayer | null>(null);
@@ -353,6 +359,20 @@ export function NativeMap({
     const playerPane = map.createPane("native-map-players");
     playerPane.style.zIndex = "700";
     const bounds = L.latLngBounds([MAP_WORLD_BOUNDS.minZ, MAP_WORLD_BOUNDS.minX], [MAP_WORLD_BOUNDS.maxZ, MAP_WORLD_BOUNDS.maxX]);
+    const syntheticOceanBounds = L.latLngBounds(
+      [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][1]],
+      [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][1]],
+    );
+    const syntheticOceanController = createSyntheticOceanLayerController({
+      map,
+      createLayer: () => L.svgOverlay(
+        createSyntheticOceanSvg(document),
+        syntheticOceanBounds,
+        { pane: "native-map-ocean", interactive: false },
+      ),
+      onUnavailable: () => console.warn("Synthetic ocean underlay is unavailable."),
+    });
+    syntheticOceanControllerRef.current = syntheticOceanController;
     const updateClaimScale = () => {
       const scale = Math.max(0.72, Math.min(1.1, 0.72 + (map.getZoom() + 5) * 0.038));
       hostRef.current?.style.setProperty("--native-map-claim-scale", scale.toFixed(3));
@@ -379,7 +399,8 @@ export function NativeMap({
       ordinaryRendererRef.current = null;
       resourcesRef.current = null;
       enemiesRef.current = null;
-      syntheticOceanRef.current = null;
+      syntheticOceanController.dispose();
+      if (syntheticOceanControllerRef.current === syntheticOceanController) syntheticOceanControllerRef.current = null;
       terrainTilesRef.current = null;
       waterTilesRef.current = null;
       biomeMaskTilesRef.current = null;
@@ -435,29 +456,13 @@ export function NativeMap({
   React.useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    syntheticOceanRef.current?.removeFrom(map);
-    syntheticOceanRef.current = null;
+    syntheticOceanControllerRef.current?.sync(terrainStatusSupportsSyntheticOcean(terrainStatus));
     if (!terrainStatus?.available || !terrainStatus.generation) {
       terrainTilesRef.current?.removeFrom(map);
       waterTilesRef.current?.removeFrom(map);
       terrainTilesRef.current = null;
       waterTilesRef.current = null;
       return;
-    }
-    let syntheticOcean: L.SVGOverlay | null = null;
-    try {
-      const syntheticOceanBounds = L.latLngBounds(
-        [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[0][1]],
-        [SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][0], SYNTHETIC_OCEAN_LEAFLET_BOUNDS[1][1]],
-      );
-      syntheticOcean = L.svgOverlay(
-        createSyntheticOceanSvg(document),
-        syntheticOceanBounds,
-        { pane: "native-map-ocean", interactive: false },
-      ).addTo(map);
-      syntheticOceanRef.current = syntheticOcean;
-    } catch {
-      console.warn("Synthetic ocean underlay is unavailable.");
     }
     const tileOptions = {
       tileSize: 256,
@@ -477,10 +482,8 @@ export function NativeMap({
     terrainTilesRef.current = terrainTiles;
     waterTilesRef.current = waterTiles;
     return () => {
-      syntheticOcean?.removeFrom(map);
       terrainTiles.removeFrom(map);
       waterTiles.removeFrom(map);
-      if (syntheticOceanRef.current === syntheticOcean) syntheticOceanRef.current = null;
       if (terrainTilesRef.current === terrainTiles) terrainTilesRef.current = null;
       if (waterTilesRef.current === waterTiles) waterTilesRef.current = null;
     };

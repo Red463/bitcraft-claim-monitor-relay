@@ -274,9 +274,10 @@ test("Native map fills verified terrain gaps with a bounded synthetic ocean unde
   assert.match(nativeMap, /oceanPane\.style\.zIndex\s*=\s*"190"/);
   assert.match(nativeMap, /oceanPane\.style\.pointerEvents\s*=\s*"none"/);
   assert.match(nativeMap, /new CoordinateGridLayer\(\{[^}]*pane:\s*"native-map-grid"/s);
-  assert.match(nativeMap, /const syntheticOceanBounds = L\.latLngBounds\([\s\S]*SYNTHETIC_OCEAN_LEAFLET_BOUNDS[\s\S]*L\.svgOverlay\([\s\S]*createSyntheticOceanSvg\(document\)[\s\S]*syntheticOceanBounds[\s\S]*pane:\s*"native-map-ocean"[\s\S]*interactive:\s*false/);
+  assert.match(nativeMap, /const syntheticOceanBounds = L\.latLngBounds\([\s\S]*SYNTHETIC_OCEAN_LEAFLET_BOUNDS[\s\S]*const syntheticOceanController = createSyntheticOceanLayerController\([\s\S]*createLayer:\s*\(\) => L\.svgOverlay\([\s\S]*createSyntheticOceanSvg\(document\)[\s\S]*syntheticOceanBounds[\s\S]*pane:\s*"native-map-ocean"[\s\S]*interactive:\s*false/);
   assert.match(nativeMap, /if \(!terrainStatus\?\.available \|\| !terrainStatus\.generation\)/);
-  assert.match(nativeMap, /syntheticOceanRef\.current\?\.removeFrom\(map\)/);
+  assert.match(nativeMap, /syntheticOceanControllerRef\.current\?\.sync\(terrainStatusSupportsSyntheticOcean\(terrainStatus\)\)/);
+  assert.match(nativeMap, /syntheticOceanController\.dispose\(\)/);
   assert.doesNotMatch(nativeMap, /syntheticOcean[^\n]*(?:https?:|mapTileUrl)/i);
   assert.match(css, /is-biome-highlight-active[^}]*leaflet-native-map-ocean-pane[^}]*filter:\s*brightness\(32%\)/s);
 });
