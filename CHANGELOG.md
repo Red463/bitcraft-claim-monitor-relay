@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.13] - 2026-08-14
+
+### Changed
+
+- Extended redacted native-map diagnostics to verify effective terrain and road unit paths and detect release-local pack output.
+
 ## [0.55.0-beta.12] - 2026-08-14
 
 ### Fixed

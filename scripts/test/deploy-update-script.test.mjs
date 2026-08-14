@@ -6,6 +6,7 @@ const script = readFileSync(new URL("../../deploy/update-bitcraft-claim-monitor-
 const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
 const deployment = readFileSync(new URL("../../DEPLOYMENT.md", import.meta.url), "utf8");
 const gitAttributes = readFileSync(new URL("../../.gitattributes", import.meta.url), "utf8");
+const mapDiagnostic = readFileSync(new URL("../../deploy/diagnose-native-map-serving.mjs", import.meta.url), "utf8");
 
 test("Relay updater has only isolated defaults", () => {
   for (const expected of [
@@ -74,6 +75,14 @@ test("Relay updater exposes a revision-pinned sequential native map generation m
   assert.match(script, /MAP_GENERATION_MODE.*all[\s\S]*DATA_DIR="\/var\/lib\/bitcraft-claim-monitor-relay"/);
   assert.doesNotMatch(script, /MAP_GENERATION_MODE.*all[^\n]*&&[^\n]*APP_ROOT/);
   assert.match(script, /systemctl enable --now "\$MAP_TERRAIN_TIMER" "\$MAP_ROADS_TIMER"/);
+});
+
+test("native map diagnostics compare effective unit storage without publishing raw settings", () => {
+  assert.match(mapDiagnostic, /unitSummary\(TERRAIN_SERVICE, "build-relay-terrain-world\.mjs"\)/);
+  assert.match(mapDiagnostic, /unitSummary\(ROAD_SERVICE, "build-relay-road-world\.mjs"\)/);
+  assert.match(mapDiagnostic, /releaseDataTerrainPointer/);
+  assert.match(mapDiagnostic, /releaseDataRoadPointer/);
+  assert.doesNotMatch(mapDiagnostic, /stdout:\s*stdout|environment:\s*environment/);
 });
 
 test("Relay updater preserves last-good native map packs during application cutover", () => {

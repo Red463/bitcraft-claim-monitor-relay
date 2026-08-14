@@ -6,6 +6,8 @@ import path from "node:path";
 const execFile = promisify(execFileCallback);
 const DATA_DIR = "/var/lib/bitcraft-claim-monitor-relay";
 const SERVICE = "bitcraft-claim-monitor-relay.service";
+const TERRAIN_SERVICE = "bitcraft-claim-monitor-relay-map-terrain.service";
+const ROAD_SERVICE = "bitcraft-claim-monitor-relay-map-roads.service";
 
 async function exists(file) {
   try {
@@ -46,6 +48,15 @@ async function status(origin) {
   }
 }
 
+async function unitSummary(service, scriptName) {
+  const { stdout } = await execFile("systemctl", ["show", service, "--property=Environment,ExecStart,Result,ExecMainStatus"]);
+  return {
+    dataDirPinned: stdout.includes(`BITCRAFT_LOCAL_DATA_DIR=${DATA_DIR}`),
+    scriptPinned: stdout.includes(`/opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/scripts/${scriptName}`),
+    successful: /(?:^|\n)Result=success(?:\n|$)/.test(stdout) && /(?:^|\n)ExecMainStatus=0(?:\n|$)/.test(stdout),
+  };
+}
+
 async function main() {
   const { stdout: pidOutput } = await execFile("systemctl", ["show", SERVICE, "--property=MainPID", "--value"]);
   const pid = Number(pidOutput.trim());
@@ -55,6 +66,7 @@ async function main() {
   const current = await readlink("/opt/bitcraft-claim-monitor-relay/current");
   const terrainRoot = path.join(DATA_DIR, "map-tiles");
   const roadRoot = path.join(DATA_DIR, "map-road-tiles");
+  const releaseDataRoot = "/opt/bitcraft-claim-monitor-relay/current/apps/bitcraft-local/data";
   const result = {
     activeRevision: path.basename(current),
     webProcessRunning: pid > 0,
@@ -63,6 +75,10 @@ async function main() {
     terrainVersions: await versionCount(terrainRoot),
     roadPointer: await exists(path.join(roadRoot, "current.json")),
     roadVersions: await versionCount(roadRoot),
+    terrainUnit: await unitSummary(TERRAIN_SERVICE, "build-relay-terrain-world.mjs"),
+    roadUnit: await unitSummary(ROAD_SERVICE, "build-relay-road-world.mjs"),
+    releaseDataTerrainPointer: await exists(path.join(releaseDataRoot, "map-tiles", "current.json")),
+    releaseDataRoadPointer: await exists(path.join(releaseDataRoot, "map-road-tiles", "current.json")),
     local: await status("http://127.0.0.1:19430"),
     canonical: await status("https://app.timbersteeltrade.com"),
   };
