@@ -91,6 +91,13 @@ test("workflow preserves slow-changing native map packs for independent validate
   assert.doesNotMatch(workflow, /build-relay-terrain-overview\.mjs|BITCRAFT_INSTALL_ROAD_TILES=true/);
 });
 
+test("workflow publishes only an allow-listed native map failure category", () => {
+  assert.match(workflow, /ROAD_FAILURE_CATEGORY=.*DEPLOY_OUTPUT/);
+  assert.match(workflow, /empty-region\|join-mismatch\|timeout\|schema\|invalid-coordinate\|other\|unavailable/);
+  assert.match(workflow, /Road generator failure category/);
+  assert.doesNotMatch(workflow, /printf[^\n]*DEPLOY_OUTPUT/);
+});
+
 test("protected native map generation runs sequentially through the restricted updater", () => {
   assert.match(generationWorkflow, /workflow_dispatch:/);
   assert.match(generationWorkflow, /GITHUB_REF.*refs\/heads\/main/);

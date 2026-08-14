@@ -100,10 +100,17 @@ jobs:
           DEPLOY_STATUS=$?
           set -e
 
+          ROAD_FAILURE_CATEGORY="$(sed -n 's/.*"roadUnit":.*"failure":{"category":"\([a-z-]*\)"}.*/\1/p' <<<"$DEPLOY_OUTPUT" | tail -n 1)"
+          case "$ROAD_FAILURE_CATEGORY" in
+            empty-region|join-mismatch|timeout|schema|invalid-coordinate|other|unavailable) ;;
+            *) ROAD_FAILURE_CATEGORY="unavailable" ;;
+          esac
+
           {
             printf '## Relay preview deployment\n\n'
             printf 'Revision: `%s`  \n' "$GITHUB_SHA"
             printf 'Result: `%s`\n\n' "$([[ "$DEPLOY_STATUS" -eq 0 ]] && printf success || printf failed)"
+            printf 'Road generator failure category: `%s`\n\n' "$ROAD_FAILURE_CATEGORY"
             printf 'Remote diagnostics are retained on the VPS and are not copied into GitHub output.\n'
           } >> "$GITHUB_STEP_SUMMARY"
 

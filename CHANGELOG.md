@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.16] - 2026-08-14
+
+### Changed
+
+- Added the privacy-safe road generator failure category to deployment summaries while continuing to suppress raw VPS output and journals.
+
 ## [0.55.0-beta.15] - 2026-08-14
 
 ### Changed
