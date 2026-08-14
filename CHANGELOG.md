@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.19] - 2026-08-14
+
+### Fixed
+
+- Fixed fresh server starts stalling when many terrain tiles simultaneously opened the installed map pack.
+
 ## [0.55.0-beta.18] - 2026-08-14
 
 ### Added

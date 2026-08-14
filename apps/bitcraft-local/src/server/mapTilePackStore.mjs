@@ -98,11 +98,9 @@ export function createMapTilePackStore({
   let closed = false;
   let queue = Promise.resolve();
   let pointerReloadFailureCount = 0;
+  let currentLoad = null;
 
-  async function current(force = false) {
-    if (closed) throw new Error("Map tile pack store is closed");
-    const checkedNow = nowMilliseconds(now);
-    if (!force && lastGood && checkedNow - checkedAt < pointerTtlMs) return lastGood;
+  async function reloadCurrent(checkedNow) {
     checkedAt = checkedNow;
     try {
       const candidate = JSON.parse(await readFile(path.join(resolvedRoot, "current.json"), "utf8"));
@@ -114,6 +112,20 @@ export function createMapTilePackStore({
       if (!lastGood && error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
     }
     return lastGood;
+  }
+
+  async function current(force = false) {
+    if (closed) throw new Error("Map tile pack store is closed");
+    const checkedNow = nowMilliseconds(now);
+    if (!force && lastGood && checkedNow - checkedAt < pointerTtlMs) return lastGood;
+    if (currentLoad) return currentLoad;
+    const load = reloadCurrent(checkedNow);
+    currentLoad = load;
+    try {
+      return await load;
+    } finally {
+      if (currentLoad === load) currentLoad = null;
+    }
   }
 
   async function readManifest() {

@@ -118,6 +118,20 @@ test("malformed replacement pointer retains last-good", async () => {
   await store.close();
 });
 
+test("concurrent cold readers share one pointer load", async () => {
+  assert.ok(storeModule, "map tile pack store module must exist");
+  const root = await mkdtemp(path.join(os.tmpdir(), "bitcraft-map-pack-cold-load-"));
+  await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, "current.json"), "{", "utf8");
+  const store = storeModule.createMapTilePackStore({ root, allowedStyles: ["terrain"], pointerTtlMs: 0 });
+
+  const manifests = await Promise.all(Array.from({ length: 64 }, () => store.readManifest()));
+
+  assert.deepEqual([...new Set(manifests)], [null]);
+  assert.equal(store.health().pointerReloadFailureCount, 1, "cold fan-out must not parse the installed pointer once per tile request");
+  await store.close();
+});
+
 test("tile paths cannot escape the installed version", async () => {
   assert.ok(storeModule, "map tile pack store module must exist");
   const root = await mkdtemp(path.join(os.tmpdir(), "bitcraft-map-pack-path-"));
