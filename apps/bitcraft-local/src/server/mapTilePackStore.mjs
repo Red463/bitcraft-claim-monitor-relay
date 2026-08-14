@@ -104,6 +104,11 @@ export function createMapTilePackStore({
     checkedAt = checkedNow;
     try {
       const candidate = JSON.parse(await readFile(path.join(resolvedRoot, "current.json"), "utf8"));
+      if (lastGood
+        && candidate?.version === lastGood.version
+        && candidate?.manifestHash === lastGood.manifestHash
+        && validManifest(candidate.manifest)
+        && String(candidate.manifest.generation) === String(lastGood.manifest.generation)) return lastGood;
       const installed = await readInstalledPointer(resolvedRoot, candidate);
       if (installed) lastGood = installed;
       else pointerReloadFailureCount += 1;

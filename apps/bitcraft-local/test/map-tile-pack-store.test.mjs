@@ -132,6 +132,20 @@ test("concurrent cold readers share one pointer load", async () => {
   await store.close();
 });
 
+test("unchanged pointer reuses the validated manifest", async () => {
+  assert.ok(storeModule, "map tile pack store module must exist");
+  const root = await mkdtemp(path.join(os.tmpdir(), "bitcraft-map-pack-stable-pointer-"));
+  const { versionRoot } = await installFixture(root, "g-1", manifest(1));
+  const store = storeModule.createMapTilePackStore({ root, allowedStyles: ["terrain"], pointerTtlMs: 0 });
+  assert.equal((await store.readManifest()).generation, "1");
+
+  await rm(path.join(versionRoot, "manifest.json"));
+
+  assert.equal((await store.readManifest()).generation, "1");
+  assert.equal(store.health().pointerReloadFailureCount, 0, "an unchanged pointer must not reopen the already validated manifest");
+  await store.close();
+});
+
 test("tile paths cannot escape the installed version", async () => {
   assert.ok(storeModule, "map tile pack store module must exist");
   const root = await mkdtemp(path.join(os.tmpdir(), "bitcraft-map-pack-path-"));

@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.55.0-beta.20] - 2026-08-14
+
+### Fixed
+
+- Fixed repeated map tile requests re-reading and hashing an unchanged installed terrain manifest.
+
 ## [0.55.0-beta.19] - 2026-08-14
 
 ### Fixed
