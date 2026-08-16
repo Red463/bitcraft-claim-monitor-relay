@@ -81,7 +81,7 @@ test("workflow does not publish raw VPS output or journals", () => {
   assert.match(workflow, /GITHUB_STEP_SUMMARY/);
   assert.doesNotMatch(workflow, /printf[^\n]*DEPLOY_OUTPUT/);
   assert.doesNotMatch(workflow, /```text\\n%s\\n```[\s\S]*DEPLOY_OUTPUT/);
-  assert.match(workflow, /artifact-capability\|busy/);
+  assert.match(workflow, /artifact-capability\|artifact-argument\|artifact-archive\|argument-validation\|busy/);
 });
 
 test("workflow supports explicit backups and long-running SSH keepalives", () => {
@@ -124,6 +124,9 @@ test("deployment diagnostics classify only secret-safe failure categories", () =
     ["Installing dependencies failed (exit 1)\nsecret-token=must-not-escape", "prepare"],
     ["Installing verified CI build failed (exit 1)", "prepare"],
     ["Ordinary deployments require --build-artifact-sha256.", "artifact-capability"],
+    ["--build-artifact-sha256 requires one lowercase SHA-256 value.", "artifact-argument"],
+    ["Unknown option: --broken", "argument-validation"],
+    ["tar: Exiting with failure status due to previous errors", "artifact-archive"],
     ["Another deployment is already running.", "busy"],
   ];
 

@@ -160,7 +160,7 @@ jobs:
             DEPLOY_FAILURE_CATEGORY="$(node scripts/classify-relay-deploy-failure.mjs <<<"$DEPLOY_OUTPUT")"
           fi
           case "$DEPLOY_FAILURE_CATEGORY" in
-            none|rollback|out-of-memory|startup-module|web-service|worker-service|public-check|health-timeout|artifact-capability|busy|prepare|other) ;;
+            none|rollback|out-of-memory|startup-module|web-service|worker-service|public-check|health-timeout|artifact-capability|artifact-argument|artifact-archive|argument-validation|busy|prepare|other) ;;
             *) DEPLOY_FAILURE_CATEGORY="other" ;;
           esac
           printf 'Deployment failure category: %s\n' "$DEPLOY_FAILURE_CATEGORY"

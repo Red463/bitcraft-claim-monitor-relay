@@ -11,7 +11,10 @@ const category = (() => {
   if (/Waiting for worker service[.\s]*failed/i.test(output)) return "worker-service";
   if (/Candidate Public: check failed|Public: check failed/i.test(output)) return "public-check";
   if (/Candidate Health: not checked|Waiting for web health[.\s]*failed/i.test(output)) return "health-timeout";
-  if (/Ordinary deployments require --build-artifact-sha256|Unknown or mixed build artifact mode/i.test(output)) return "artifact-capability";
+  if (/Ordinary deployments require --build-artifact-sha256/i.test(output)) return "artifact-capability";
+  if (/--build-artifact-sha256 requires|Unknown or mixed build artifact mode/i.test(output)) return "artifact-argument";
+  if (/(?:^|\n)(?:tar|gzip):/i.test(output)) return "artifact-archive";
+  if (/Unknown option:|requires a value|Duplicate --|--revision must|Unknown or mixed .* mode|accepts .* once/i.test(output)) return "argument-validation";
   if (/Another deployment is already running/i.test(output)) return "busy";
   if (/Installing dependencies failed|Building app failed|Installing verified CI build failed|Relay build archive|Expected Relay build archive|Validating .* failed/i.test(output)) return "prepare";
   return "other";
