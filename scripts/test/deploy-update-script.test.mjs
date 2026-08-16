@@ -70,6 +70,8 @@ test("Relay updater installs revision-bound CI outputs instead of rebuilding the
   assert.match(script, /chown root:root "\$secured_archive"/);
   assert.match(script, /install-relay-build-artifact\.mjs/);
   assert.match(script, /prepare_release\(\)[\s\S]*Installing dependencies[\s\S]*Installing verified CI build/);
+  assert.doesNotMatch(script, /sudo -u "\$RUN_USER" tar --no-same-owner --no-same-permissions -xzf "\$BUILD_IMPORT_ARCHIVE"/);
+  assert.match(script, /tar --no-same-owner --no-same-permissions -xzf "\$BUILD_IMPORT_ARCHIVE" -C "\$BUILD_IMPORT_DIR"[\s\S]*chown -R "\$RUN_USER:\$RUN_USER" "\$BUILD_IMPORT_DIR"/);
   assert.doesNotMatch(script, /run_logged "Building app"/);
 });
 

@@ -105,6 +105,34 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$RELAY_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Install verified deployment updater
+        env:
+          RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
+          RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
+        run: |
+          UPDATER_DIGEST="$(sha256sum deploy/update-bitcraft-claim-monitor-relay | cut -d ' ' -f 1)"
+          REMOTE_UPDATER="bitcraft-updater-${GITHUB_SHA}.tmp"
+          scp -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- deploy/update-bitcraft-claim-monitor-relay \
+            "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST:$REMOTE_UPDATER"
+          ssh -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
+            "set -euo pipefail
+             candidate=\"\$HOME/$REMOTE_UPDATER\"
+             trap 'rm -f -- \"\$candidate\"' EXIT
+             [[ -f \"\$candidate\" && ! -L \"\$candidate\" ]]
+             [[ \"\$(stat -c %U \"\$candidate\")\" == \"\$(id -un)\" ]]
+             printf '%s  %s\n' '$UPDATER_DIGEST' \"\$candidate\" | sha256sum --check --status -
+             bash -n \"\$candidate\"
+             sudo install -o root -g root -m 0755 \"\$candidate\" /usr/local/bin/update-bitcraft-claim-monitor-relay"
       - name: Deploy verified Relay revision
         env:
           BUILD_ARTIFACT_DIR: ${{ runner.temp }}/relay-build-download

@@ -100,6 +100,9 @@ test("verified CI build outputs are transferred to capable updaters instead of r
   assert.match(workflow, /relay-build-artifact-v1/);
   assert.match(workflow, /bitcraft-build-\$\{DIGEST\}\.tar\.gz/);
   assert.match(workflow, /--build-artifact-sha256/);
+  assert.match(workflow, /sha256sum deploy\/update-bitcraft-claim-monitor-relay/);
+  assert.match(workflow, /bash -n .*\\\$candidate/);
+  assert.match(workflow, /sudo install -o root -g root -m 0755 .*update-bitcraft-claim-monitor-relay/);
 });
 
 test("workflow preserves slow-changing native map packs for independent validated generators", () => {

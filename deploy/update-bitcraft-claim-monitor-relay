@@ -423,7 +423,8 @@ prepare_relay_build_artifact() {
   }
   BUILD_IMPORT_DIR="$(mktemp -d "$APP_ROOT/.build-import-XXXXXX")"
   chown "$RUN_USER:$RUN_USER" "$BUILD_IMPORT_DIR"
-  sudo -u "$RUN_USER" tar --no-same-owner --no-same-permissions -xzf "$BUILD_IMPORT_ARCHIVE" -C "$BUILD_IMPORT_DIR"
+  tar --no-same-owner --no-same-permissions -xzf "$BUILD_IMPORT_ARCHIVE" -C "$BUILD_IMPORT_DIR"
+  chown -R "$RUN_USER:$RUN_USER" "$BUILD_IMPORT_DIR"
 }
 
 finish_relay_build_artifact() {

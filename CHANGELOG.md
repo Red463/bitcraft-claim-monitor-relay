@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.56.0-beta.3] - 2026-08-16
+
+### Fixed
+
+- Fixed CI-built release installation so the secured artifact can be extracted without rebuilding on the VPS.
+
 ## [0.56.0-beta.2] - 2026-08-16
 
 ### Fixed
