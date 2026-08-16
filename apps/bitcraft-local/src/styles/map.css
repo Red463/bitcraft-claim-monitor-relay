@@ -280,6 +280,8 @@
   .map-panel.has-focus .map-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(260px, 42dvh) minmax(420px, 58dvh); height: auto; min-height: auto; }
   .map-workspace.native-tools,
   .map-panel.has-focus .map-workspace.native-tools { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(420px, 1fr); height: calc(100dvh - 130px); min-height: 420px; }
+  .map-panel.full-height.is-dedicated { padding: 0; }
+  .map-panel.is-dedicated .map-workspace.native-tools { grid-template-rows: minmax(0, 1fr); height: 100dvh; min-height: 100dvh; }
 }
 
 @media (max-width: 620px) {

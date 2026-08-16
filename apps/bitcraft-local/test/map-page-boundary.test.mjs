@@ -34,6 +34,10 @@ test("Map page removes its banner and exposes a dedicated-tab control only in th
   assert.match(mapPage, /!dedicated \? \(/);
   assert.match(mapCss, /\.map-dedicated-tab-link\s*\{[^}]*position:\s*absolute;[^}]*right:[^;]+;[^}]*bottom:[^;]+;/s);
   assert.match(mapCss, /\.map-panel\.is-dedicated[\s\S]*100dvh/);
+
+  const narrowMapCss = mapCss.slice(mapCss.indexOf("@media (max-width: 900px)"), mapCss.indexOf("@media (max-width: 620px)"));
+  assert.match(narrowMapCss, /\.map-panel\.full-height\.is-dedicated\s*\{[^}]*padding:\s*0;/s);
+  assert.match(narrowMapCss, /\.map-panel\.is-dedicated \.map-workspace\.native-tools\s*\{[^}]*height:\s*100dvh;[^}]*min-height:\s*100dvh;/s);
 });
 
 test("Map page supplies the complete player panel to the native map", () => {
