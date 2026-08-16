@@ -806,7 +806,6 @@ test("map page styles live in the map stylesheet", () => {
   const mapCss = readFileSync(mapCssUrl, "utf8");
   const mapSelectors = [
     ".map-panel.full-height",
-    ".map-topbar",
     ".native-map-host",
     ".map-focus",
     ".map-workspace",

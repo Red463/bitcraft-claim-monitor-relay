@@ -21,6 +21,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { ActivePanel } from "./types/app";
 import { canonicalPageId, writeQueryLocation, type NavigationMode } from "./navigation/routeState.ts";
+export { dedicatedMapHref, isDedicatedMapView } from "./navigation/routeState.ts";
 
 /*
  * Main app navigation model.

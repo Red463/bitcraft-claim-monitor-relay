@@ -67,6 +67,9 @@ select option:checked, select option:hover { background: var(--gold-dim); color:
 svg { flex: 0 0 auto; }
 
 .app-shell { --shell-page-gutter: 20px; display: grid; grid-template-columns: 238px minmax(0, 1fr); min-height: 100vh; height: 100vh; background: #030303; background: var(--command-page-gradient); }
+.app-shell.map-dedicated-shell { grid-template-columns: minmax(0, 1fr); width: 100vw; height: 100dvh; min-height: 100dvh; padding-top: 0; }
+.app-shell.map-dedicated-shell main { width: 100vw; height: 100dvh; max-height: 100dvh; overflow: hidden; }
+.app-shell.map-dedicated-shell .page-view { flex: 1 1 auto; }
 aside { position: relative; background: radial-gradient(circle at 22% 0, rgba(72,91,116,.12), transparent 32%), linear-gradient(180deg, color-mix(in srgb, var(--sidebar) 82%, #16202c), var(--sidebar) 64%, color-mix(in srgb, var(--sidebar) 78%, #000)); border-right: 1px solid rgba(108,123,145,.24); display: flex; flex-direction: column; min-height: 100vh; box-shadow: 12px 0 36px rgba(0,0,0,.32); overflow: visible; transition: background .22s ease, border-color .22s ease, box-shadow .22s ease; }
 aside::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(255,255,255,.025)); opacity: .55; }
 .app-sidebar { }

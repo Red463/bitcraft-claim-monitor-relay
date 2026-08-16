@@ -72,6 +72,18 @@ test("footer shows the app version and build id", () => {
   assert.match(appShell, /footer-build/);
   assert.match(appShell, /APP_VERSION/);
 });
+
+test("dedicated map mode keeps the map route while omitting optional application chrome", () => {
+  const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+
+  assert.match(appShell, /const dedicatedMapView = isDedicatedMapView\(routeSearch\)/);
+  assert.match(appShell, /<MapPanel[^>]*dedicated=\{dedicatedMapView\}/s);
+  assert.match(appShell, /!dedicatedMapView \? \([\s\S]*className="mobile-shell-bar"/);
+  assert.match(appShell, /\{!dedicatedMapView \? <footer className="app-footer">/);
+  assert.match(appShell, /app-shell[^`]*\$\{dedicatedMapView \? "map-dedicated-shell" : ""\}/);
+  assert.match(appShell, /\{!dedicatedMapView \? \([\s\S]*release-update-banner[\s\S]*floating-actions/);
+  assert.match(appShell, /LegalAcceptanceDialog/);
+});
 test("shared refresh chrome is provider-neutral during the Relay migration", () => {
   const appChrome = readFileSync(new URL("../src/components/main/AppChrome.tsx", import.meta.url), "utf8");
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");

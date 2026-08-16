@@ -1,9 +1,8 @@
 import React from "react";
 import "../styles/map.css";
-import { MapPin, Users } from "lucide-react";
+import { MapPin, Maximize2 } from "lucide-react";
 
 import { toNumber, unwrap, type AnyRecord } from "../main-app-data";
-import { formatNumber } from "../utils/format";
 import { activeRegionLabel, useActiveRegions } from "../hooks/useActiveRegions";
 import { useGameDataGeneration } from "../hooks/useGameDataGeneration";
 import { usePageRefresh } from "../refresh/ManualRefreshContext";
@@ -12,7 +11,7 @@ import { usePersistedState } from "../hooks/usePersistedState";
 import { memberDisplayName, memberTrackingId } from "../utils/memberIdentity";
 import { normalizeData } from "../utils/normalize";
 import { unique } from "../utils/array";
-import { updateQueryState } from "../navigation";
+import { dedicatedMapHref, updateQueryState } from "../navigation";
 import { mapResourceCategory, mapResourceToken, normalizeMapResourceToken, type MapFocus } from "./map/mapUtils";
 import { currentMapPlayerSelection, defaultMapPlayerSelection, mapPlayerTrackingId, type MapTrackedExternalPlayer } from "./map/playerTracking";
 import { NativeMap } from "./map/NativeMap";
@@ -24,7 +23,13 @@ import { selectedResourceColourMap } from "./map/resourceNodeColours.mjs";
 import { RESOURCE_FINDER_BATCH_SIZE, nextResourceLimit, visibleResourceMatches } from "./map/resourceFinderWindow.mjs";
 
 const LOCAL_API = "/api/local";
-export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey }: { data: ReturnType<typeof normalizeData>; focus: MapFocus; onClearFocus: () => void; activeRegionScopeKey?: string }) {
+export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedicated = false }: {
+  data: ReturnType<typeof normalizeData>;
+  focus: MapFocus;
+  onClearFocus: () => void;
+  activeRegionScopeKey?: string;
+  dedicated?: boolean;
+}) {
   const { cycle, trackPromise } = usePageRefresh();
   const [selectedIds, setSelectedIds] = usePersistedState<string[] | null>("map.players", null);
   const [externalPlayers, setExternalPlayers] = usePersistedState<MapTrackedExternalPlayer[]>("map.external-players", []);
@@ -238,7 +243,6 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey }: { 
       return [...next].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     });
   }
-  const onlineCount = roster.filter((player) => player.signedIn).length;
   const trackedPlayerCount = new Set([...current, ...externalPlayers.map((player) => player.playerId)]).size;
   const playerPanel = <MapPlayerTrackingPanel
     roster={roster}
@@ -278,20 +282,8 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey }: { 
   />;
   const regionControl = <MapRegionSelect value={resourceRegionValue} options={resourceRegionOptions} onChange={setResourceRegion} />;
   return (
-    <div className={`panel map-panel full-height has-native-tools ${focus ? "has-focus" : ""}`}>
-      <header className="members-topbar map-topbar">
-        <div>
-          <h2>World Map</h2>
-          <p>Same-origin Relay map with explicit data freshness</p>
-        </div>
-        <div className="dashboard-top-meta">
-          <div className="dashboard-meta-cluster">
-            <span><Users size={14} /> {formatNumber(onlineCount)} online</span>
-            <span>{formatNumber(roster.length)} members total</span>
-          </div>
-        </div>
-      </header>
-      {focus ? (
+    <div className={`panel map-panel full-height has-native-tools ${focus && !dedicated ? "has-focus" : ""} ${dedicated ? "is-dedicated" : ""}`}>
+      {!dedicated && focus ? (
         <div className="map-focus">
           <MapPin size={17} />
           <div><strong>{focus.name}</strong><span>{focus.locationX}, {focus.locationZ}</span></div>
@@ -301,6 +293,18 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey }: { 
       <div className="map-workspace native-tools">
         <div className="native-map-host">
           <NativeMap regionIds={mapRegionIds} visibleRegionIds={normalizedRegionSelection} playerRegionIds={readyPlayerRegionIds} resourceRegionIds={resourceMapRegionIds} playerIds={currentPlayerIds} resourceIds={selectedResourceIds} resourceColours={selectedResourceColours} enemyTypes={selectedEnemyIds} focus={mapMarker} playerTool={{ label: "Players", count: trackedPlayerCount, content: playerPanel, primaryFocusSelector: "input[placeholder='Find settlement members']" }} resourceTool={{ label: "Resources", count: normalizedSelectedResources.length, content: resourceFinder, primaryFocusSelector: ".map-resource-finder-search input" }} regionControl={regionControl} />
+          {!dedicated ? (
+            <a
+              className="map-dedicated-tab-link"
+              href={dedicatedMapHref(window.location.href)}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open map in dedicated tab"
+              title="Open map in dedicated tab"
+            >
+              <Maximize2 size={17} aria-hidden="true" />
+            </a>
+          ) : null}
         </div>
       </div>
     </div>

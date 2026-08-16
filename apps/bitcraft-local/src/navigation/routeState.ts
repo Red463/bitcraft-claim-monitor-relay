@@ -44,6 +44,18 @@ export function writePageLocation(page: PageId, mode: NavigationMode): void {
   writeQueryLocation({ page }, mode);
 }
 
+export function isDedicatedMapView(search: string): boolean {
+  const query = new URLSearchParams(search);
+  return query.get("page") === "map" && query.get("mapView") === "fullscreen";
+}
+
+export function dedicatedMapHref(href: string): string {
+  const url = new URL(href);
+  url.searchParams.set("page", "map");
+  url.searchParams.set("mapView", "fullscreen");
+  return url.toString();
+}
+
 export function resolveAllowedView<T extends string>(requested: T, allowed: readonly T[]): T | null {
   if (!allowed.length) return null;
   return allowed.includes(requested) ? requested : allowed[0];

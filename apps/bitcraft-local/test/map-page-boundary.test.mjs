@@ -20,6 +20,22 @@ test("Map page has one first-party renderer and no iframe recovery path", () => 
   assert.doesNotMatch(mapPage, /<iframe|FrameState|Loading embedded map|Open full page|currentFrameUrl/);
 });
 
+test("Map page removes its banner and exposes a dedicated-tab control only in the standard view", () => {
+  const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
+  const mapCss = readFileSync(new URL("../src/styles/map.css", import.meta.url), "utf8");
+
+  assert.doesNotMatch(mapPage, /World Map|Same-origin Relay map|dashboard-top-meta/);
+  assert.match(mapPage, /dedicated\?: boolean/);
+  assert.match(mapPage, /dedicatedMapHref\(window\.location\.href\)/);
+  assert.match(mapPage, /aria-label="Open map in dedicated tab"/);
+  assert.match(mapPage, /target="_blank"/);
+  assert.match(mapPage, /rel="noopener noreferrer"/);
+  assert.match(mapPage, /!dedicated && focus/);
+  assert.match(mapPage, /!dedicated \? \(/);
+  assert.match(mapCss, /\.map-dedicated-tab-link\s*\{[^}]*position:\s*absolute;[^}]*right:[^;]+;[^}]*bottom:[^;]+;/s);
+  assert.match(mapCss, /\.map-panel\.is-dedicated[\s\S]*100dvh/);
+});
+
 test("Map page supplies the complete player panel to the native map", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 

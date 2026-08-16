@@ -9,6 +9,16 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.0-beta.1] - 2026-08-16
+
+### Added
+
+- Added a dedicated edge-to-edge map view that opens in a new browser tab.
+
+### Changed
+
+- Expanded the standard map by removing its introductory banner.
+
 ## [0.56.1-beta.1] - 2026-08-16
 
 ### Changed
