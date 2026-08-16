@@ -351,22 +351,24 @@ To deploy:
 Application deployment preserves the currently installed native-map terrain
 and road packs. After deploying a revision that changes map generation, run
 **Generate native map packs** from `main` and approve the same protected
-`relay-preview` environment. That workflow invokes only the restricted updater,
-runs terrain and roads sequentially through their memory-limited systemd units,
-validates complete zoom `-5..0` manifests, and enables the weekly terrain and
-daily road timers only after both packs pass. A failed generation leaves the
-previous pointers active.
+`relay-preview` environment. That workflow generates each selected product on
+an isolated GitHub runner, validates complete zoom `-5..0` manifests, uploads a
+hashed product archive, and uses the restricted updater for an atomic install.
+Roads run daily and terrain weekly; the VPS timers remain disabled. The capped
+systemd generators are retained only as a manual fallback. A failed generation,
+upload, or install leaves the previous product pointer active.
 
-Break-glass use of the same exact revision:
-
-```sh
-sudo /usr/local/bin/update-bitcraft-claim-monitor-relay \
-  --revision 0123456789abcdef0123456789abcdef01234567
-```
-
-Add `--verbose` to stream build details. Use `--no-public-check` only while DNS
-or Caddy is deliberately unavailable and an administrator is independently
-checking local health.
+Application releases are also built and tested on the GitHub runner. The
+workflow transfers a revision-bound archive with per-file hashes; capable
+updaters fail closed when that artifact is absent or mismatched. The first
+deployment that introduces artifact support performs one final build through
+the previous updater, then later deployments install CI outputs instead.
+Break-glass application deployments should therefore rerun the protected
+workflow for the exact `main` revision rather than invoking the updater without
+its artifact. For supervised artifact-backed recovery, `--verbose` streams the
+dependency and validation steps. Use `--no-public-check` only while DNS or Caddy
+is deliberately unavailable and an administrator is independently checking
+local health.
 
 ## Deployment behavior and automatic rollback
 
@@ -374,7 +376,8 @@ For every requested revision the updater:
 
 1. Acquires `/run/lock/bitcraft-claim-monitor-relay-deploy.lock`.
 2. Fetches `origin/main` and verifies the full SHA is reachable.
-3. Creates and builds an immutable detached worktree.
+3. Creates an immutable detached worktree, installs locked runtime
+   dependencies, and installs the verified revision-bound CI outputs.
 4. Validates only Relay systemd units and the tracked Caddy example.
 5. Snapshots the current symlink, updater, helpers, and every live Relay unit,
    then syntax-checks and stages the encrypted-backup helpers.

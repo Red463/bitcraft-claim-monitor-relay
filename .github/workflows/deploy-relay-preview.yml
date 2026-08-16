@@ -37,9 +37,30 @@ jobs:
         run: corepack pnpm --filter @workspace/bitcraft-local test
       - name: Build application
         run: corepack pnpm --filter @workspace/bitcraft-local run build
+      - name: Package revision-bound build outputs
+        run: |
+          artifact_root="$RUNNER_TEMP/relay-build-artifact"
+          upload_root="$RUNNER_TEMP/relay-build-upload"
+          mkdir -p "$upload_root"
+          node scripts/package-relay-build.mjs \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --revision "$GITHUB_SHA" \
+            --output-dir "$artifact_root"
+          archive="$RUNNER_TEMP/relay-build.tar.gz"
+          tar -C "$artifact_root" -czf "$archive" .
+          digest="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          mv "$archive" "$upload_root/bitcraft-build-$digest.tar.gz"
+          printf '%s\n' "$digest" > "$upload_root/digest.txt"
+      - name: Retain verified build for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-build-${{ github.sha }}
+          path: ${{ runner.temp }}/relay-build-upload
+          if-no-files-found: error
+          retention-days: 1
       - name: Test deployment contracts
         # These contracts exercise root-owned production metadata and chown semantics.
-        run: sudo "$(command -v node)" --test scripts/test/deploy-*.test.mjs
+        run: sudo "$(command -v node)" --test scripts/test/deploy-*.test.mjs scripts/test/relay-build-artifact.test.mjs
       - name: Validate Relay systemd units
         run: |
           test -x /usr/bin/node || sudo ln -s "$(command -v node)" /usr/bin/node
@@ -69,6 +90,11 @@ jobs:
     steps:
       - name: Check out deployment diagnostics
         uses: actions/checkout@v4
+      - name: Download verified build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: relay-build-${{ github.sha }}
+          path: ${{ runner.temp }}/relay-build-download
       - name: Configure pinned SSH identity
         env:
           RELAY_VPS_SSH_PRIVATE_KEY: ${{ secrets.RELAY_VPS_SSH_PRIVATE_KEY }}
@@ -81,6 +107,7 @@ jobs:
           chmod 600 "$HOME/.ssh/known_hosts"
       - name: Deploy verified Relay revision
         env:
+          BUILD_ARTIFACT_DIR: ${{ runner.temp }}/relay-build-download
           RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
           RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
           FORCE_DATABASE_BACKUP: ${{ inputs.force_database_backup }}
@@ -88,6 +115,31 @@ jobs:
           BACKUP_OPTION=""
           if [[ "$FORCE_DATABASE_BACKUP" == "true" ]]; then
             BACKUP_OPTION=" --force-backup"
+          fi
+          DIGEST="$(cat "$BUILD_ARTIFACT_DIR/digest.txt")"
+          [[ "$DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          ARTIFACT_PATH="$BUILD_ARTIFACT_DIR/bitcraft-build-$DIGEST.tar.gz"
+          [[ -f "$ARTIFACT_PATH" && ! -L "$ARTIFACT_PATH" ]]
+          [[ "$(sha256sum "$ARTIFACT_PATH" | cut -d ' ' -f 1)" == "$DIGEST" ]]
+          set +e
+          CAPABILITIES="$(ssh -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
+            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --capabilities" 2>/dev/null)"
+          CAPABILITY_STATUS=$?
+          set -e
+          BUILD_OPTION=""
+          if [[ "$CAPABILITY_STATUS" -eq 0 ]] && grep -Fqx 'relay-build-artifact-v1' <<<"$CAPABILITIES"; then
+            scp -i "$HOME/.ssh/id_ed25519" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -- "$ARTIFACT_PATH" "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST:bitcraft-build-${DIGEST}.tar.gz"
+            BUILD_OPTION=" --build-artifact-sha256 '$DIGEST'"
           fi
           set +e
           DEPLOY_OUTPUT="$(ssh -i "$HOME/.ssh/id_ed25519" \
@@ -98,7 +150,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
-            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA'$BACKUP_OPTION" 2>&1)"
+            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA'$BACKUP_OPTION$BUILD_OPTION" 2>&1)"
           DEPLOY_STATUS=$?
           set -e
 

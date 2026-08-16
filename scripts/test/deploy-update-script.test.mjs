@@ -62,6 +62,17 @@ test("Relay updater builds an immutable release before cutover", () => {
   assert.doesNotMatch(script, /log "Stopping services"[\s\S]*Fetching latest code/);
 });
 
+test("Relay updater installs revision-bound CI outputs instead of rebuilding them", () => {
+  assert.match(script, /--capabilities[\s\S]*relay-build-artifact-v1/);
+  assert.match(script, /--build-artifact-sha256/);
+  assert.match(script, /bitcraft-build-\$\{BUILD_ARTIFACT_SHA256\}\.tar\.gz/);
+  assert.match(script, /install -d -o root -g root -m 0700 "\$LOG_DIR\/incoming"/);
+  assert.match(script, /chown root:root "\$secured_archive"/);
+  assert.match(script, /install-relay-build-artifact\.mjs/);
+  assert.match(script, /prepare_release\(\)[\s\S]*Installing dependencies[\s\S]*Installing verified CI build/);
+  assert.doesNotMatch(script, /run_logged "Building app"/);
+});
+
 test("Relay updater exposes a revision-pinned sequential native map generation mode", () => {
   assert.match(script, /--generate-map all/);
   assert.match(script, /generate_native_map_packs\(\)/);
@@ -82,6 +93,7 @@ test("Relay updater installs only a hashed product archive through the atomic pa
   assert.match(script, /--install-map-product terrain\|roads/);
   assert.match(script, /--artifact-sha256 <64hex>/);
   assert.match(script, /bitcraft-map-\$\{MAP_INSTALL_PRODUCT\}-\$\{MAP_ARTIFACT_SHA256\}\.tar\.gz/);
+  assert.match(script, /mv -- "\$expected_archive" "\$secured_archive"/);
   assert.match(script, /sha256sum[\s\S]*MAP_ARTIFACT_SHA256/);
   assert.match(script, /tar -tzf[\s\S]*tar -tvzf/);
   assert.match(script, /install-native-map-product\.mjs/);
@@ -152,7 +164,7 @@ test("Relay updater keeps successful output compact while logging details", () =
   assert.match(script, /printf "Full log: %s\\n" "\$LOG_FILE"/);
   assert.match(script, /run_logged\(\)/);
   assert.match(script, /run_logged "Installing dependencies"/);
-  assert.match(script, /run_logged "Building app"/);
+  assert.match(script, /run_logged "Installing verified CI build"/);
   assert.match(script, /Preparation: %ss/);
   assert.match(script, /Cutover: %ss/);
   assert.match(script, /--verbose/);

@@ -11,7 +11,7 @@ const category = (() => {
   if (/Waiting for worker service[.\s]*failed/i.test(output)) return "worker-service";
   if (/Candidate Public: check failed|Public: check failed/i.test(output)) return "public-check";
   if (/Candidate Health: not checked|Waiting for web health[.\s]*failed/i.test(output)) return "health-timeout";
-  if (/Installing dependencies failed|Building app failed|Validating .* failed/i.test(output)) return "prepare";
+  if (/Installing dependencies failed|Building app failed|Installing verified CI build failed|Relay build archive|Expected Relay build archive|Validating .* failed/i.test(output)) return "prepare";
   return "other";
 })();
 

@@ -91,6 +91,16 @@ test("workflow supports explicit backups and long-running SSH keepalives", () =>
   assert.match(workflow, /FORCE_DATABASE_BACKUP/);
 });
 
+test("verified CI build outputs are transferred to capable updaters instead of rebuilt on the VPS", () => {
+  assert.match(workflow, /package-relay-build\.mjs/);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /actions\/download-artifact@v4/);
+  assert.match(workflow, /--capabilities/);
+  assert.match(workflow, /relay-build-artifact-v1/);
+  assert.match(workflow, /bitcraft-build-\$\{DIGEST\}\.tar\.gz/);
+  assert.match(workflow, /--build-artifact-sha256/);
+});
+
 test("workflow preserves slow-changing native map packs for independent validated generators", () => {
   assert.doesNotMatch(workflow, /native-map-static-bundle\.tar\.gz/);
   assert.doesNotMatch(workflow, /Install native map terrain and roads/);
@@ -111,6 +121,7 @@ test("deployment diagnostics classify only secret-safe failure categories", () =
     ["Deployment failed.\nCandidate Health: ok=true, polling enabled=true, version=0.55.0-beta.24\nCandidate Public: check failed status=503", "public-check"],
     ["Deployment failed.\nRollback: failed; recovery snapshot retained", "rollback"],
     ["Installing dependencies failed (exit 1)\nsecret-token=must-not-escape", "prepare"],
+    ["Installing verified CI build failed (exit 1)", "prepare"],
   ];
 
   for (const [input, expected] of cases) {
