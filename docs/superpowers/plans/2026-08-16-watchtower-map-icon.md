@@ -76,11 +76,11 @@ Add this section at the top of `CHANGELOG.md`:
 - Updated the map watchtower marker artwork.
 ```
 
-- [ ] **Step 3: Run the full release suite**
+- [ ] **Step 3: Confirm the release version is synchronized**
 
-Run: `corepack pnpm --filter @workspace/bitcraft-local test`
+Run: `rg -n "0\.57\.0-beta\.4" CHANGELOG.md apps/bitcraft-local/package.json`
 
-Expected: all runnable tests pass, with only documented environment skips.
+Expected: the release version appears in the changelog heading and package manifest.
 
 ### Task 3: Review, publish, and deploy
 
