@@ -20,6 +20,22 @@ test("server health normalizes bounded process and log records", () => {
 test("server health state reports critical host conditions", () => {
   assert.equal(serverHealthState(snapshot({ host: { diskPercent: 91, memoryPercent: 50, cores: 2 } })).state, "critical");
   assert.equal(serverHealthState(snapshot({ services: [{ name: "worker", active: false }] })).state, "critical");
+  assert.equal(serverHealthState(snapshot({ services: [{ name: "roads", active: false, required: false }] })).state, "healthy");
+});
+
+test("server health preserves bounded optional service CPU telemetry", () => {
+  const result = snapshot({ services: [{ name: "roads", active: false, required: false, cpuPercent: 50, cpuUsageNSec: 15_000_000_000 }] });
+  assert.deepEqual(result.services[0], {
+    name: "roads",
+    active: false,
+    required: false,
+    state: "",
+    pid: 0,
+    restarts: 0,
+    memoryBytes: 0,
+    cpuPercent: 50,
+    uptimeSeconds: 0,
+  });
 });
 
 test("server health log filters and pagination remain bounded", () => {

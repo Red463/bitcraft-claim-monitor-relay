@@ -7,7 +7,7 @@ Type=oneshot
 User=root
 Group=bitcraft
 Environment=BITCRAFT_LOCAL_DATA_DIR=/var/lib/bitcraft-claim-monitor-relay
-Environment=BITCRAFT_MONITOR_SERVICES=bitcraft-claim-monitor-relay,bitcraft-claim-monitor-relay-worker,caddy
+Environment=BITCRAFT_MONITOR_SERVICES=bitcraft-claim-monitor-relay,bitcraft-claim-monitor-relay-worker,caddy,bitcraft-claim-monitor-relay-map-terrain,bitcraft-claim-monitor-relay-map-roads
 ExecStart=/usr/bin/node /opt/bitcraft-claim-monitor-relay/current/deploy/collect-server-health.mjs
 UMask=0027
 NoNewPrivileges=true

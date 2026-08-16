@@ -21,6 +21,10 @@ test("Relay services execute through the isolated active release symlink", () =>
   }
 });
 
+test("host telemetry monitors optional map generators alongside required services", () => {
+  assert.match(collector, /BITCRAFT_MONITOR_SERVICES=bitcraft-claim-monitor-relay,bitcraft-claim-monitor-relay-worker,caddy,bitcraft-claim-monitor-relay-map-terrain,bitcraft-claim-monitor-relay-map-roads/);
+});
+
 test("systemd leaves Discord activation to the validated environment", () => {
   for (const unit of [web, worker]) {
     assert.match(unit, /EnvironmentFile=-\/etc\/bitcraft-claim-monitor-relay\.env/);

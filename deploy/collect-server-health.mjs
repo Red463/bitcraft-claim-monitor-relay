@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { compactMonitoringHistory } from "./monitoring-history.mjs";
+import { serviceCpuPercent, serviceIsRequired } from "./server-health-cpu.mjs";
 
 const exec = promisify(execFile);
 const dataDir = process.env.BITCRAFT_LOCAL_DATA_DIR || "/var/lib/bitcraft-claim-monitor-relay";
@@ -20,11 +21,12 @@ const redact = (value) => String(value ?? "").replace(secret, "$1[redacted]").re
 const run = async (command, args) => (await exec(command, args, { timeout: 10_000, maxBuffer: 1_000_000 })).stdout.trim();
 const procText = async (name) => readFile(`/proc/${name}`, "utf8").catch(() => "");
 
-async function serviceRow(name) {
+async function serviceRow(name, { previousUsageNSec, elapsedSeconds, cores }) {
   try {
     const values = Object.fromEntries((await run("systemctl", ["show", name, "--property=ActiveState,SubState,MainPID,NRestarts,MemoryCurrent,CPUUsageNSec,ActiveEnterTimestampMonotonic"])).split("\n").map((line) => line.split(/=(.*)/s).slice(0, 2)));
-    return { name, active: values.ActiveState === "active", state: `${values.ActiveState}/${values.SubState}`, pid: Number(values.MainPID) || 0, restarts: Number(values.NRestarts) || 0, memoryBytes: Number(values.MemoryCurrent) || 0, cpuPercent: 0, uptimeSeconds: Math.max(0, os.uptime() - (Number(values.ActiveEnterTimestampMonotonic) || 0) / 1e6) };
-  } catch (error) { return { name, active: false, state: redact(error.message), pid: 0, restarts: 0, memoryBytes: 0, cpuPercent: 0, uptimeSeconds: 0 }; }
+    const cpuUsageNSec = Number(values.CPUUsageNSec) || 0;
+    return { name, active: values.ActiveState === "active", required: serviceIsRequired(name), state: `${values.ActiveState}/${values.SubState}`, pid: Number(values.MainPID) || 0, restarts: Number(values.NRestarts) || 0, memoryBytes: Number(values.MemoryCurrent) || 0, cpuPercent: serviceCpuPercent({ currentUsageNSec: cpuUsageNSec, previousUsageNSec, elapsedSeconds, cores }), uptimeSeconds: Math.max(0, os.uptime() - (Number(values.ActiveEnterTimestampMonotonic) || 0) / 1e6), _cpuUsageNSec: cpuUsageNSec };
+  } catch (error) { return { name, active: false, required: serviceIsRequired(name), state: redact(error.message), pid: 0, restarts: 0, memoryBytes: 0, cpuPercent: 0, uptimeSeconds: 0, _cpuUsageNSec: 0 }; }
 }
 
 async function journalRows() {
@@ -63,7 +65,10 @@ try {
   }).filter(Boolean);
 } catch {}
 
-const snapshot = { schemaVersion: 1, capturedAt: now.toISOString(), host: { cpuPercent: cpuTotal ? ((cpuTotal - cpuIdle) / cpuTotal) * 100 : 0, load1: os.loadavg()[0], cores: cpus.length, memoryPercent: ((os.totalmem() - os.freemem()) / os.totalmem()) * 100, swapPercent, diskPercent: diskBytes ? ((diskBytes - diskFree) / diskBytes) * 100 : 0, diskBytes, inodePercent: disk.files ? ((disk.files - disk.ffree) / disk.files) * 100 : 0, networkRxBytesPerSecond: previousSnapshot?._networkTotals ? Math.max(0, (networkTotals.rx - previousSnapshot._networkTotals.rx) / elapsedSeconds) : 0, networkTxBytesPerSecond: previousSnapshot?._networkTotals ? Math.max(0, (networkTotals.tx - previousSnapshot._networkTotals.tx) / elapsedSeconds) : 0, networkErrors: networkTotals.errors }, _networkTotals: networkTotals, services: await Promise.all(services.map(serviceRow)), processes, logs: await journalRows() };
+const serviceRows = await Promise.all(services.map((name) => serviceRow(name, { previousUsageNSec: previousSnapshot?._serviceCpuUsage?.[name], elapsedSeconds, cores: cpus.length })));
+const serviceCpuUsage = Object.fromEntries(serviceRows.map((row) => [row.name, row._cpuUsageNSec]));
+const publicServiceRows = serviceRows.map(({ _cpuUsageNSec, ...row }) => row);
+const snapshot = { schemaVersion: 1, capturedAt: now.toISOString(), host: { cpuPercent: cpuTotal ? ((cpuTotal - cpuIdle) / cpuTotal) * 100 : 0, load1: os.loadavg()[0], cores: cpus.length, memoryPercent: ((os.totalmem() - os.freemem()) / os.totalmem()) * 100, swapPercent, diskPercent: diskBytes ? ((diskBytes - diskFree) / diskBytes) * 100 : 0, diskBytes, inodePercent: disk.files ? ((disk.files - disk.ffree) / disk.files) * 100 : 0, networkRxBytesPerSecond: previousSnapshot?._networkTotals ? Math.max(0, (networkTotals.rx - previousSnapshot._networkTotals.rx) / elapsedSeconds) : 0, networkTxBytesPerSecond: previousSnapshot?._networkTotals ? Math.max(0, (networkTotals.tx - previousSnapshot._networkTotals.tx) / elapsedSeconds) : 0, networkErrors: networkTotals.errors }, _networkTotals: networkTotals, _serviceCpuUsage: serviceCpuUsage, services: publicServiceRows, processes, logs: await journalRows() };
 await mkdir(outputDir, { recursive: true, mode: 0o750 });
 const snapshotPath = path.join(outputDir, "snapshot.json");
 await writeFile(`${snapshotPath}.tmp`, JSON.stringify(snapshot), { mode: 0o640 });
@@ -71,7 +76,7 @@ await rename(`${snapshotPath}.tmp`, snapshotPath);
 const historyPath = path.join(outputDir, "history.jsonl");
 let history = [];
 try { history = (await readFile(historyPath, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line)); } catch {}
-history.push({ schemaVersion: 1, capturedAt: snapshot.capturedAt, host: snapshot.host });
+history.push({ schemaVersion: 1, capturedAt: snapshot.capturedAt, host: snapshot.host, services: publicServiceRows });
 history = compactMonitoringHistory(history, { now: now.getTime() });
 await writeFile(`${historyPath}.tmp`, `${history.map((row) => JSON.stringify(row)).join("\n")}\n`, { mode: 0o640 });
 await rename(`${historyPath}.tmp`, historyPath);
