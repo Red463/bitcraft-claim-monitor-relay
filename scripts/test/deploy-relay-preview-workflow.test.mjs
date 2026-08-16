@@ -101,6 +101,8 @@ test("verified CI build outputs are transferred to capable updaters instead of r
   assert.match(workflow, /bitcraft-build-\$\{DIGEST\}\.tar\.gz/);
   assert.match(workflow, /--build-artifact-sha256/);
   assert.match(workflow, /sha256sum deploy\/update-bitcraft-claim-monitor-relay/);
+  assert.match(workflow, /INSTALLED_UPDATER_DIGEST=[\s\S]*sha256sum \/usr\/local\/bin\/update-bitcraft-claim-monitor-relay/);
+  assert.match(workflow, /if \[\[ "\$INSTALLED_UPDATER_DIGEST" != "\$UPDATER_DIGEST" \]\]; then[\s\S]*sudo install -o root -g root -m 0755/);
   assert.match(workflow, /bash -n .*\\\$candidate/);
   assert.match(workflow, /sudo install -o root -g root -m 0755 .*update-bitcraft-claim-monitor-relay/);
 });
