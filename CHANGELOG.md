@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.56.0-beta.2] - 2026-08-16
+
+### Fixed
+
+- Fixed the scheduled off-box map generator so GitHub can start terrain and road jobs successfully.
+
 ## [0.56.0-beta.1] - 2026-08-16
 
 ### Added

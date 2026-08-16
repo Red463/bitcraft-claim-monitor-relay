@@ -150,7 +150,7 @@ test("protected native map generation runs as product-isolated GitHub jobs", () 
   assert.match(generationWorkflow, /environment: relay-preview/);
   assert.match(generationWorkflow, /timeout-minutes: 360/);
   assert.match(generationWorkflow, /matrix:[\s\S]*product:/);
-  assert.match(generationWorkflow, /BITCRAFT_LOCAL_DATA_DIR: \$\{\{ runner\.temp \}\}\/native-map-data/);
+  assert.match(generationWorkflow, /BITCRAFT_LOCAL_DATA_DIR: \/tmp\/bitcraft-native-map-data/);
   assert.match(generationWorkflow, /build-relay-(?:terrain|road)-world\.mjs/);
   assert.match(generationWorkflow, /package-native-map-product\.mjs/);
   assert.doesNotMatch(generationWorkflow, /--generate-map all|systemctl start/);

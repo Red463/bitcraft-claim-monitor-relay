@@ -60,7 +60,7 @@ jobs:
       matrix:
         product: ${{ fromJSON(needs.plan.outputs.products) }}
     env:
-      BITCRAFT_LOCAL_DATA_DIR: ${{ runner.temp }}/native-map-data
+      BITCRAFT_LOCAL_DATA_DIR: /tmp/bitcraft-native-map-data
       BITCRAFT_MAP_GENERATION_BATCH_SIZE: '1'
       BITCRAFT_MAP_IMAGE_CONCURRENCY: '1'
       UV_THREADPOOL_SIZE: '2'
