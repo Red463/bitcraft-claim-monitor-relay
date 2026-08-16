@@ -130,17 +130,26 @@ test("workflow publishes only an allow-listed native map failure category", () =
   assert.doesNotMatch(workflow, /printf[^\n]*DEPLOY_OUTPUT/);
 });
 
-test("protected native map generation runs sequentially through the restricted updater", () => {
+test("protected native map generation runs as product-isolated GitHub jobs", () => {
   assert.match(generationWorkflow, /workflow_dispatch:/);
+  assert.match(generationWorkflow, /schedule:/);
+  assert.match(generationWorkflow, /cron: ['"]10 2 \* \* 1-6['"]/);
+  assert.match(generationWorkflow, /cron: ['"]10 3 \* \* 0['"]/);
   assert.match(generationWorkflow, /GITHUB_REF.*refs\/heads\/main/);
   assert.match(generationWorkflow, /environment: relay-preview/);
   assert.match(generationWorkflow, /timeout-minutes: 360/);
-  assert.match(generationWorkflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --generate-map all/);
-  assert.doesNotMatch(generationWorkflow, /systemctl start|build-relay-terrain-world|build-relay-road-world/);
+  assert.match(generationWorkflow, /matrix:[\s\S]*product:/);
+  assert.match(generationWorkflow, /BITCRAFT_LOCAL_DATA_DIR: \$\{\{ runner\.temp \}\}\/native-map-data/);
+  assert.match(generationWorkflow, /build-relay-(?:terrain|road)-world\.mjs/);
+  assert.match(generationWorkflow, /package-native-map-product\.mjs/);
+  assert.doesNotMatch(generationWorkflow, /--generate-map all|systemctl start/);
 });
 
-test("protected native map generation reports a redacted local and canonical serving comparison", () => {
-  assert.match(generationWorkflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --generate-map all/);
+test("protected native map generation uploads a hashed archive for restricted atomic installation", () => {
+  assert.match(generationWorkflow, /sha256sum/);
+  assert.match(generationWorkflow, /scp[\s\S]*bitcraft-map-\$\{?PRODUCT\}?-/);
+  assert.match(generationWorkflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --install-map-product/);
+  assert.match(generationWorkflow, /--artifact-sha256/);
   assert.doesNotMatch(generationWorkflow, /sudo \/usr\/bin\/node/);
   assert.doesNotMatch(generationWorkflow, /cat \/etc\/bitcraft-claim-monitor-relay\.env|\/proc\/[^\s]+\/environ/);
 });

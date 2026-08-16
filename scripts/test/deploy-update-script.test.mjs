@@ -78,6 +78,17 @@ test("Relay updater exposes a revision-pinned sequential native map generation m
   assert.match(script, /systemctl enable --now "\$MAP_TERRAIN_TIMER" "\$MAP_ROADS_TIMER"/);
 });
 
+test("Relay updater installs only a hashed product archive through the atomic pack store", () => {
+  assert.match(script, /--install-map-product terrain\|roads/);
+  assert.match(script, /--artifact-sha256 <64hex>/);
+  assert.match(script, /bitcraft-map-\$\{MAP_INSTALL_PRODUCT\}-\$\{MAP_ARTIFACT_SHA256\}\.tar\.gz/);
+  assert.match(script, /sha256sum[\s\S]*MAP_ARTIFACT_SHA256/);
+  assert.match(script, /tar -tzf[\s\S]*tar -tvzf/);
+  assert.match(script, /install-native-map-product\.mjs/);
+  assert.match(script, /systemctl disable --now "\$MAP_TERRAIN_TIMER" "\$MAP_ROADS_TIMER"/);
+  assert.doesNotMatch(script, /--install-map-product[\s\S]{0,300}eval/);
+});
+
 test("native map diagnostics compare effective unit storage without publishing raw settings", () => {
   assert.match(mapDiagnostic, /unitSummary\(TERRAIN_SERVICE, "build-relay-terrain-world\.mjs"\)/);
   assert.match(mapDiagnostic, /unitSummary\(ROAD_SERVICE, "build-relay-road-world\.mjs"\)/);

@@ -2,6 +2,19 @@ name: Generate native map packs
 
 on:
   workflow_dispatch:
+    inputs:
+      product:
+        description: Native map product to regenerate
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - roads
+          - terrain
+  schedule:
+    - cron: '10 2 * * 1-6'
+    - cron: '10 3 * * 0'
 
 permissions:
   contents: read
@@ -11,13 +24,86 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      products: ${{ steps.products.outputs.products }}
+    steps:
+      - name: Select scheduled products
+        id: products
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_PRODUCT: ${{ inputs.product }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            case "$REQUESTED_PRODUCT" in
+              all) products='["terrain","roads"]' ;;
+              terrain) products='["terrain"]' ;;
+              roads) products='["roads"]' ;;
+              *) exit 2 ;;
+            esac
+          elif [ "$SCHEDULE" = "10 3 * * 0" ]; then
+            products='["terrain","roads"]'
+          else
+            products='["roads"]'
+          fi
+          printf 'products=%s\n' "$products" >> "$GITHUB_OUTPUT"
+
   generate:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 360
     environment: relay-preview
+    strategy:
+      fail-fast: false
+      matrix:
+        product: ${{ fromJSON(needs.plan.outputs.products) }}
+    env:
+      BITCRAFT_LOCAL_DATA_DIR: ${{ runner.temp }}/native-map-data
+      BITCRAFT_MAP_GENERATION_BATCH_SIZE: '1'
+      BITCRAFT_MAP_IMAGE_CONCURRENCY: '1'
+      UV_THREADPOOL_SIZE: '2'
     steps:
       - name: Require main
         run: test "$GITHUB_REF" = "refs/heads/main"
+      - name: Check out verified revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install locked dependencies
+        run: corepack pnpm install --frozen-lockfile
+      - name: Build Relay bindings
+        run: corepack pnpm --filter @workspace/bitcraft-local run build:server
+      - name: Generate terrain
+        if: matrix.product == 'terrain'
+        run: node apps/bitcraft-local/scripts/build-relay-terrain-world.mjs
+      - name: Generate roads
+        if: matrix.product == 'roads'
+        run: node apps/bitcraft-local/scripts/build-relay-road-world.mjs
+      - name: Package verified product
+        id: package
+        env:
+          PRODUCT: ${{ matrix.product }}
+        run: |
+          artifact_root="$RUNNER_TEMP/native-map-artifact"
+          node apps/bitcraft-local/scripts/package-native-map-product.mjs \
+            --data-dir "$BITCRAFT_LOCAL_DATA_DIR" \
+            --product "$PRODUCT" \
+            --output-dir "$artifact_root"
+          archive="$RUNNER_TEMP/bitcraft-map-$PRODUCT.tar.gz"
+          tar -C "$artifact_root" -czf "$archive" .
+          digest="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Configure pinned SSH identity
         env:
           RELAY_VPS_SSH_PRIVATE_KEY: ${{ secrets.RELAY_VPS_SSH_PRIVATE_KEY }}
@@ -28,11 +114,20 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$RELAY_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
-      - name: Generate and validate terrain then roads
+      - name: Upload and atomically install product
         env:
+          ARTIFACT_PATH: ${{ steps.package.outputs.archive }}
+          DIGEST: ${{ steps.package.outputs.digest }}
+          PRODUCT: ${{ matrix.product }}
           RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
           RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
         run: |
+          scp -i "$HOME/.ssh/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -- "$ARTIFACT_PATH" "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST:bitcraft-map-${PRODUCT}-${DIGEST}.tar.gz"
           ssh -i "$HOME/.ssh/id_ed25519" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
@@ -41,4 +136,4 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
-            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA' --generate-map all"
+            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA' --install-map-product '$PRODUCT' --artifact-sha256 '$DIGEST'"
