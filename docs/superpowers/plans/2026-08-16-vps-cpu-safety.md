@@ -112,4 +112,3 @@
 - [ ] Inspect workflows for secret interpolation, unsafe archive paths, accidental VPS generation, and unbounded fallback behavior.
 - [ ] Confirm no local full suite, full build, world generation, or dense benchmark was invoked.
 - [ ] Commit the focused implementation on `codex/reduce-vps-cpu` with a production-safety message.
-

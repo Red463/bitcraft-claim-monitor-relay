@@ -15,4 +15,3 @@ test("inactive batch generators are observed without becoming required services"
   assert.equal(serviceIsRequired("bitcraft-claim-monitor-relay-map-terrain"), false);
   assert.equal(serviceIsRequired("bitcraft-claim-monitor-relay-map-roads.service"), false);
 });
-

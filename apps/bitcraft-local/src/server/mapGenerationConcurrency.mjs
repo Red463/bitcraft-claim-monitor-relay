@@ -12,4 +12,3 @@ export function configureMapGenerationConcurrency(sharpModule, environment = pro
   sharpModule.concurrency(concurrency);
   return concurrency;
 }
-

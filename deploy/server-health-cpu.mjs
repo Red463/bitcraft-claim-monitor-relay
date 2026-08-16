@@ -17,4 +17,3 @@ export function serviceCpuPercent({ currentUsageNSec, previousUsageNSec, elapsed
 export function serviceIsRequired(name) {
   return !OPTIONAL_BATCH_SERVICE.test(String(name ?? ""));
 }
-

@@ -75,4 +75,3 @@ test("a malformed imported product retains the destination last-good pointer", a
   const retained = JSON.parse(await readFile(path.join(destination, "map-road-tiles", "current.json"), "utf8"));
   assert.equal(retained.generation, "201");
 });
-

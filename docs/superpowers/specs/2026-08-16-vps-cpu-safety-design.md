@@ -52,4 +52,3 @@ The collector monitors web, worker, Caddy, terrain generation, and road generati
 - Updater integration fixtures prove invalid hashes and unsafe archives fail before the current pointer changes.
 - Collector tests prove CPU deltas and generator services are projected without leaking commands or identifiers.
 - Local verification is limited to focused, memory-capped test files and syntax checks because prior full local Node builds exhausted the workstation. GitHub CI remains the full build/test authority.
-

@@ -13,4 +13,3 @@ test("map generation defaults to one image thread and clamps configured concurre
   assert.equal(configureMapGenerationConcurrency(sharp, { BITCRAFT_MAP_IMAGE_CONCURRENCY: "99" }), 2);
   assert.deepEqual(applied, [1, 2, 1, 2]);
 });
-
