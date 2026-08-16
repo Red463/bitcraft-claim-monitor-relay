@@ -1,9 +1,11 @@
 import { mkdir, readFile, rm, mkdtemp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import sharp from "sharp";
 
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
+import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
 
 function canonicalRegions(values) {
   const regions = canonicalMapRegionIds(values);
@@ -77,6 +79,7 @@ async function waitForTerrain(runtime, regionId, timeoutMs) {
 }
 
 export async function runTerrainWorldCli() {
+  configureMapGenerationConcurrency(sharp);
   const [{ discoverRelayTopology, RelayTerrainRuntime }, { createTerrainTileStore }, { renderTerrainTileChannels }, { composeMapTilePack }, { createMapTilePackStore }] = await Promise.all([
     import("../dist-server/game-data/index.js"),
     import("../src/server/terrainTileStore.mjs"),

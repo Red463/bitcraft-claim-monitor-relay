@@ -27,8 +27,14 @@ test("map generation services share one non-blocking lock and strict resource co
     assert.match(service, /MemoryMax=70%/);
     assert.match(service, /Nice=10/);
     assert.match(service, /CPUWeight=20/);
+    assert.match(service, /CPUAccounting=true/);
+    assert.match(service, /CPUQuota=100%/);
     assert.match(service, /IOWeight=10/);
-    assert.match(service, /RuntimeMaxSec=3h/);
+    assert.match(service, /TimeoutStartSec=12h/);
+    assert.match(service, /KillMode=control-group/);
+    assert.match(service, /Environment=UV_THREADPOOL_SIZE=2/);
+    assert.match(service, /Environment=BITCRAFT_MAP_IMAGE_CONCURRENCY=1/);
+    assert.doesNotMatch(service, /RuntimeMaxSec=/);
     assert.match(service, /flock -n \/run\/lock\/bitcraft-claim-monitor-relay-map-generation\.lock/);
     assert.match(service, /BITCRAFT_LOCAL_DATA_DIR=\/var\/lib\/bitcraft-claim-monitor-relay/);
   }

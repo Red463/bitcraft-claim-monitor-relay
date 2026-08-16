@@ -1,9 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import sharp from "sharp";
 
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
+import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
 
 const ROAD_GENERATION_STAGES = new Set([
   "topology", "relay-connect", "relay-subscription", "coordinate-projection",
@@ -198,6 +200,7 @@ async function collectRoadRegion({ relayBaseUrl, source, timeoutMs }) {
 }
 
 export async function runRoadWorldCli() {
+  configureMapGenerationConcurrency(sharp);
   const [{ assertSchemaFingerprint, discoverRelayTopology }, { createRoadTileStore }, { groupRoadPointsForZoom, renderRoadTile }, { composeMapTilePack }, { createMapTilePackStore }] = await Promise.all([
     import("../dist-server/game-data/index.js"),
     import("../src/server/roadTileStore.mjs"),
