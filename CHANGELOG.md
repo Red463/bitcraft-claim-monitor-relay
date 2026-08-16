@@ -9,6 +9,21 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.56.0-beta.1] - 2026-08-16
+
+### Added
+
+- Added per-service CPU attribution to server health diagnostics for the web app, worker, Caddy, and map generators.
+
+### Changed
+
+- Moved terrain and road generation to scheduled GitHub Actions jobs so normal VPS traffic is not competing with large generation workloads.
+- Changed production deployments to install verified CI build outputs instead of compiling the application again on the VPS.
+
+### Fixed
+
+- Capped fallback VPS map-generation CPU, worker concurrency, and runtime while preserving the last-good map when a generation fails.
+
 ## [0.55.0-beta.45] - 2026-08-15
 
 ### Changed
