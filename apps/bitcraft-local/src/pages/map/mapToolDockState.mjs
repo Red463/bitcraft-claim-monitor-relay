@@ -10,3 +10,9 @@ export function nextMapTool(active, requested) {
   if (active != null) mapToolId(active);
   return active === next ? null : next;
 }
+
+export function mapToolNeedsInitialFocus(previousActive, active) {
+  if (previousActive != null) mapToolId(previousActive);
+  if (active != null) mapToolId(active);
+  return active != null && active !== previousActive;
+}

@@ -112,6 +112,7 @@
   place-items: center;
   text-decoration: none;
 }
+body:has(.floating-actions:not(.floating-actions-collapsed)) .map-dedicated-tab-link { right: 4.75rem; }
 .map-dedicated-tab-link:hover,
 .map-dedicated-tab-link:focus-visible {
   border-color: color-mix(in srgb, var(--gold) 55%, var(--border));

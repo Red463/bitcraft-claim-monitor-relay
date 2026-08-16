@@ -40,6 +40,15 @@ test("Map page removes its banner and exposes a dedicated-tab control only in th
   assert.match(narrowMapCss, /\.map-panel\.is-dedicated \.map-workspace\.native-tools\s*\{[^}]*height:\s*100dvh;[^}]*min-height:\s*100dvh;/s);
 });
 
+test("Map fullscreen control clears the expanded application tools rail", () => {
+  const mapCss = readFileSync(new URL("../src/styles/map.css", import.meta.url), "utf8");
+
+  assert.match(
+    mapCss,
+    /body:has\(\.floating-actions:not\(\.floating-actions-collapsed\)\) \.map-dedicated-tab-link\s*\{[^}]*right:\s*4\.75rem;/s,
+  );
+});
+
 test("Map page supplies the complete player panel to the native map", () => {
   const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
 

@@ -2,7 +2,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import { nextMapTool, type MapToolId } from "./mapToolDockState.mjs";
+import { mapToolNeedsInitialFocus, nextMapTool, type MapToolId } from "./mapToolDockState.mjs";
 
 export type MapToolDescriptor = {
   id: MapToolId;
@@ -19,6 +19,7 @@ export function MapToolDock({ tools, trailingControl }: { tools: MapToolDescript
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRefs = React.useRef(new Map<MapToolId, HTMLButtonElement>());
+  const focusedToolRef = React.useRef<MapToolId | null>(null);
   const [panelAnchor, setPanelAnchor] = React.useState({ left: 0, top: 0 });
   const activeDescriptor = tools.find((tool) => tool.id === activeTool) ?? null;
 
@@ -32,7 +33,9 @@ export function MapToolDock({ tools, trailingControl }: { tools: MapToolDescript
   }, []);
 
   React.useEffect(() => {
-    if (!activeDescriptor) return;
+    const needsInitialFocus = mapToolNeedsInitialFocus(focusedToolRef.current, activeTool);
+    focusedToolRef.current = activeTool;
+    if (!activeDescriptor || !needsInitialFocus) return;
     const frame = window.requestAnimationFrame(() => {
       const requested = activeDescriptor.primaryFocusSelector
         ? panelRef.current?.querySelector<HTMLElement>(activeDescriptor.primaryFocusSelector)
@@ -40,7 +43,7 @@ export function MapToolDock({ tools, trailingControl }: { tools: MapToolDescript
       (requested ?? panelRef.current?.querySelector<HTMLElement>("[data-map-tool-heading]"))?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeDescriptor]);
+  }, [activeDescriptor, activeTool]);
 
   React.useEffect(() => {
     if (!activeTool) return;

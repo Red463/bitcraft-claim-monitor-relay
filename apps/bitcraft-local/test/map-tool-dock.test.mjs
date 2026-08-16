@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { nextMapTool } from "../src/pages/map/mapToolDockState.mjs";
+import { mapToolNeedsInitialFocus, nextMapTool } from "../src/pages/map/mapToolDockState.mjs";
 
 test("requesting a closed map tool opens it", () => {
   assert.equal(nextMapTool(null, "layers"), "layers");
@@ -19,6 +19,13 @@ test("requesting another map tool switches directly", () => {
 
 test("map tool state rejects unknown tool identities", () => {
   assert.throws(() => nextMapTool("layers", "unknown"), /Unknown map tool/);
+});
+
+test("map tool autofocus runs only when the active tool changes", () => {
+  assert.equal(mapToolNeedsInitialFocus(null, "resources"), true);
+  assert.equal(mapToolNeedsInitialFocus("resources", "resources"), false);
+  assert.equal(mapToolNeedsInitialFocus("resources", "players"), true);
+  assert.equal(mapToolNeedsInitialFocus("resources", null), false);
 });
 
 test("tool panels render at the viewport root so mobile bottom sheets are not trapped by transformed ancestors", () => {
