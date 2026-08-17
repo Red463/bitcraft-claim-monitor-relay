@@ -13,12 +13,12 @@ const manifest = JSON.parse(readFileSync(
 
 test("Relay schema manifest records independent global and regional fingerprints", () => {
   assert.equal(
-    assertSchemaFingerprint(manifest, "global", "5e44626f1c24e9f8392ebce8bdc9de135f76a58747b208d5e4aa455dd411036a"),
-    "5e44626f1c24e9f8392ebce8bdc9de135f76a58747b208d5e4aa455dd411036a",
+    assertSchemaFingerprint(manifest, "global", "5814c18474097f92cd37c577a9c7f033c820a6d2dd7e679db936ba018a396f8c"),
+    "5814c18474097f92cd37c577a9c7f033c820a6d2dd7e679db936ba018a396f8c",
   );
   assert.equal(
-    assertSchemaFingerprint(manifest, "regional", "762aeaa1449c53d5f400d72bb82f71a049997d34e28c6844ce8f3899d1cb6312"),
-    "762aeaa1449c53d5f400d72bb82f71a049997d34e28c6844ce8f3899d1cb6312",
+    assertSchemaFingerprint(manifest, "regional", "3d0b4c9bba59f7b1daad5122369599ea557e333124c4f778079a45af1683f65b"),
+    "3d0b4c9bba59f7b1daad5122369599ea557e333124c4f778079a45af1683f65b",
   );
   assert.equal(schemaBindingsReady(manifest, "global"), true);
   assert.equal(schemaBindingsReady(manifest, "regional"), true);

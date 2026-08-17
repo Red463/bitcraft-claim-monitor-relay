@@ -17,6 +17,7 @@ import {
   ProbabilisticItemStack,
   EmpirePermission,
   ExtractionSpawnedPlaceable,
+  PlaceableSelfBuffChance,
 } from "./types";
 
 
@@ -57,5 +58,8 @@ export default __t.row({
   },
   get spawnedPlaceables() {
     return __t.option(__t.array(ExtractionSpawnedPlaceable)).name("spawned_placeables");
+  },
+  get selfBuffs() {
+    return __t.option(__t.array(PlaceableSelfBuffChance)).name("self_buffs");
   },
 });

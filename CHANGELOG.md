@@ -9,6 +9,16 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.1-beta.1] - 2026-08-17
+
+### Changed
+
+- Refreshed Relay bindings for the current global and regional game schemas.
+
+### Fixed
+
+- Made road generation report Relay schema drift directly instead of a misleading empty-region error.
+
 ## [0.57.0-beta.4] - 2026-08-16
 
 ### Changed

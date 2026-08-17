@@ -2637,6 +2637,9 @@ export const ExtractionRecipeDesc = __t.object("ExtractionRecipeDesc", {
   get spawnedPlaceables() {
     return __t.option(__t.array(ExtractionSpawnedPlaceable));
   },
+  get selfBuffs() {
+    return __t.option(__t.array(PlaceableSelfBuffChance));
+  },
 });
 export type ExtractionRecipeDesc = __Infer<typeof ExtractionRecipeDesc>;
 
@@ -2666,6 +2669,10 @@ export const FoodDesc = __t.object("FoodDesc", {
   consumableWhileInCombat: __t.bool(),
   get buffs() {
     return __t.array(BuffEffect);
+  },
+  autoConsume: __t.bool(),
+  get outputItemStacks() {
+    return __t.option(__t.array(ItemStack));
   },
 });
 export type FoodDesc = __Infer<typeof FoodDesc>;
@@ -5481,6 +5488,9 @@ export const ProspectingDesc = __t.object("ProspectingDesc", {
   },
   pctNodesForMaxContribution: __t.f32(),
   singleContributionOnly: __t.bool(),
+  get stepItemStacks() {
+    return __t.option(__t.array(ItemStack));
+  },
 });
 export type ProspectingDesc = __Infer<typeof ProspectingDesc>;
 

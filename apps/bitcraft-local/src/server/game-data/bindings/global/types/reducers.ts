@@ -825,3 +825,4 @@ export type UserModerationCreateParams = __Infer<typeof UserModerationCreateRedu
 export type UserModerationDeleteParams = __Infer<typeof UserModerationDeleteReducer>;
 export type WorldClearNpcEmpireParams = __Infer<typeof WorldClearNpcEmpireReducer>;
 export type WorldFormNpcEmpireParams = __Infer<typeof WorldFormNpcEmpireReducer>;
+

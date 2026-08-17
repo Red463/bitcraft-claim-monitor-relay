@@ -70,6 +70,21 @@ test("one failed road region retains the previous pack", async () => {
   assert.equal(pruneCalls, 0);
 });
 
+test("road region selection surfaces schema drift instead of reporting an empty region list", () => {
+  const mismatch = new Error("Relay regional schema fingerprint mismatch");
+  assert.throws(() => roadJob.schemaReadyRoadRegionIds({
+    topology: {
+      regions: new Map([["19", {
+        ready: true,
+        schemaFingerprint: "live-regional-fingerprint",
+      }]]),
+    },
+    manifest: { schemas: { regional: { fingerprint: "generated-regional-fingerprint" } } },
+    requestedSet: null,
+    assertFingerprint: () => { throw mismatch; },
+  }), (error) => error === mismatch);
+});
+
 test("road projection rejects incomplete joins instead of silently dropping paving rows", () => {
   assert.throws(() => roadJob.projectRoadPoints({
     pavedRows: [{ entityId: 1n }, { entityId: 2n }],

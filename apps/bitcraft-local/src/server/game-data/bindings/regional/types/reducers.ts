@@ -1527,3 +1527,4 @@ export type WorldClearNpcWatchtowersParams = __Infer<typeof WorldClearNpcWatchto
 export type WorldPlaceBuildingParams = __Infer<typeof WorldPlaceBuildingReducer>;
 export type WorldPlaceNpcWatchtowersParams = __Infer<typeof WorldPlaceNpcWatchtowersReducer>;
 export type WorldPlaceResourceParams = __Infer<typeof WorldPlaceResourceReducer>;
+

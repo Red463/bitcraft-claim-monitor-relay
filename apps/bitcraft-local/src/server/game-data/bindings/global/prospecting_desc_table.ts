@@ -54,4 +54,7 @@ export default __t.row({
   },
   pctNodesForMaxContribution: __t.f32().name("pct_nodes_for_max_contribution"),
   singleContributionOnly: __t.bool().name("single_contribution_only"),
+  get stepItemStacks() {
+    return __t.option(__t.array(ItemStack)).name("step_item_stacks");
+  },
 });

@@ -18,6 +18,18 @@ TypeScript, but it must not be silently upgraded. Regeneration requires the
 exact CLI pin, fresh fingerprint validation, compilation, and a live
 subscription check.
 
+The pinned bridge command shape is:
+
+```text
+spacetime generate --lang typescript --module-def <wrapped-v9-schema.json> --out-dir <fresh-output-directory> --yes --no-config
+```
+
+Run it from a working directory that contains a `spacetimedb/` directory; the
+2.7.0 CLI validates that default module path even when `--module-def` supplies
+the schema. Before generation, hash the exact Relay schema response and require
+that SHA-256 to equal the topology fingerprint. Generate into a fresh staging
+directory, never directly over the checked-in bindings.
+
 The 2.7.0 generator omitted the named `PlayerVoteAnswer` enum while emitting
 references to it. Both generated `types.ts` files contain one documented repair
 copied exactly from schema type `PlayerVoteAnswer`: the unit variants `None`,

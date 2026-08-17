@@ -11,6 +11,7 @@ import {
 } from "spacetimedb";
 import {
   BuffEffect,
+  ItemStack,
 } from "./types";
 
 
@@ -25,5 +26,9 @@ export default __t.row({
   consumableWhileInCombat: __t.bool().name("consumable_while_in_combat"),
   get buffs() {
     return __t.array(BuffEffect);
+  },
+  autoConsume: __t.bool().name("auto_consume"),
+  get outputItemStacks() {
+    return __t.option(__t.array(ItemStack)).name("output_item_stacks");
   },
 });

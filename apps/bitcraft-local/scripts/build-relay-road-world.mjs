@@ -61,6 +61,14 @@ function canonicalRegions(values) {
   return regions;
 }
 
+export function schemaReadyRoadRegionIds({ topology, manifest, requestedSet, assertFingerprint }) {
+  return canonicalRegions([...topology.regions.entries()].flatMap(([regionId, source]) => {
+    if (!source.ready || (requestedSet && !requestedSet.has(String(regionId)))) return [];
+    assertFingerprint(manifest, "regional", String(source.schemaFingerprint ?? ""));
+    return [String(regionId)];
+  }));
+}
+
 export function projectRoadPoints({ pavedRows, locationRows }) {
   const locations = new Map(locationRows.map((row) => [String(row.entityId), row]));
   return pavedRows.map((row) => {
@@ -218,15 +226,12 @@ export async function runRoadWorldCli() {
   const requestedSet = requestedValues.length ? new Set(canonicalRegions(requestedValues)) : null;
   const manifest = JSON.parse(await readFile(new URL("../src/server/game-data/bindings/schema-manifest.json", import.meta.url), "utf8"));
   const topology = await roadGenerationStage("topology", () => discoverRelayTopology(relayBaseUrl));
-  const readyRegionIds = canonicalRegions([...topology.regions.entries()].flatMap(([regionId, source]) => {
-    if (!source.ready || (requestedSet && !requestedSet.has(String(regionId)))) return [];
-    try {
-      assertSchemaFingerprint(manifest, "regional", String(source.schemaFingerprint ?? ""));
-      return [String(regionId)];
-    } catch {
-      return [];
-    }
-  }));
+  const readyRegionIds = schemaReadyRoadRegionIds({
+    topology,
+    manifest,
+    requestedSet,
+    assertFingerprint: assertSchemaFingerprint,
+  });
   if (requestedSet) for (const regionId of requestedSet) if (!readyRegionIds.includes(regionId)) throw new Error(`Requested road region ${regionId} is not schema-ready`);
 
   const outputRoot = path.join(dataDir, "map-road-tiles");

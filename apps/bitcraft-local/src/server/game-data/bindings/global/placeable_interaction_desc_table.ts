@@ -15,8 +15,8 @@ import {
   ToolRequirement,
   InputItemStack,
   ExperienceStackF32,
-  PlaceableGrowthOutcomeV2,
   PlaceableSelfBuffChance,
+  PlaceableGrowthOutcomeV2,
 } from "./types";
 
 
