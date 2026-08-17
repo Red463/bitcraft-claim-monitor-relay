@@ -222,12 +222,6 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
     const dot = document.createElement("span");
     dot.className = "native-map-player-dot";
     content.append(pulse, dot);
-    if (currentUser) {
-      const me = document.createElement("span");
-      me.className = "native-map-player-me-label";
-      me.textContent = "ME";
-      content.appendChild(me);
-    }
   } else {
     const glyph = document.createElement("span");
     glyph.className = "native-map-marker-glyph";
@@ -242,7 +236,7 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
     image.addEventListener("error", () => image.remove(), { once: true });
     content.prepend(image);
   }
-  const size = currentUser ? 34 : kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
+  const size = currentUser ? 28 : kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
   return L.divIcon({
     className: `native-map-marker native-map-marker--${markerKindClass(kind)}${currentUser ? " native-map-marker--current-user" : ""}`,
     html: content,
