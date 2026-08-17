@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.1-beta.2] - 2026-08-17
+
+### Added
+
+- Added a prominent `ME` label and halo to the live map marker for an approved linked character.
+- Added custom colours for tracked player markers, synced to signed-in accounts with a browser-local fallback.
+
 ## [0.57.1-beta.1] - 2026-08-17
 
 ### Changed

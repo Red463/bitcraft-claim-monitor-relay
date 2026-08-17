@@ -64,6 +64,8 @@ import { urlMapFocus } from "./utils/mapFocus";
 import type { ActivePanel } from "./types/app";
 import type { AppSettings, AppUser, UserAuthState, UserToastSettings } from "./types/settings";
 import type { MapFocus } from "./pages/map/mapUtils";
+import { accountPlayerMarkerColourOverrides, normalizePlayerMarkerColourOverrides, withPlayerMarkerColourOverride } from "./map/playerMarkerColours.mjs";
+import { verifiedCharacterPlayerId } from "./map/playerMarkerIdentity.mjs";
 import { applyTheme, DEFAULT_THEME, normalizeThemeCandidate, type ThemeSettings } from "./theme";
 import { ACCESS_CONTROL_TARGETS, effectiveTargetAllowed, targetIdForPage, type EffectiveAccess } from "./access/accessControl.mjs";
 import { restrictedAccessGuidance } from "./access/restrictedAccess";
@@ -281,6 +283,8 @@ function DashboardApp() {
   const pageRefreshScopeRef = React.useRef(`${active}|${claimId}`);
   const lastUpdated = pageRefreshState.lastSuccessfulAt == null ? null : new Date(pageRefreshState.lastSuccessfulAt);
   const [mapFocus, setMapFocus] = usePersistedState<MapFocus>("map.focus", urlMapFocus());
+  const [mapPlayerColours, setMapPlayerColours] = usePersistedState<Record<string, string>>("map.player-colours", {});
+  const normalizedMapPlayerColours = React.useMemo(() => normalizePlayerMarkerColourOverrides(mapPlayerColours), [mapPlayerColours]);
   const [selectedMemberId, setSelectedMemberId] = usePersistedState("production.member", "All");
   const [userToastSettings, setUserToastSettings] = usePersistedState<UserToastSettings>("user.notifications", DEFAULT_USER_TOAST_SETTINGS);
   const normalizedUserToastSettings = React.useMemo(() => normalizeUserToastSettings(userToastSettings), [userToastSettings]);
@@ -464,7 +468,11 @@ function DashboardApp() {
     if (typeof saved.sidebarCollapsed === "boolean") setSidebarCollapsed(saved.sidebarCollapsed);
     if (saved.sidebarGroups && typeof saved.sidebarGroups === "object" && !Array.isArray(saved.sidebarGroups)) setSidebarGroups({ ...DEFAULT_SIDEBAR_GROUPS, ...saved.sidebarGroups });
     if (typeof saved.selectedMemberId === "string") setSelectedMemberId(saved.selectedMemberId);
-  }, [setBrowserTheme, setDensity, setSelectedMemberId, setSidebarCollapsed, setSidebarGroups, setUserToastSettings]);
+    setMapPlayerColours((current) => {
+      const next = accountPlayerMarkerColourOverrides(saved, current);
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+    });
+  }, [setBrowserTheme, setDensity, setMapPlayerColours, setSelectedMemberId, setSidebarCollapsed, setSidebarGroups, setUserToastSettings]);
   React.useEffect(() => {
     const discordId = userAuth.user?.discordId ?? "";
     if (!discordId) {
@@ -483,7 +491,7 @@ function DashboardApp() {
   React.useEffect(() => {
     const discordId = userAuth.user?.discordId ?? "";
     if (!discordId || accountSettingsHydratedFor !== `${discordId}:${accountSettingsFingerprint}`) return;
-    const settings = { ...(userAuth.user?.settings ?? {}), density, toastSettings: normalizedUserToastSettings, theme: browserTheme, sidebarCollapsed, sidebarGroups, selectedMemberId };
+    const settings = { ...(userAuth.user?.settings ?? {}), density, toastSettings: normalizedUserToastSettings, theme: browserTheme, sidebarCollapsed, sidebarGroups, selectedMemberId, mapPlayerColours: normalizedMapPlayerColours };
     const settingsFingerprint = JSON.stringify(settings);
     const pausedSync = accountSettingsSyncPause.current;
     if (pausedSync) {
@@ -499,7 +507,7 @@ function DashboardApp() {
       void syncAccountSettings(settings).catch(() => undefined);
     }, 600);
     return () => window.clearTimeout(timeout);
-  }, [accountSettingsFingerprint, accountSettingsHydratedFor, browserTheme, density, normalizedUserToastSettings, selectedMemberId, sidebarCollapsed, sidebarGroups, syncAccountSettings, userAuth.user?.discordId, userAuth.user?.settings]);
+  }, [accountSettingsFingerprint, accountSettingsHydratedFor, browserTheme, density, normalizedMapPlayerColours, normalizedUserToastSettings, selectedMemberId, sidebarCollapsed, sidebarGroups, syncAccountSettings, userAuth.user?.discordId, userAuth.user?.settings]);
   const setDiscordMarketSaleDm = React.useCallback(async (enabled: boolean) => {
     const settings = { ...(userAuth.user?.settings ?? {}), discordMarketSaleDm: enabled };
     const response = await fetch(`${LOCAL_API}/auth/settings`, { method: "PUT", headers: { "content-type": "application/json", "x-csrf-token": String(userAuth.csrfToken ?? "") }, body: JSON.stringify({ settings }) });
@@ -516,6 +524,7 @@ function DashboardApp() {
         sidebarCollapsed: false,
         sidebarGroups: DEFAULT_SIDEBAR_GROUPS,
         selectedMemberId: "All",
+        mapPlayerColours: {},
       };
       accountSettingsSyncPause.current = { target: JSON.stringify(defaults), settled: false };
       setDensity(defaults.density);
@@ -524,9 +533,10 @@ function DashboardApp() {
       setSidebarCollapsed(defaults.sidebarCollapsed);
       setSidebarGroups(defaults.sidebarGroups);
       setSelectedMemberId(defaults.selectedMemberId);
+      setMapPlayerColours(defaults.mapPlayerColours);
     }
     setUserAuth((current) => ({ ...current, user }));
-  }, [setBrowserTheme, setDensity, setSelectedMemberId, setSidebarCollapsed, setSidebarGroups, setUserToastSettings]);
+  }, [setBrowserTheme, setDensity, setMapPlayerColours, setSelectedMemberId, setSidebarCollapsed, setSidebarGroups, setUserToastSettings]);
   const handleAnalyticsCleared = React.useCallback(() => {
     withdrawAnalyticsConsent();
     setConsent(null);
@@ -845,7 +855,7 @@ function DashboardApp() {
     "settlement-market": <SettlementMarket data={data} history={localHistory.market} claimId={claimId} access={effectiveAccess} locationSearch={routeSearch} listingsLoading={state.loading} listingError={state.error} onQueryStateChange={syncRouteSearch} />,
     region: <Region data={data} />,
     empires: <Empires monitoredClaimId={claimId} monitoredRegionId={String(data.claim.regionId ?? "")} activeRegionScopeKey={activeRegionScopeKey} providerData={data.raw} providerLoading={state.loading} providerError={state.error} access={effectiveAccess} />,
-    map: <MapPanel data={data} focus={mapFocus} activeRegionScopeKey={activeRegionScopeKey} dedicated={dedicatedMapView} onClearFocus={() => { setMapFocus(null); updateQueryState({ label: null, x: null, z: null, regionId: null, mapName: null, mapX: null, mapZ: null }); }} />,
+    map: <MapPanel data={data} focus={mapFocus} activeRegionScopeKey={activeRegionScopeKey} dedicated={dedicatedMapView} verifiedCharacterPlayerId={verifiedCharacterPlayerId(userAuth.user?.characterStatus, userAuth.user?.characterPlayerId)} playerColourOverrides={normalizedMapPlayerColours} onPlayerColourChange={(playerId, colour) => setMapPlayerColours((current) => withPlayerMarkerColourOverride(current, playerId, colour))} onClearFocus={() => { setMapFocus(null); updateQueryState({ label: null, x: null, z: null, regionId: null, mapName: null, mapX: null, mapZ: null }); }} />,
     sync: <SyncPanel syncUrl={syncUrl} />,
     activity: <ActivityPanel activity={localHistory.activity} activityTotal={localHistory.activityTotal} claimId={claimId} error={localHistory.error} members={data.members} access={effectiveAccess} />,
     admin: <AdminPanel settings={appSettings} members={normalizeData(state.data).members} onAuthChanged={setAdminAuth} onSettingsSaved={(settings) => { setAppSettings(settings); setClaimId(settings.claimId); setSyncUrl(settings.syncUrl ?? DEFAULT_SYNC_URL); }} />,

@@ -23,12 +23,15 @@ import { selectedResourceColourMap } from "./map/resourceNodeColours.mjs";
 import { RESOURCE_FINDER_BATCH_SIZE, nextResourceLimit, visibleResourceMatches } from "./map/resourceFinderWindow.mjs";
 
 const LOCAL_API = "/api/local";
-export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedicated = false }: {
+export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedicated = false, verifiedCharacterPlayerId = null, playerColourOverrides = {}, onPlayerColourChange }: {
   data: ReturnType<typeof normalizeData>;
   focus: MapFocus;
   onClearFocus: () => void;
   activeRegionScopeKey?: string;
   dedicated?: boolean;
+  verifiedCharacterPlayerId?: string | null;
+  playerColourOverrides?: Readonly<Record<string, string>>;
+  onPlayerColourChange: (playerId: string, colour: string | null) => void;
 }) {
   const { cycle, trackPromise } = usePageRefresh();
   const [selectedIds, setSelectedIds] = usePersistedState<string[] | null>("map.players", null);
@@ -249,6 +252,8 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
     selectedIds={selectedIds}
     current={current}
     externalPlayers={externalPlayers}
+    playerColourOverrides={playerColourOverrides}
+    onPlayerColourChange={onPlayerColourChange}
     onAutoOnline={() => setSelectedIds(null)}
     onTrackOnline={trackOnlinePlayers}
     onTrackAll={trackAllPlayers}
@@ -292,7 +297,7 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
       ) : null}
       <div className="map-workspace native-tools">
         <div className="native-map-host">
-          <NativeMap regionIds={mapRegionIds} visibleRegionIds={normalizedRegionSelection} playerRegionIds={readyPlayerRegionIds} resourceRegionIds={resourceMapRegionIds} playerIds={currentPlayerIds} resourceIds={selectedResourceIds} resourceColours={selectedResourceColours} enemyTypes={selectedEnemyIds} focus={mapMarker} playerTool={{ label: "Players", count: trackedPlayerCount, content: playerPanel, primaryFocusSelector: "input[placeholder='Find settlement members']" }} resourceTool={{ label: "Resources", count: normalizedSelectedResources.length, content: resourceFinder, primaryFocusSelector: ".map-resource-finder-search input" }} regionControl={regionControl} />
+          <NativeMap regionIds={mapRegionIds} visibleRegionIds={normalizedRegionSelection} playerRegionIds={readyPlayerRegionIds} resourceRegionIds={resourceMapRegionIds} playerIds={currentPlayerIds} playerColourOverrides={playerColourOverrides} verifiedCharacterPlayerId={verifiedCharacterPlayerId} resourceIds={selectedResourceIds} resourceColours={selectedResourceColours} enemyTypes={selectedEnemyIds} focus={mapMarker} playerTool={{ label: "Players", count: trackedPlayerCount, content: playerPanel, primaryFocusSelector: "input[placeholder='Find settlement members']" }} resourceTool={{ label: "Resources", count: normalizedSelectedResources.length, content: resourceFinder, primaryFocusSelector: ".map-resource-finder-search input" }} regionControl={regionControl} />
           {!dedicated ? (
             <a
               className="map-dedicated-tab-link"

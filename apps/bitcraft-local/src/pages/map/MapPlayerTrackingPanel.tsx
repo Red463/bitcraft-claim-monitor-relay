@@ -3,13 +3,24 @@ import React from "react";
 import { SearchBox } from "../../components/main/SearchBox";
 import type { AnyRecord } from "../../main-app-data";
 import { formatCurrentSession } from "../../utils/format";
-import { assignPlayerMarkerColours } from "./playerMarkerColours.mjs";
+import { playerMarkerColourInputValue, resolvePlayerMarkerColours } from "../../map/playerMarkerColours.mjs";
 import { filterMapPlayerRows, mapPlayerTrackingSummary, sortedMapPlayerRows, type MapPlayerFilter, type MapTrackedExternalPlayer } from "./playerTracking";
 
 type MapPlayerPanelTab = "settlement" | "all-players" | "tracked";
 
-function PlayerColour({ colour }: { colour: string | undefined }) {
-  return <span className="map-player-colour" aria-hidden="true" style={{ "--player-marker-color": colour } as React.CSSProperties} />;
+function PlayerColourControl({ playerId, name, tracked, colour, override, onPlayerColourChange }: {
+  playerId: string;
+  name: string;
+  tracked: boolean;
+  colour: string | undefined;
+  override: string | undefined;
+  onPlayerColourChange: (playerId: string, colour: string | null) => void;
+}) {
+  return <span className={`map-player-colour-control${tracked ? " is-editable" : ""}`} onClick={(event) => event.stopPropagation()}>
+    <span className="map-player-colour" aria-hidden="true" style={{ "--player-marker-color": colour } as React.CSSProperties} />
+    <input type="color" value={playerMarkerColourInputValue(colour)} disabled={!tracked} aria-label={`Set marker colour for ${name}`} onChange={(event) => onPlayerColourChange(playerId, event.target.value)} />
+    {tracked && override ? <button type="button" className="map-player-colour-reset" aria-label={`Reset marker colour for ${name}`} title="Reset marker colour" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onPlayerColourChange(playerId, null); }}>Reset</button> : null}
+  </span>;
 }
 
 export function MapPlayerTrackingPanel({
@@ -17,6 +28,8 @@ export function MapPlayerTrackingPanel({
   selectedIds,
   current,
   externalPlayers,
+  playerColourOverrides,
+  onPlayerColourChange,
   onAutoOnline,
   onTrackOnline,
   onTrackAll,
@@ -29,6 +42,8 @@ export function MapPlayerTrackingPanel({
   selectedIds: string[] | null;
   current: Set<string>;
   externalPlayers: MapTrackedExternalPlayer[];
+  playerColourOverrides: Readonly<Record<string, string>>;
+  onPlayerColourChange: (playerId: string, colour: string | null) => void;
   onAutoOnline: () => void;
   onTrackOnline: () => void;
   onTrackAll: () => void;
@@ -44,7 +59,7 @@ export function MapPlayerTrackingPanel({
   const visibleRows = React.useMemo(() => filterMapPlayerRows(rows, filter, search), [rows, filter, search]);
   const trackedRows = rows.filter((row) => row.tracked);
   const colourIds = [...new Set([...rows.map((row) => row.id), ...externalPlayers.map((player) => player.playerId)])].filter((id) => /^\d+$/.test(id));
-  const colours = assignPlayerMarkerColours(colourIds);
+  const colours = resolvePlayerMarkerColours(colourIds, playerColourOverrides);
   const onlineCount = rows.filter((row) => row.signedIn).length;
   const tabs: Array<{ id: MapPlayerPanelTab; label: string }> = [
     { id: "settlement", label: "Settlement" },
@@ -78,7 +93,7 @@ export function MapPlayerTrackingPanel({
         <div className="map-player-list">
           {visibleRows.map((row) => <label key={row.id} className={row.tracked ? "active" : ""}>
             <span className="map-player-toggle"><input type="checkbox" checked={row.tracked} onChange={(event) => onTogglePlayer(row.id, event.target.checked)} /></span>
-            <span className="map-player-row-colour"><PlayerColour colour={colours[row.id]} /></span>
+            <span className="map-player-row-colour"><PlayerColourControl playerId={row.id} name={row.name} tracked={row.tracked} colour={colours[row.id]} override={playerColourOverrides[row.id]} onPlayerColourChange={onPlayerColourChange} /></span>
             <span className="map-player-row-copy"><strong>{row.name}</strong><small>{row.signedIn ? `Online${formatCurrentSession(row.sessionSeconds) ? ` - ${formatCurrentSession(row.sessionSeconds)}` : ""}` : "Offline"}</small></span>
           </label>)}
           {!visibleRows.length ? <p className="legend">No settlement members match these filters.</p> : null}
@@ -89,8 +104,8 @@ export function MapPlayerTrackingPanel({
         <p>Global player search is unavailable until Relay identity and coordinate verification completes.</p>
       </div> : null}
       {tab === "tracked" ? <div className="map-player-list">
-        {trackedRows.map((row) => <div className="map-player-tracked-row" key={`settlement:${row.id}`}><PlayerColour colour={colours[row.id]} /><span><strong>{row.name}</strong><small>{row.signedIn ? "Settlement member · Online" : "Settlement member · Offline"}</small></span></div>)}
-        {externalPlayers.map((player) => <div className="map-player-tracked-row" key={`external:${player.playerId}`}><PlayerColour colour={colours[player.playerId]} /><span><strong>{player.username}</strong><small>Offline - waiting for live position</small></span><button type="button" className="mini-action" onClick={() => onRemoveExternal(player.playerId)}>Remove</button></div>)}
+        {trackedRows.map((row) => <div className="map-player-tracked-row" key={`settlement:${row.id}`}><PlayerColourControl playerId={row.id} name={row.name} tracked colour={colours[row.id]} override={playerColourOverrides[row.id]} onPlayerColourChange={onPlayerColourChange} /><span><strong>{row.name}</strong><small>{row.signedIn ? "Settlement member · Online" : "Settlement member · Offline"}</small></span></div>)}
+        {externalPlayers.map((player) => <div className="map-player-tracked-row" key={`external:${player.playerId}`}><PlayerColourControl playerId={player.playerId} name={player.username} tracked colour={colours[player.playerId]} override={playerColourOverrides[player.playerId]} onPlayerColourChange={onPlayerColourChange} /><span><strong>{player.username}</strong><small>Offline - waiting for live position</small></span><button type="button" className="mini-action" onClick={() => onRemoveExternal(player.playerId)}>Remove</button></div>)}
         {externalPlayers.length ? <button type="button" className="toolbar-button" onClick={onClearExternal}>Clear external players</button> : null}
         {!trackedRows.length && !externalPlayers.length ? <p className="legend">No players are tracked.</p> : null}
       </div> : null}

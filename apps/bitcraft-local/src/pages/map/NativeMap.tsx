@@ -15,7 +15,8 @@ import { MAP_MARKER_PRESENTATIONS, claimDisplayTier, claimMarkerPresentation, ma
 import { applyNativeMapPaneOrder } from "./mapPaneOrder.mjs";
 import { mapFeatureInRegionScope, mapFeaturesInRegionScope } from "./mapRegionVisibility.mjs";
 import { nativeMapRequest } from "./nativeMapRequest.mjs";
-import { assignPlayerMarkerColours } from "./playerMarkerColours.mjs";
+import { isCurrentUserPlayerMarker } from "../../map/playerMarkerIdentity.mjs";
+import { resolvePlayerMarkerColours } from "../../map/playerMarkerColours.mjs";
 import { resourceLayerStatus } from "./resourceViewport.mjs";
 import { createMapResourceBinaryLoader } from "./mapResourceBinaryLoader.mjs";
 import type { BrowserResourcePartition } from "./mapResourceBinaryState.mjs";
@@ -210,7 +211,7 @@ function markerKindClass(kind: string) {
   return Object.hasOwn(MAP_MARKER_PRESENTATIONS, kind) ? kind : "fallback";
 }
 
-function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: string) {
+function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: string, currentUser = false) {
   const content = document.createElement("span");
   const variant = presentation.mode === "image" ? presentation.variant : undefined;
   content.className = `native-map-marker-content${presentation.mode === "image" && presentation.badgeCrop ? " native-map-marker-content--badge-crop" : ""}${variant ? ` native-map-marker-content--${variant}` : ""}`;
@@ -221,6 +222,12 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
     const dot = document.createElement("span");
     dot.className = "native-map-player-dot";
     content.append(pulse, dot);
+    if (currentUser) {
+      const me = document.createElement("span");
+      me.className = "native-map-player-me-label";
+      me.textContent = "ME";
+      content.appendChild(me);
+    }
   } else {
     const glyph = document.createElement("span");
     glyph.className = "native-map-marker-glyph";
@@ -235,9 +242,9 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
     image.addEventListener("error", () => image.remove(), { once: true });
     content.prepend(image);
   }
-  const size = kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
+  const size = currentUser ? 34 : kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
   return L.divIcon({
-    className: `native-map-marker native-map-marker--${markerKindClass(kind)}`,
+    className: `native-map-marker native-map-marker--${markerKindClass(kind)}${currentUser ? " native-map-marker--current-user" : ""}`,
     html: content,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -259,6 +266,8 @@ export function NativeMap({
   playerRegionIds,
   resourceRegionIds,
   playerIds,
+  playerColourOverrides,
+  verifiedCharacterPlayerId,
   resourceIds,
   resourceColours,
   enemyTypes,
@@ -272,6 +281,8 @@ export function NativeMap({
   playerRegionIds: string[];
   resourceRegionIds: string[];
   playerIds: string[];
+  playerColourOverrides: Readonly<Record<string, string>>;
+  verifiedCharacterPlayerId?: string | null;
   resourceIds: string[];
   resourceColours: Readonly<Record<string, string>>;
   enemyTypes: string[];
@@ -687,7 +698,7 @@ export function NativeMap({
       resourceFrameSelectionRef.current = resourceSelectionKey;
     }
     if (!snapshot) return;
-    const playerColours = assignPlayerMarkerColours((snapshot.layers.players ?? []).map((feature) => String(feature.playerEntityId ?? feature.entityId)));
+    const playerColours = resolvePlayerMarkerColours((snapshot.layers.players ?? []).map((feature) => String(feature.playerEntityId ?? feature.entityId)), playerColourOverrides);
     for (const [layer, features] of Object.entries(snapshot.layers)) {
       if (layer === "resources" || layer === "enemies" || layer === "empire-territory") continue;
       const markerGroup = markerGroups[layer];
@@ -705,7 +716,9 @@ export function NativeMap({
             : displayTier != null
               ? ` · Tier ${displayTier}`
               : "";
-        const accessibleLabel = `${featureLabel(feature)}${claimLabel} · ${displayedPoint(feature)}`;
+        const playerId = String(feature.playerEntityId ?? feature.entityId);
+        const currentUser = feature.kind === "player" && isCurrentUserPlayerMarker(playerId, verifiedCharacterPlayerId);
+        const accessibleLabel = `${currentUser ? "Your character, " : ""}${featureLabel(feature)}${claimLabel} · ${displayedPoint(feature)}`;
         const marker = presentation.mode === "canvas"
           ? L.circleMarker(leafletPoint(feature.point), {
               radius: 5,
@@ -715,7 +728,7 @@ export function NativeMap({
               renderer: ordinaryRendererRef.current,
             })
           : L.marker(leafletPoint(feature.point), {
-              icon: markerIcon(feature.kind, presentation, playerColours[String(feature.playerEntityId ?? feature.entityId)]),
+              icon: markerIcon(feature.kind, presentation, playerColours[playerId], currentUser),
               ...(feature.kind === "player" ? { pane: "native-map-players" } : {}),
               keyboard: true,
               alt: accessibleLabel,
@@ -727,7 +740,7 @@ export function NativeMap({
       }
     }
     enemiesRef.current?.setPoints(visibleEnemyPoints);
-  }, [snapshot, resourcePartitions, visibleEnemyPoints, resourceSelectionKey, resourceColours, resourceLayerLoading, visibleRegionIds.join(","), focus?.name, focus?.locationX, focus?.locationZ]);
+  }, [snapshot, resourcePartitions, visibleEnemyPoints, resourceSelectionKey, resourceColours, resourceLayerLoading, playerColourOverrides, verifiedCharacterPlayerId, visibleRegionIds.join(","), focus?.name, focus?.locationX, focus?.locationZ]);
 
   const debugInformationVisible = layerVisibility.debug === true;
   const accessibleResourceFeatures: MapFeature[] = debugInformationVisible && layerVisibility.resources ? resourceSamples.map((sample) => ({

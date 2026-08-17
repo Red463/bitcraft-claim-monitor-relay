@@ -216,7 +216,7 @@ test("Native map reuses one canvas renderer and fixed marker presentations", () 
 test("Native map gives each visible player a stable accessible colour marker", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/styles/map.css", import.meta.url), "utf8");
-  assert.match(nativeMap, /assignPlayerMarkerColours/);
+  assert.match(nativeMap, /resolvePlayerMarkerColours/);
   assert.match(nativeMap, /snapshot\.layers\.players/);
   assert.match(nativeMap, /--player-marker-color/);
   assert.match(nativeMap, /markerIcon\(feature\.kind, presentation, playerColours/);
@@ -230,6 +230,24 @@ test("Native map gives each visible player a stable accessible colour marker", (
   assert.match(css, /native-map-player-dot[^}]*width:\s*8px[^}]*height:\s*8px/s);
   assert.match(css, /native-map-player-pulse[^}]*animation:\s*native-map-player-pulse/s);
   assert.match(css, /prefers-reduced-motion:\s*reduce[^}]*native-map-player-pulse[^}]*animation:\s*none/s);
+});
+
+test("Native map marks only the approved linked player with a static ME treatment", () => {
+  const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
+  const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/styles/map.css", import.meta.url), "utf8");
+
+  assert.match(mapPage, /verifiedCharacterPlayerId/);
+  assert.match(mapPage, /playerColourOverrides/);
+  assert.match(mapPage, /onPlayerColourChange/);
+  assert.match(nativeMap, /isCurrentUserPlayerMarker/);
+  assert.match(nativeMap, /native-map-marker--current-user/);
+  assert.match(nativeMap, /native-map-player-me-label/);
+  assert.match(nativeMap, /textContent = "ME"/);
+  assert.match(nativeMap, /Your character,/);
+  assert.match(css, /native-map-marker--current-user[^}]*width:\s*34px;[^}]*height:\s*34px;/s);
+  assert.match(css, /native-map-player-me-label[^}]*position:\s*absolute/s);
+  assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*native-map-marker--current-user/s);
 });
 
 test("Native map keeps resources below operational markers, players, and tooltips", () => {

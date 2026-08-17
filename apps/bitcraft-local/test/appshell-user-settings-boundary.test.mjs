@@ -47,6 +47,18 @@ test("signed-in Discord settings autosync without manual save and load buttons",
   assert.match(dialog, /Page and filter choices stay in this browser\./);
 });
 
+test("map player colours use browser fallback and join signed-in account preference synchronization", () => {
+  const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+
+  assert.match(appShell, /usePersistedState<Record<string,\s*string>>\("map\.player-colours", \{\}\)/);
+  assert.match(appShell, /accountPlayerMarkerColourOverrides\(saved, current\)/);
+  assert.match(appShell, /mapPlayerColours:\s*normalizedMapPlayerColours/);
+  assert.match(appShell, /mapPlayerColours:\s*\{\}/);
+  assert.match(appShell, /verifiedCharacterPlayerId=/);
+  assert.match(appShell, /playerColourOverrides=/);
+  assert.match(appShell, /onPlayerColourChange=/);
+});
+
 test("approved Discord character links require unlink before relink", () => {
   const dialog = readFileSync(new URL("../src/components/main/UserSettingsDialog.tsx", import.meta.url), "utf8");
 
