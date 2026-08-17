@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.1-beta.3] - 2026-08-17
+
+### Changed
+
+- Simplified the verified-character map marker to a compact halo without a text badge.
+
 ## [0.57.1-beta.2] - 2026-08-17
 
 ### Added
