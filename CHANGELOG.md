@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.1-beta.5] - 2026-08-18
+
+### Fixed
+
+- Fixed simultaneous cold map resource subscriptions repeatedly blocking normal site requests while their regional data was seeded.
+
 ## [0.57.1-beta.4] - 2026-08-18
 
 ### Fixed

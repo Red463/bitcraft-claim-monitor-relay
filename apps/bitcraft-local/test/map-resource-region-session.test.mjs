@@ -244,6 +244,7 @@ test("resource session maintains independent applied subscriptions on one region
   assert.equal(snapshots.length, 0, "no resource publishes before its own subscription applies");
 
   relay.subscriptions[1].apply();
+  timers.run(300);
   await Promise.resolve();
   assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["54"]);
   assert.deepEqual(snapshots[0].data.resources, []);
@@ -252,6 +253,7 @@ test("resource session maintains independent applied subscriptions on one region
   assert.equal(session.health().appliedResourceIds.includes("28"), false);
 
   relay.subscriptions[0].apply();
+  timers.run(300);
   await Promise.resolve();
   assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["54", "28"]);
   assert.equal(snapshots[1].generation, 7);
@@ -263,6 +265,41 @@ test("resource session maintains independent applied subscriptions on one region
   session.unsubscribe("28");
   assert.equal(relay.handles[0].unsubscribeCount, 1);
   assert.equal(relay.handles[1].unsubscribeCount, 0);
+  await session.stop();
+});
+
+test("resource session coalesces simultaneous initial applications into one regional cache scan", async () => {
+  const relay = fixture({
+    resourceRows: [
+      { entityId: 1n, resourceId: 28 },
+      { entityId: 2n, resourceId: 54 },
+    ],
+    locationRows: [
+      { entityId: 1n, x: 100, z: 200, dimension: 1 },
+      { entityId: 2n, x: 101, z: 201, dimension: 1 },
+    ],
+  });
+  const timers = fakeTimers();
+  const snapshots = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    onFailure() {},
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("28", 7);
+  await session.subscribe("54", 8);
+
+  relay.subscriptions[0].apply();
+  relay.subscriptions[1].apply();
+  assert.equal(timers.size(), 1, "initial applications must share one deferred regional rebuild");
+  timers.run(300);
+  await drainMicrotasks();
+
+  assert.equal(relay.db.resourceState.iterationCount(), 1);
+  assert.equal(relay.db.locationState.iterationCount(), 1);
+  assert.deepEqual(snapshots.map(({ resourceId }) => resourceId), ["28", "54"]);
   await session.stop();
 });
 
@@ -279,13 +316,15 @@ test("resource session health counts rows for each selected resource independent
       { entityId: 3n, x: 102, z: 202, dimension: 1 },
     ],
   });
-  const session = new RelayMapResourceRegionSession({ loadBindings: relay.loadBindings, onSnapshot() {}, onFailure() {} });
+  const timers = fakeTimers();
+  const session = new RelayMapResourceRegionSession({ loadBindings: relay.loadBindings, onSnapshot() {}, onFailure() {}, ...timers });
   await session.start(config());
   await session.subscribe("28", 7);
   await session.subscribe("54", 8);
 
   relay.subscriptions[0].apply();
   relay.subscriptions[1].apply();
+  timers.run(300);
   await drainMicrotasks();
 
   assert.deepEqual(session.health().rowsPerType, {
@@ -364,6 +403,7 @@ test("resource session publishes only the resource changed by a live row", async
   await session.subscribe("125", 8);
   relay.subscriptions[0].apply();
   relay.subscriptions[1].apply();
+  timers.run(300);
   await drainMicrotasks();
   snapshots.length = 0;
 
@@ -387,15 +427,18 @@ test("resource session accepts a partition above the retired node budget", async
   });
   const snapshots = [];
   const failures = [];
+  const timers = fakeTimers();
   const session = new RelayMapResourceRegionSession({
     loadBindings: relay.loadBindings,
     onSnapshot: (snapshot) => snapshots.push(snapshot),
     onFailure: (warning) => failures.push(warning),
+    ...timers,
   });
   await session.start(config());
   await session.subscribe("28", 7);
 
   relay.subscriptions[0].apply();
+  timers.run(300);
   await drainMicrotasks();
 
   assert.equal(snapshots.length, 1);
@@ -411,15 +454,18 @@ test("resource session accepts more than fifty thousand reciprocal join rows whe
   const relay = fixture({ resourceRows, locationRows });
   const snapshots = [];
   const failures = [];
+  const timers = fakeTimers();
   const session = new RelayMapResourceRegionSession({
     loadBindings: relay.loadBindings,
     onSnapshot: (snapshot) => snapshots.push(snapshot),
     onFailure: (warning) => failures.push(warning),
+    ...timers,
   });
   await session.start(config());
   await session.subscribe("28", 7);
 
   relay.subscriptions[0].apply();
+  timers.run(300);
   await drainMicrotasks();
 
   assert.equal(snapshots.length, 1);
@@ -445,6 +491,7 @@ test("resource session coalesces cache changes and retains a prior generation th
   await session.start(config());
   await session.subscribe("28", 7);
   relay.subscriptions[0].apply();
+  timers.run(300);
   assert.equal(snapshots.length, 1);
 
   locationRows[0].x = 101;
@@ -493,6 +540,7 @@ test("coalesced regional rebuild reads each SDK cache once and publishes complet
   await session.subscribe("130", 8);
   relay.subscriptions[0].apply();
   relay.subscriptions[1].apply();
+  timers.run(300);
   await drainMicrotasks();
   const resourceIterationsBefore = relay.db.resourceState.iterationCount();
   const locationIterationsBefore = relay.db.locationState.iterationCount();

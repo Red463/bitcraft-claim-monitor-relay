@@ -305,7 +305,8 @@ export class RelayMapResourceRegionSession {
         if (this.#subscriptions.get(resourceId) !== subscription) return;
         subscription.applied = true;
         this.#refreshAppliedResourceIds();
-        this.#applyGeneration(connection, [subscription], true);
+        this.#needsReseed = true;
+        this.#queueRebuild([resourceId]);
       })
       .onError((_context, error) => this.#recordError(error))
       .subscribe(mapResourceQueries(resourceId));
@@ -362,9 +363,7 @@ export class RelayMapResourceRegionSession {
       this.#rebuildTimer = null;
       const connection = this.#connection;
       if (!connection) return;
-      const dirtyResourceIds = this.#needsReseed
-        ? [...this.#subscriptions.keys()]
-        : [...this.#dirtyResourceIds];
+      const dirtyResourceIds = [...this.#dirtyResourceIds];
       this.#dirtyResourceIds.clear();
       const reseed = this.#needsReseed;
       this.#needsReseed = false;
