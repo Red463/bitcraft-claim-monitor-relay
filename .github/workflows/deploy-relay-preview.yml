@@ -75,12 +75,13 @@ jobs:
             deploy/bitcraft-claim-monitor-relay-map-terrain.timer \
             deploy/bitcraft-claim-monitor-relay-map-roads.service \
             deploy/bitcraft-claim-monitor-relay-map-roads.timer
-      - name: Install Caddy validator
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes caddy
       - name: Validate coexistence Caddy example
-        run: caddy validate --config deploy/Caddyfile.example
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            caddy:2.11.3-alpine \
+            /usr/bin/caddy validate --config deploy/Caddyfile.example
 
   deploy:
     needs: verify

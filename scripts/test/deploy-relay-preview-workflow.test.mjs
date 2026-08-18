@@ -56,7 +56,9 @@ test("verification validates only Relay units and the coexistence Caddy example"
   ]) {
     assert.match(verifyJob, new RegExp(`deploy/${unit.replaceAll(".", "\\.")}`));
   }
-  assert.match(verifyJob, /caddy validate --config deploy\/Caddyfile\.example/);
+  assert.match(verifyJob, /caddy:2\.11\.3-alpine/);
+  assert.match(verifyJob, /\/usr\/bin\/caddy validate --config deploy\/Caddyfile\.example/);
+  assert.doesNotMatch(verifyJob, /apt-get[\s\S]*caddy/);
   assert.ok(nodePathIndex >= 0, "verifier must provide the production Node executable path");
   assert.ok(systemdVerifyIndex > nodePathIndex, "production Node path must exist before systemd validation");
 });
