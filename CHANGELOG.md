@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.57.1-beta.4] - 2026-08-18
+
+### Fixed
+
+- Fixed tracked map resources remaining stuck in the loading state when their live partition was already cached.
+
 ## [0.57.1-beta.3] - 2026-08-17
 
 ### Changed
