@@ -41,6 +41,7 @@ import {
   MapResourceBinaryRouteError,
   binaryPartitionRecoveryResponse,
   binaryPartitionResponse,
+  initialMapResourcePartitionEvent,
   parseMapResourceBinaryScope,
   publicMapResourcePartitionEvent,
   runWithConcurrency,
@@ -8310,7 +8311,7 @@ const server = createServer(async (req, res) => {
               writeResourceEvent(event);
             });
             unsubscribers.push(unsubscribe);
-            if (!lease.current()) writeResourceEvent({ type: "partition-loading", key });
+            writeResourceEvent(initialMapResourcePartitionEvent(key, lease.current()));
           } catch (error) {
             if (requestClosed) return;
             writeResourceEvent({

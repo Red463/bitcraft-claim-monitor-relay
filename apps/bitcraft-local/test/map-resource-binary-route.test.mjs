@@ -12,6 +12,8 @@ import {
   parseMapResourceBinaryScope,
 } from "../src/server/mapResourceBinaryRoute.mjs";
 
+const binaryRouteModule = await import("../src/server/mapResourceBinaryRoute.mjs");
+
 function cachedPartition() {
   const coordinates = Uint32Array.of(packResourceCoordinate(10, 20));
   const encoded = encodeResourcePartition({
@@ -136,6 +138,24 @@ test("serializes provider-neutral packed events without entity or Relay metadata
   const serialized = JSON.stringify(event);
   assert.equal(serialized.includes("entityId"), false);
   assert.equal(serialized.includes("database"), false);
+});
+
+test("a newly connected resource stream announces an already warm partition", () => {
+  assert.equal(typeof binaryRouteModule.initialMapResourcePartitionEvent, "function");
+  const partition = cachedPartition();
+  assert.deepEqual(binaryRouteModule.initialMapResourcePartitionEvent(partition.key, partition), {
+    type: "partition-ready",
+    key: partition.key,
+    generation: partition.generation,
+    pointCount: partition.pointCount,
+    encodedBytes: partition.encodedBytes,
+    receivedAt: partition.receivedAt,
+    freshness: partition.freshness,
+  });
+  assert.deepEqual(binaryRouteModule.initialMapResourcePartitionEvent(partition.key, null), {
+    type: "partition-loading",
+    key: partition.key,
+  });
 });
 
 test("runs independent acquisitions with a strict concurrency bound", async () => {

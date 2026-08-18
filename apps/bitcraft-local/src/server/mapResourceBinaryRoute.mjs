@@ -42,6 +42,19 @@ export function mapResourcePartitionUrl(partition) {
   return `/api/local/map/resource-partition?${params}`;
 }
 
+export function initialMapResourcePartitionEvent(key, partition) {
+  if (!partition) return { type: "partition-loading", key: String(key) };
+  return {
+    type: "partition-ready",
+    key: String(key),
+    generation: String(partition.generation),
+    pointCount: Number(partition.pointCount),
+    encodedBytes: Number(partition.encodedBytes),
+    receivedAt: String(partition.receivedAt),
+    freshness: String(partition.freshness),
+  };
+}
+
 function etag(partition) {
   return `"${partition.regionId}-${partition.resourceId}-${partition.generation}-v1"`;
 }
