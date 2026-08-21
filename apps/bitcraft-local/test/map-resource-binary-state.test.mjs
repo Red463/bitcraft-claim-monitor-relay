@@ -44,6 +44,22 @@ test("atomically replaces provisional data with a validated committed generation
   assert.equal(partition.status, "live");
 });
 
+test("promotes an exact cached generation to the server-reported freshness without fetching", () => {
+  const coordinates = Uint32Array.of(packResourceCoordinate(5, 6));
+  const cached = applyMapResourceBinaryCommitted(createMapResourceBinaryState([bush]), bush.key, {
+    regionId: "19", resourceId: "2", dimension: "1", generation: "7", coordinates, pointCount: 1,
+  }, { freshness: "awaiting-confirmation" });
+
+  const confirmed = applyMapResourceBinaryEvent(cached, {
+    type: "partition-ready", key: bush.key, generation: "7", freshness: "live",
+  });
+
+  assert.equal(confirmed.requiresFetch, false);
+  assert.equal(confirmed.partitions.get(bush.key).committed, coordinates);
+  assert.equal(confirmed.partitions.get(bush.key).freshness, "live");
+  assert.equal(confirmed.partitions.get(bush.key).status, "live");
+});
+
 test("applies only an exact-base delta and requests a full fetch after a missed base", () => {
   const coordinate = packResourceCoordinate(1, 1);
   let state = applyMapResourceBinaryCommitted(createMapResourceBinaryState([bush]), bush.key, {

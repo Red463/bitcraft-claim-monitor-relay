@@ -77,10 +77,13 @@ export function applyMapResourceBinaryEvent(state, event) {
   const current = state.get(key);
   if (!current) return { partitions: state, requiresFetch: false };
   if (event.type === "partition-ready") {
+    const generationMatches = current.generation != null && current.generation === String(event.generation);
+    const freshness = generationMatches ? String(event.freshness ?? current.freshness) : current.freshness;
     return {
       partitions: replace(state, key, {
         ...current,
-        status: current.generation == null ? "loading" : current.status,
+        freshness,
+        status: current.generation == null ? "loading" : freshness === "stale" ? "stale" : "live",
         warning: null,
       }),
       requiresFetch: current.generation !== String(event.generation),
