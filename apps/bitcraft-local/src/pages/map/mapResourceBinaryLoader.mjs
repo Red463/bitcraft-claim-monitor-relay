@@ -6,6 +6,10 @@ import {
   reconcileMapResourceBinaryScope,
 } from "./mapResourceBinaryState.mjs";
 
+const MAX_CONCURRENT_LOADS = 4;
+const MAX_CACHE_ENTRIES = 8;
+const MAX_CACHE_BYTES = 16 * 1024 * 1024;
+
 function eventUrlWithGenerations(url, partitions) {
   const generations = {};
   for (const [key, partition] of partitions) {
@@ -25,14 +29,14 @@ function compareGenerations(left, right) {
   return left < right ? -1 : 1;
 }
 
-function positiveInteger(value, fallback) {
+function positiveInteger(value, fallback, maximum) {
   const normalized = Number(value);
-  return Number.isInteger(normalized) && normalized > 0 ? normalized : fallback;
+  return Number.isInteger(normalized) && normalized > 0 ? Math.min(normalized, maximum) : fallback;
 }
 
-function nonNegativeInteger(value, fallback) {
+function nonNegativeInteger(value, fallback, maximum) {
   const normalized = Number(value);
-  return Number.isInteger(normalized) && normalized >= 0 ? normalized : fallback;
+  return Number.isInteger(normalized) && normalized >= 0 ? Math.min(normalized, maximum) : fallback;
 }
 
 export function createMapResourceBinaryLoader({
@@ -40,21 +44,22 @@ export function createMapResourceBinaryLoader({
   connectEvents,
   onChange,
   onError,
-  maxConcurrentLoads = 4,
-  cacheMaxEntries = 8,
-  cacheMaxBytes = 16 * 1024 * 1024,
+  maxConcurrentLoads = MAX_CONCURRENT_LOADS,
+  cacheMaxEntries = MAX_CACHE_ENTRIES,
+  cacheMaxBytes = MAX_CACHE_BYTES,
 }) {
   if (typeof fetchBinary !== "function" || typeof connectEvents !== "function") {
     throw new TypeError("Resource partition loader dependencies are required");
   }
-  const loadLimit = positiveInteger(maxConcurrentLoads, 4);
-  const cacheEntryLimit = nonNegativeInteger(cacheMaxEntries, 8);
-  const cacheByteLimit = nonNegativeInteger(cacheMaxBytes, 16 * 1024 * 1024);
+  const loadLimit = positiveInteger(maxConcurrentLoads, MAX_CONCURRENT_LOADS, MAX_CONCURRENT_LOADS);
+  const cacheEntryLimit = nonNegativeInteger(cacheMaxEntries, MAX_CACHE_ENTRIES, MAX_CACHE_ENTRIES);
+  const cacheByteLimit = nonNegativeInteger(cacheMaxBytes, MAX_CACHE_BYTES, MAX_CACHE_BYTES);
   let partitions = createMapResourceBinaryState();
   let eventUrl = "";
   let connection = null;
   let paused = false;
   let stopped = false;
+  let connectionEpoch = 0;
   let cacheBytes = 0;
   const pending = new Map();
   const active = new Map();
@@ -127,8 +132,10 @@ export function createMapResourceBinaryLoader({
         const response = await fetchBinary(request.url, controller.signal);
         if (controller.signal.aborted || active.get(key) !== request || stopped || paused || !partitions.has(key)) return;
         if (response && typeof response === "object" && response.status === 409) {
-          const currentGeneration = String(response.json?.currentGeneration ?? "");
-          const recoveryUrl = response.json?.url;
+          const recovery = typeof response.json === "function" ? await response.json() : response.json;
+          if (controller.signal.aborted || active.get(key) !== request || stopped || paused || !partitions.has(key)) return;
+          const currentGeneration = String(recovery?.currentGeneration ?? "");
+          const recoveryUrl = recovery?.url;
           if (recoveryRemaining > 0 && /^\d+$/.test(currentGeneration) && typeof recoveryUrl === "string") {
             recoveryRemaining -= 1;
             request.generation = currentGeneration;
@@ -143,6 +150,7 @@ export function createMapResourceBinaryLoader({
         if (controller.signal.aborted || active.get(key) !== request || stopped || paused || !partitions.has(key)) return;
         const current = partitions.get(key);
         if (!current) return;
+        if (/^\d+$/.test(current.generation ?? "") && compareGenerations(request.generation, current.generation) < 0) return;
         const decoded = decodeResourcePartition(payload, {
           regionId: current.regionId,
           resourceId: current.resourceId,
@@ -150,8 +158,14 @@ export function createMapResourceBinaryLoader({
           generation: request.generation,
         });
         if (controller.signal.aborted || active.get(key) !== request || stopped || paused || !partitions.has(key)) return;
+        const freshness = current.freshness === "stale" || current.freshness === "unavailable" || request.freshness === "stale"
+          ? "stale"
+          : "live";
+        const warning = current.freshness === "stale" || current.freshness === "unavailable"
+          ? current.warning
+          : request.warning;
         awaitingConfirmation.delete(key);
-        publish(applyMapResourceBinaryCommitted(partitions, key, decoded, { freshness: "live" }));
+        publish(applyMapResourceBinaryCommitted(partitions, key, decoded, { freshness, warning }));
         return;
       }
     } catch (error) {
@@ -184,22 +198,43 @@ export function createMapResourceBinaryLoader({
     }
   };
 
-  const enqueue = (key, generation, url) => {
+  const enqueue = (key, generation, url, metadata = {}) => {
     if (paused || stopped || !partitions.has(key) || typeof url !== "string") return;
     const normalizedGeneration = String(generation);
     if (!/^\d+$/.test(normalizedGeneration)) return;
     const current = partitions.get(key);
     if (current?.generation === normalizedGeneration && !awaitingConfirmation.has(key)) return;
+    const work = {
+      key,
+      generation: normalizedGeneration,
+      url,
+      freshness: metadata.freshness === "stale" ? "stale" : "live",
+      warning: metadata.warning == null ? null : String(metadata.warning),
+    };
     const queued = pending.get(key);
-    if (queued && compareGenerations(normalizedGeneration, queued.generation) <= 0) return;
+    if (queued) {
+      const queuedComparison = compareGenerations(normalizedGeneration, queued.generation);
+      if (queuedComparison < 0) return;
+      if (queuedComparison === 0) {
+        queued.freshness = work.freshness;
+        queued.warning = work.warning;
+        return;
+      }
+    }
     const running = active.get(key);
     if (running) {
-      if (!running.controller.signal.aborted && compareGenerations(normalizedGeneration, running.generation) <= 0) return;
-      pending.set(key, { key, generation: normalizedGeneration, url });
+      const runningComparison = compareGenerations(normalizedGeneration, running.generation);
+      if (!running.controller.signal.aborted && runningComparison < 0) return;
+      if (!running.controller.signal.aborted && runningComparison === 0) {
+        running.freshness = work.freshness;
+        running.warning = work.warning;
+        return;
+      }
+      pending.set(key, work);
       running.controller.abort();
       return;
     }
-    pending.set(key, { key, generation: normalizedGeneration, url });
+    pending.set(key, work);
     pump();
   };
 
@@ -227,13 +262,13 @@ export function createMapResourceBinaryLoader({
         && !result.requiresFetch
       ) awaitingConfirmation.delete(key);
       if (event.type === "partition-ready" && result.requiresFetch && typeof event.url === "string") {
-        enqueue(key, event.generation, event.url);
+        enqueue(key, event.generation, event.url, { freshness: event.freshness, warning: event.warning });
       } else if (result.requiresFetch) {
         const current = partitions.get(key);
         const generation = String(event.generation ?? "");
         if (current && /^\d+$/.test(generation)) {
           const params = new URLSearchParams({ regionId: current.regionId, resourceId: current.resourceId, generation });
-          enqueue(key, generation, `/api/local/map/resource-partition?${params}`);
+          enqueue(key, generation, `/api/local/map/resource-partition?${params}`, { freshness: "live" });
         }
       }
     } catch {
@@ -244,15 +279,21 @@ export function createMapResourceBinaryLoader({
   const closeConnection = () => {
     const owned = connection;
     connection = null;
+    connectionEpoch += 1;
     owned?.close();
   };
 
   const openConnection = () => {
     if (paused || stopped || connection || !eventUrl || partitions.size === 0) return;
+    const ownedEpoch = ++connectionEpoch;
     connection = connectEvents(
       eventUrlWithGenerations(eventUrl, partitions),
-      handleEvent,
-      () => onError?.("Resource event connection was interrupted"),
+      (event) => {
+        if (ownedEpoch === connectionEpoch) handleEvent(event);
+      },
+      () => {
+        if (ownedEpoch === connectionEpoch) onError?.("Resource event connection was interrupted");
+      },
     );
   };
 

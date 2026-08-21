@@ -60,6 +60,21 @@ test("promotes an exact cached generation to the server-reported freshness witho
   assert.equal(confirmed.partitions.get(bush.key).status, "live");
 });
 
+test("ignores an older decimal ready generation than the committed last-good generation", () => {
+  const committed = applyMapResourceBinaryCommitted(createMapResourceBinaryState([bush]), bush.key, {
+    regionId: "19", resourceId: "2", dimension: "1", generation: "10",
+    coordinates: Uint32Array.of(packResourceCoordinate(10, 10)), pointCount: 1,
+  }, { freshness: "live" });
+
+  const older = applyMapResourceBinaryEvent(committed, {
+    type: "partition-ready", key: bush.key, generation: "9", freshness: "live", url: "/older",
+  });
+
+  assert.equal(older.requiresFetch, false);
+  assert.equal(older.partitions, committed);
+  assert.equal(older.partitions.get(bush.key).generation, "10");
+});
+
 test("applies only an exact-base delta and requests a full fetch after a missed base", () => {
   const coordinate = packResourceCoordinate(1, 1);
   let state = applyMapResourceBinaryCommitted(createMapResourceBinaryState([bush]), bush.key, {

@@ -33,8 +33,8 @@ function connections() {
   };
 }
 
-async function drain() {
-  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+async function drain(steps = 12) {
+  for (let index = 0; index < steps; index += 1) await Promise.resolve();
 }
 
 function deferred() {
@@ -57,6 +57,7 @@ test("limits fetch, arrayBuffer, decode, validation, and publication to four act
   const bodies = new Map();
   const started = [];
   const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 100,
     fetchBinary: async (url) => {
       started.push(url);
       const body = deferred();
@@ -80,6 +81,62 @@ test("limits fetch, arrayBuffer, decode, validation, and publication to four act
   }
   await drain();
   assert.equal([...loader.state().values()].every((entry) => entry.generation === "7"), true);
+  loader.stop();
+});
+
+test("caps an oversized cache entry option at eight decoded partitions", async () => {
+  const scope = Array.from({ length: 9 }, (_, index) => partition("19", index + 2));
+  const events = connections();
+  const loader = createMapResourceBinaryLoader({
+    cacheMaxEntries: 100,
+    cacheMaxBytes: Number.MAX_SAFE_INTEGER,
+    fetchBinary: async (url) => {
+      const resourceId = url.slice(1);
+      const entry = scope.find((candidate) => candidate.resourceId === resourceId);
+      return bytes(entry, "7", packResourceCoordinate(Number(resourceId), 7));
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope(scope, "/events?scope=hard-entry-cap");
+  for (const entry of scope) events.opened.at(-1).onEvent(ready(entry, "7", `/${entry.resourceId}`));
+  await drain(24);
+  assert.equal([...loader.state().values()].every((entry) => entry.generation === "7"), true);
+
+  loader.setScope([], "/events?scope=hard-entry-empty");
+  loader.setScope(scope, "/events?scope=hard-entry-reselected");
+  assert.equal(loader.state().get(scope[0].key).generation, null);
+  assert.equal(scope.slice(1).every((entry) => loader.state().get(entry.key).generation === "7"), true);
+  loader.stop();
+});
+
+test("caps an oversized cache byte option at sixteen decoded MiB", async () => {
+  const events = connections();
+  const coordinates = new Uint32Array((16 * 1024 * 1024 / Uint32Array.BYTES_PER_ELEMENT) + 1);
+  for (let index = 0; index < coordinates.length; index += 1) {
+    coordinates[index] = packResourceCoordinate(index % 38_401, Math.floor(index / 38_401));
+  }
+  const encoded = encodeResourcePartition({
+    regionId: bush.regionId,
+    resourceId: bush.resourceId,
+    dimension: "1",
+    generation: "7",
+    coordinates,
+  }).buffer;
+  const loader = createMapResourceBinaryLoader({
+    cacheMaxBytes: Number.MAX_SAFE_INTEGER,
+    fetchBinary: async () => encoded,
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=hard-byte-cap");
+  events.opened.at(-1).onEvent(ready(bush, "7", "/oversized"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).committed.byteLength, coordinates.byteLength);
+
+  loader.setScope([], "/events?scope=hard-byte-empty");
+  loader.setScope([bush], "/events?scope=hard-byte-reselected");
+  assert.equal(loader.state().get(bush.key).generation, null);
   loader.stop();
 });
 
@@ -209,6 +266,167 @@ test("recovers one expired generation through the canonical latest URL", async (
 
   assert.deepEqual(requests, ["/expired", "/latest", "/queued"]);
   assert.equal(changes.at(-1).get(bush.key).generation, "8");
+  loader.stop();
+});
+
+test("awaits a Response-style 409 body inside the active slot", async () => {
+  const events = connections();
+  const recovery = deferred();
+  const requests = [];
+  let jsonCalls = 0;
+  const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 1,
+    fetchBinary: async (url) => {
+      requests.push(url);
+      if (url === "/expired-response") {
+        return {
+          status: 409,
+          async json() {
+            jsonCalls += 1;
+            return recovery.promise;
+          },
+        };
+      }
+      if (url === "/latest-response") return bytes(bush, "8", packResourceCoordinate(8, 8));
+      return bytes(ferns, "9", packResourceCoordinate(9, 9));
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush, ferns], "/events?scope=response-409");
+  events.opened.at(-1).onEvent(ready(bush, "7", "/expired-response"));
+  events.opened.at(-1).onEvent(ready(ferns, "9", "/queued-response"));
+  await drain();
+
+  assert.equal(jsonCalls, 1);
+  assert.deepEqual(requests, ["/expired-response"]);
+  recovery.resolve({ currentGeneration: "8", url: "/latest-response" });
+  await drain();
+  assert.deepEqual(requests, ["/expired-response", "/latest-response", "/queued-response"]);
+  assert.equal(loader.state().get(bush.key).generation, "8");
+  loader.stop();
+});
+
+test("commits a cold stale-ready generation as stale and excludes it from the decoded cache", async () => {
+  const events = connections();
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async () => bytes(bush, "7", packResourceCoordinate(7, 7)),
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=cold-stale");
+  events.opened.at(-1).onEvent({
+    ...ready(bush, "7", "/cold-stale"),
+    freshness: "stale",
+    warning: "Serving the last complete generation",
+  });
+  await drain();
+
+  const committed = loader.state().get(bush.key);
+  assert.equal(committed.generation, "7");
+  assert.equal(committed.freshness, "stale");
+  assert.equal(committed.status, "stale");
+  assert.equal(committed.warning, "Serving the last complete generation");
+  loader.setScope([], "/events?scope=cold-stale-empty");
+  loader.setScope([bush], "/events?scope=cold-stale-reselected");
+  assert.equal(loader.state().get(bush.key).generation, null);
+  loader.stop();
+});
+
+test("keeps stale and unavailable events authoritative when an active fetch completes", async () => {
+  for (const type of ["partition-stale", "partition-unavailable"]) {
+    const events = connections();
+    const completion = deferred();
+    const loader = createMapResourceBinaryLoader({
+      fetchBinary: async () => completion.promise,
+      connectEvents: events.connectEvents,
+      onError() {},
+    });
+    loader.setScope([bush], `/events?scope=${type}`);
+    const stream = events.opened.at(-1);
+    stream.onEvent(ready(bush, "7", `/${type}`));
+    await drain();
+    stream.onEvent({ type, key: bush.key, warning: `${type} warning` });
+    completion.resolve(bytes(bush, "7", packResourceCoordinate(7, 7)));
+    await drain();
+
+    const committed = loader.state().get(bush.key);
+    assert.equal(committed.generation, "7");
+    assert.equal(committed.freshness, "stale");
+    assert.equal(committed.status, "stale");
+    assert.equal(committed.warning, `${type} warning`);
+    loader.setScope([], `/events?scope=${type}-empty`);
+    loader.setScope([bush], `/events?scope=${type}-reselected`);
+    assert.equal(loader.state().get(bush.key).generation, null);
+    loader.stop();
+  }
+});
+
+test("does not roll back a newer committed delta when an older active fetch completes", async () => {
+  const events = connections();
+  const generationEight = deferred();
+  const coordinateSeven = packResourceCoordinate(7, 7);
+  const coordinateNine = packResourceCoordinate(9, 9);
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => url === "/generation-7"
+      ? bytes(bush, "7", coordinateSeven)
+      : generationEight.promise,
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=fetch-delta-race");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "7", "/generation-7"));
+  await drain();
+  stream.onEvent(ready(bush, "8", "/generation-8"));
+  await drain();
+  stream.onEvent({
+    type: "partition-delta",
+    key: bush.key,
+    baseGeneration: "7",
+    generation: "9",
+    additions: [coordinateNine],
+    removals: [coordinateSeven],
+  });
+  assert.equal(loader.state().get(bush.key).generation, "9");
+
+  generationEight.resolve(bytes(bush, "8", packResourceCoordinate(8, 8)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "9");
+  assert.deepEqual([...loader.state().get(bush.key).committed], [coordinateNine]);
+  loader.stop();
+});
+
+test("ignores event and error callbacks from a closed connection when the partition remains selected", async () => {
+  const events = connections();
+  const requests = [];
+  const errors = [];
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => {
+      requests.push(url);
+      const generation = url.split("-").at(-1);
+      return bytes(bush, generation, packResourceCoordinate(Number(generation), 1));
+    },
+    connectEvents: events.connectEvents,
+    onError: (message) => errors.push(message),
+  });
+  loader.setScope([bush], "/events?connection=old");
+  const oldConnection = events.opened.at(-1);
+  loader.setScope([bush], "/events?connection=new");
+  const newConnection = events.opened.at(-1);
+  assert.equal(oldConnection.closeCount, 1);
+
+  oldConnection.onEvent(ready(bush, "99", "/generation-99"));
+  oldConnection.onError(new Error("old connection"));
+  await drain();
+  assert.deepEqual(requests, []);
+  assert.deepEqual(errors, []);
+  assert.equal(loader.state().get(bush.key).generation, null);
+
+  newConnection.onEvent(ready(bush, "7", "/generation-7"));
+  await drain();
+  assert.deepEqual(requests, ["/generation-7"]);
+  assert.equal(loader.state().get(bush.key).generation, "7");
   loader.stop();
 });
 

@@ -1,12 +1,14 @@
 import type { BrowserResourcePartition, BrowserResourcePartitionScope } from "./mapResourceBinaryState.mjs";
 
 export type MapResourceBinaryEventConnection = { close(): void };
+export type MapResourceBinaryConflict = { currentGeneration: string; url: string };
 export type MapResourceBinaryFetchResult = ArrayBuffer | ArrayBufferView | {
   status: 409;
-  json: { currentGeneration: string; url: string };
+  json: MapResourceBinaryConflict | (() => Promise<MapResourceBinaryConflict>);
 } | {
   status: number;
   arrayBuffer(): Promise<ArrayBuffer>;
+  json?(): Promise<MapResourceBinaryConflict>;
 };
 
 export function createMapResourceBinaryLoader(input: {
