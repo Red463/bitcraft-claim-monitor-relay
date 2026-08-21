@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { MAP_RESOURCE_PARTITION_BUDGET, mapResourceTypeLimitForRegions } from "../src/map/mapResourceSelection.mjs";
-import { boundedNativeMapRegions, nativeMapRequest, nativeMapResourceRegions, nativeMapResourceSelectionLimit, normalizeNativeMapRegionSelection } from "../src/pages/map/nativeMapRequest.mjs";
+import { boundedNativeMapRegions, nativeMapPreferredResourceRegion, nativeMapRequest, nativeMapResourceRegions, nativeMapResourceSelectionLimit, normalizeNativeMapRegionSelection } from "../src/pages/map/nativeMapRequest.mjs";
 
 test("native map requests are same-origin, canonical, and omit empty bounded layers", () => {
   const request = nativeMapRequest({
@@ -62,6 +62,14 @@ test("native map resource type limits share the 256-partition browser budget", (
   assert.equal(mapResourceTypeLimitForRegions(["019", "19", "bad", "24"]), 16, "only unique decimal regions count");
 });
 
+test("resource selection options can lower but never raise hard partition or type ceilings", () => {
+  const regions = (count) => Array.from({ length: count }, (_, index) => String(index + 1));
+  assert.equal(mapResourceTypeLimitForRegions(["1"], { partitionBudget: 257, typeLimit: 257 }), 16);
+  assert.equal(mapResourceTypeLimitForRegions(regions(17), { partitionBudget: 257, typeLimit: 257 }), 15);
+  assert.ok(mapResourceTypeLimitForRegions(regions(17), { partitionBudget: 257, typeLimit: 257 }) * 17 <= 256);
+  assert.equal(mapResourceTypeLimitForRegions(regions(4), { partitionBudget: 8, typeLimit: 3 }), 2);
+});
+
 test("native map regions preserve explicit All but narrowly fall back for a stale persisted selection", () => {
   assert.deepEqual(boundedNativeMapRegions(["99", "19"], ["19", "24"]), ["19"]);
   assert.deepEqual(boundedNativeMapRegions([], Array.from({ length: 13 }, (_, index) => String(index + 1))), Array.from({ length: 13 }, (_, index) => String(index + 1)));
@@ -71,6 +79,12 @@ test("native map regions preserve explicit All but narrowly fall back for a stal
   assert.deepEqual(nativeMapResourceRegions(["24"], ["19", "31"], "31"), ["31"], "a configured but unready selection falls back to the ready claim region");
   assert.deepEqual(nativeMapResourceRegions(["24"], ["19", "31"], "99"), ["19"], "without a ready claim it falls back to the first ready region");
   assert.deepEqual(nativeMapResourceRegions(["24", "19"], ["19"]), ["19"], "mixed selections intersect the ready set");
+});
+
+test("preferred resource region always belongs to the active resource scope", () => {
+  assert.equal(nativeMapPreferredResourceRegion([], ["19"], "31"), "19", "an out-of-scope ready claim cannot become the priority hint");
+  assert.equal(nativeMapPreferredResourceRegion([], ["19", "31"], "31"), "31");
+  assert.equal(nativeMapPreferredResourceRegion(["24"], ["19", "24"], "19"), "24", "an explicit in-scope region wins");
 });
 
 test("native map request validates priority hints and applies them to scope and URL order", () => {

@@ -138,6 +138,7 @@ test("Map page owns the region selector and supplies its selected scope to the n
   assert.match(mapPage, /const normalizedRegionSelection = React\.useMemo/);
   assert.match(mapPage, /boundedNativeMapRegions\(\[\], readyResourceRegionIds, 16\)/);
   assert.match(mapPage, /nativeMapResourceRegions\(resourceRegions, readyResourceRegionIds, String\(data\.claim\.regionId \?\? ""\)\)/);
+  assert.match(mapPage, /nativeMapPreferredResourceRegion\(normalizedRegionSelection, resourceMapRegionIds, String\(data\.claim\.regionId \?\? ""\)\)/);
   assert.match(mapPage, /playerRegionIds=\{readyPlayerRegionIds\}/);
   assert.match(mapPage, /visibleRegionIds=\{normalizedRegionSelection\}/);
   assert.match(mapPage, /boundedNativeMapRegions\(normalizedRegionSelection, regionOptions\)/);
@@ -301,6 +302,8 @@ test("Map resource clicks pass transient locate intent and validated request pri
   assert.match(nativeMap, /native-map-resource-locate-start/);
   assert.match(nativeMap, /native-map-resource-locate-visible/);
   assert.match(nativeMap, /native-map-resource-click-to-visible/);
+  assert.match(nativeMap, /scheduleResourceLocateVisible/);
+  assert.match(nativeMap, /map\.once\("moveend"/);
   assert.match(nativeMap, /createPane\("native-map-resource-locate"\)/);
   assert.match(nativeMap, /pane: "native-map-resource-locate"/);
   assert.doesNotMatch(nativeMap, /resourceFrameSelectionRef|packedResourceBounds/);

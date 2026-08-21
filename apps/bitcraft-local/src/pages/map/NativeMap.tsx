@@ -17,7 +17,7 @@ import { mapFeatureInRegionScope, mapFeaturesInRegionScope } from "./mapRegionVi
 import { nativeMapRequest } from "./nativeMapRequest.mjs";
 import { isCurrentUserPlayerMarker } from "../../map/playerMarkerIdentity.mjs";
 import { resolvePlayerMarkerColours } from "../../map/playerMarkerColours.mjs";
-import { applyResourceLocate, resourceLayerStatus, type ResourceLocateActivation, type ResourceLocatePoint } from "./resourceViewport.mjs";
+import { applyResourceLocate, resourceLayerStatus, scheduleResourceLocateVisible, type ResourceLocateActivation, type ResourceLocatePoint } from "./resourceViewport.mjs";
 import { createMapResourceBinaryLoader } from "./mapResourceBinaryLoader.mjs";
 import type { BrowserResourcePartition } from "./mapResourceBinaryState.mjs";
 import { packedResourcePointCount, packedResourceSamples } from "./packedResourceCanvasPlan.mjs";
@@ -301,6 +301,7 @@ export function NativeMap({
   const focusGroupRef = React.useRef<L.LayerGroup | null>(null);
   const resourceLocateGroupRef = React.useRef<L.LayerGroup | null>(null);
   const resourceLocateTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resourceLocateVisibilityCancelRef = React.useRef<(() => void) | null>(null);
   const consumedResourceLocateRef = React.useRef<number | null>(null);
   const ordinaryRendererRef = React.useRef<L.Canvas | null>(null);
   const resourcesRef = React.useRef<PackedResourceCanvasLayer | null>(null);
@@ -433,6 +434,8 @@ export function NativeMap({
       resourceLocateGroupRef.current = null;
       if (resourceLocateTimerRef.current) clearTimeout(resourceLocateTimerRef.current);
       resourceLocateTimerRef.current = null;
+      resourceLocateVisibilityCancelRef.current?.();
+      resourceLocateVisibilityCancelRef.current = null;
       ordinaryRendererRef.current = null;
       resourcesRef.current = null;
       enemiesRef.current = null;
@@ -692,6 +695,8 @@ export function NativeMap({
 
   React.useEffect(() => {
     if (!resourceLocateRequest || typeof performance === "undefined") return;
+    resourceLocateVisibilityCancelRef.current?.();
+    resourceLocateVisibilityCancelRef.current = null;
     performance.clearMarks(RESOURCE_LOCATE_START_MARK);
     performance.mark(RESOURCE_LOCATE_START_MARK, { startTime: resourceLocateRequest.startedAt });
   }, [resourceLocateRequest?.id]);
@@ -702,6 +707,7 @@ export function NativeMap({
     if (!map || !resourceLocateRequest) return;
     const centre = map.getCenter();
     const previousConsumed = consumedResourceLocateRef.current;
+    const selectedTarget = { current: null as ResourceLocatePoint | null };
     const consumed = applyResourceLocate({
       activation: resourceLocateRequest,
       consumedActivationId: previousConsumed,
@@ -710,6 +716,7 @@ export function NativeMap({
       centre: { x: centre.lng, z: centre.lat },
       isVisible: (target: ResourceLocatePoint) => map.getBounds().contains(L.latLng(target.z, target.x)),
       highlight: (target: ResourceLocatePoint) => {
+        selectedTarget.current = target;
         const group = resourceLocateGroupRef.current;
         if (!group) return;
         group.clearLayers();
@@ -733,16 +740,30 @@ export function NativeMap({
       },
     });
     consumedResourceLocateRef.current = consumed;
-    if (consumed === previousConsumed || consumed !== resourceLocateRequest.id || typeof performance === "undefined") return;
-    requestAnimationFrame(() => {
-      try {
-        performance.clearMarks(RESOURCE_LOCATE_VISIBLE_MARK);
-        performance.mark(RESOURCE_LOCATE_VISIBLE_MARK);
-        performance.clearMeasures(RESOURCE_LOCATE_MEASURE);
-        performance.measure(RESOURCE_LOCATE_MEASURE, RESOURCE_LOCATE_START_MARK, RESOURCE_LOCATE_VISIBLE_MARK);
-      } catch {
-        // Performance measurement must never interrupt locating.
-      }
+    const target = selectedTarget.current;
+    if (!target || consumed === previousConsumed || consumed !== resourceLocateRequest.id || typeof performance === "undefined") return;
+    resourceLocateVisibilityCancelRef.current?.();
+    resourceLocateVisibilityCancelRef.current = scheduleResourceLocateVisible({
+      isVisible: () => map.getBounds().contains(L.latLng(target.z, target.x)),
+      onMoveEnd: (callback) => {
+        map.once("moveend", callback);
+        return () => map.off("moveend", callback);
+      },
+      requestFrame: (callback) => {
+        const frame = requestAnimationFrame(callback);
+        return () => cancelAnimationFrame(frame);
+      },
+      onVisible: () => {
+        resourceLocateVisibilityCancelRef.current = null;
+        try {
+          performance.clearMarks(RESOURCE_LOCATE_VISIBLE_MARK);
+          performance.mark(RESOURCE_LOCATE_VISIBLE_MARK);
+          performance.clearMeasures(RESOURCE_LOCATE_MEASURE);
+          performance.measure(RESOURCE_LOCATE_MEASURE, RESOURCE_LOCATE_START_MARK, RESOURCE_LOCATE_VISIBLE_MARK);
+        } catch {
+          // Performance measurement must never interrupt locating.
+        }
+      },
     });
   }, [resourcePartitions, visibleRegionIds.join(","), resourceColours, resourceLocateRequest?.id, preferredResourceRegionId]);
 

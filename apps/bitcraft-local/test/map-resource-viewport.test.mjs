@@ -6,6 +6,7 @@ import {
   newlyAddedResourceIds,
   resourceLayerStatus,
   resourceLocatePoint,
+  scheduleResourceLocateVisible,
 } from "../src/pages/map/resourceViewport.mjs";
 
 const packed = (x, z) => ((z << 16) | x) >>> 0;
@@ -106,6 +107,57 @@ test("a visible target consumes the activation without moving the viewport", () 
     highlight: () => actions.push("highlight"), locate: () => actions.push("locate"),
   }), 8);
   assert.deepEqual(actions, ["highlight"]);
+});
+
+test("an animated locate completes visibility measurement only after move completion and paint", () => {
+  let visible = false;
+  let moveEnd = null;
+  let paint = null;
+  let listenerRemoved = 0;
+  let completed = 0;
+  const cancel = scheduleResourceLocateVisible({
+    isVisible: () => visible,
+    onMoveEnd: (callback) => {
+      moveEnd = callback;
+      return () => { listenerRemoved += 1; };
+    },
+    requestFrame: (callback) => {
+      paint = callback;
+      return () => {};
+    },
+    onVisible: () => { completed += 1; },
+  });
+
+  assert.equal(completed, 0);
+  assert.equal(paint, null, "off-screen targets must wait for Leaflet movement completion");
+  visible = true;
+  moveEnd();
+  assert.equal(completed, 0, "move completion alone is not proof that the target has painted");
+  assert.equal(typeof paint, "function");
+  paint();
+  assert.equal(completed, 1);
+  assert.equal(listenerRemoved, 1);
+  cancel();
+  assert.equal(completed, 1, "the activation completes at most once");
+});
+
+test("cancelling an unfinished visibility measurement removes its movement listener", () => {
+  let moveEnd = null;
+  let listenerRemoved = 0;
+  let completed = 0;
+  const cancel = scheduleResourceLocateVisible({
+    isVisible: () => false,
+    onMoveEnd: (callback) => {
+      moveEnd = callback;
+      return () => { listenerRemoved += 1; };
+    },
+    requestFrame: () => () => {},
+    onVisible: () => { completed += 1; },
+  });
+  cancel();
+  moveEnd();
+  assert.equal(listenerRemoved, 1);
+  assert.equal(completed, 0);
 });
 
 test("resource layer status still reports progressive loading and availability", () => {

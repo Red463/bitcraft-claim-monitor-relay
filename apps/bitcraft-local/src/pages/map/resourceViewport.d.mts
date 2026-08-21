@@ -20,6 +20,12 @@ export function applyResourceLocate(input: {
   highlight: (point: ResourceLocatePoint) => void;
   locate: (point: ResourceLocatePoint) => void;
 }): number | null;
+export function scheduleResourceLocateVisible(input: {
+  isVisible: () => boolean;
+  onMoveEnd: (callback: () => void) => () => void;
+  requestFrame: (callback: () => void) => () => void;
+  onVisible: () => void;
+}): () => void;
 
 export function resourceLayerStatus(input: {
   selectionKey: string;

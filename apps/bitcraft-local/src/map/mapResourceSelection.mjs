@@ -13,10 +13,10 @@ export function mapResourceTypeLimitForRegions(regionIds, options = {}) {
   const regionCount = decimalRegions(regionIds).size;
   if (!regionCount) return 0;
   const partitionBudget = Number.isSafeInteger(options.partitionBudget) && options.partitionBudget >= 0
-    ? options.partitionBudget
+    ? Math.min(options.partitionBudget, MAP_RESOURCE_PARTITION_BUDGET)
     : MAP_RESOURCE_PARTITION_BUDGET;
   const typeLimit = Number.isSafeInteger(options.typeLimit) && options.typeLimit >= 0
-    ? options.typeLimit
+    ? Math.min(options.typeLimit, MAP_RESOURCE_TYPE_LIMIT)
     : MAP_RESOURCE_TYPE_LIMIT;
   return Math.min(typeLimit, Math.floor(partitionBudget / regionCount));
 }

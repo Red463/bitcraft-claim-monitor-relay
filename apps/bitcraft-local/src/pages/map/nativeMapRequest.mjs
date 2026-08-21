@@ -34,6 +34,15 @@ export function nativeMapResourceRegions(selectedRegionIds = [], availableRegion
   return allowed.has(claimRegion) ? [claimRegion] : available.slice(0, 1);
 }
 
+export function nativeMapPreferredResourceRegion(selectedRegionIds = [], resourceRegionIds = [], preferredClaimRegionId = "") {
+  const resourceRegions = decimalSort(resourceRegionIds);
+  const allowed = new Set(resourceRegions);
+  const selected = decimalSort(selectedRegionIds).filter((regionId) => allowed.has(regionId));
+  if (selected.length === 1) return selected[0];
+  const claimRegion = decimalSort([preferredClaimRegionId])[0] ?? "";
+  return allowed.has(claimRegion) ? claimRegion : (resourceRegions[0] ?? "");
+}
+
 export function nativeMapResourceSelectionLimit(regionIds = []) {
   return mapResourceTypeLimitForRegions(regionIds);
 }

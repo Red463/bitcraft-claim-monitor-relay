@@ -64,6 +64,40 @@ export function applyResourceLocate(input) {
   return activation.id;
 }
 
+export function scheduleResourceLocateVisible({ isVisible, onMoveEnd, requestFrame, onVisible }) {
+  let active = true;
+  let removeMoveEnd = null;
+  let cancelFrame = null;
+  const removeMovementListener = () => {
+    removeMoveEnd?.();
+    removeMoveEnd = null;
+  };
+  const afterPaint = () => {
+    cancelFrame = requestFrame(() => {
+      cancelFrame = null;
+      if (!active) return;
+      active = false;
+      removeMovementListener();
+      if (isVisible()) onVisible();
+    });
+  };
+  if (isVisible()) afterPaint();
+  else {
+    removeMoveEnd = onMoveEnd(() => {
+      removeMovementListener();
+      if (!active) return;
+      if (isVisible()) afterPaint();
+      else active = false;
+    });
+  }
+  return () => {
+    active = false;
+    removeMovementListener();
+    cancelFrame?.();
+    cancelFrame = null;
+  };
+}
+
 export function resourceLayerStatus({ selectionKey, snapshotSelectionKey, available, status, pending, reason, visible, freshness }) {
   if (selectionKey && selectionKey !== snapshotSelectionKey) return "loading";
   if (status === "loading" || (status === "partial" && pending !== false)) return "loading";
