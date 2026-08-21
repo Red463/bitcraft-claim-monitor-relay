@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { discoverRelayTopology, discoverRelayTopologyWithClient } = await import(
+const { createRelayTopologyDiscoveryCache, discoverRelayTopology, discoverRelayTopologyWithClient } = await import(
   new URL("../src/server/game-data/topology.ts", import.meta.url).href,
 );
 const { RelayHttpClient } = await import(
@@ -66,6 +66,55 @@ test("topology discovery derives global and regional databases without fixed por
     schemaFingerprint: "region-fingerprint",
     ready: true,
   });
+});
+
+test("shared topology discovery normalizes trailing slashes, singleflights, and caches successes for sixty seconds", async () => {
+  let now = 1_000;
+  let calls = 0;
+  let finishFirst;
+  const firstDiscovery = new Promise((resolve) => { finishFirst = resolve; });
+  const cachedDiscover = createRelayTopologyDiscoveryCache({
+    discover: async (baseUrl) => {
+      calls += 1;
+      if (calls === 1) return firstDiscovery;
+      return { baseUrl, call: calls };
+    },
+    now: () => now,
+  });
+
+  const withoutSlash = cachedDiscover("https://relay.example");
+  const withSlash = cachedDiscover("https://relay.example/");
+  assert.equal(calls, 1);
+  const first = { baseUrl: "https://relay.example", call: 1 };
+  finishFirst(first);
+  assert.equal(await withoutSlash, first);
+  assert.equal(await withSlash, first);
+
+  now = 60_999;
+  assert.equal(await cachedDiscover("https://relay.example///"), first);
+  assert.equal(calls, 1);
+
+  now = 61_000;
+  assert.deepEqual(await cachedDiscover("https://relay.example/"), {
+    baseUrl: "https://relay.example",
+    call: 2,
+  });
+  assert.equal(calls, 2);
+});
+
+test("shared topology discovery evicts failures immediately", async () => {
+  let calls = 0;
+  const cachedDiscover = createRelayTopologyDiscoveryCache({
+    discover: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("Relay discovery failed");
+      return { call: calls };
+    },
+  });
+
+  await assert.rejects(cachedDiscover("https://relay.example/"), /Relay discovery failed/);
+  assert.deepEqual(await cachedDiscover("https://relay.example"), { call: 2 });
+  assert.equal(calls, 2);
 });
 
 test("topology discovery supports current live-source health and fingerprints public schemas", async () => {

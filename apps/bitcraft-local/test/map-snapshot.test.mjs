@@ -5,7 +5,6 @@ import {
   MapSnapshotError,
   authorizedMapPlayerIds,
   combineMapSpatialSnapshots,
-  buildMapResourcePayload,
   buildMapSnapshot,
   mapRequestAccess,
   parseMapScope,
@@ -109,6 +108,32 @@ test("map scopes canonicalize decimal ids before deduplication and filtering", (
 
   assert.deepEqual(scope.regionIds, ["19"]);
   assert.deepEqual(scope.resourceIds, ["28"]);
+});
+
+test("generic resource scopes accept 16 by 16 but reject 17 by 16 under the shared partition budget", () => {
+  const regionIds = Array.from({ length: 17 }, (_, index) => String(index + 1));
+  const resourceIds = Array.from({ length: 16 }, (_, index) => String(index + 1));
+  const accepted = parseMapScope(new URLSearchParams({
+    regions: regionIds.slice(0, 16).join(","),
+    layers: "resources",
+    resourceIds: resourceIds.join(","),
+  }), {
+    allowedRegionIds: regionIds,
+    allowedResourceIds: resourceIds,
+  });
+  assert.equal(accepted.regionIds.length * accepted.resourceIds.length, 256);
+
+  assert.throws(
+    () => parseMapScope(new URLSearchParams({
+      regions: regionIds.join(","),
+      layers: "resources",
+      resourceIds: resourceIds.join(","),
+    }), {
+      allowedRegionIds: regionIds,
+      allowedResourceIds: resourceIds,
+    }),
+    (error) => error instanceof MapSnapshotError && error.statusCode === 413,
+  );
 });
 
 test("map request access follows the configured Map page rule", () => {
@@ -621,29 +646,4 @@ test("map resource requests retain region, resource, feature, and byte limits", 
     () => buildMapSnapshot({ scope, resourceCoordinatesVerified: true, resourceCollection: collection([point("x".repeat(8 * 1024 * 1024))]) }),
     (error) => error instanceof MapSnapshotError && error.statusCode === 413 && /byte limit/.test(error.message),
   );
-});
-
-test("compact map resource payload supports combined selections above the ordinary snapshot feature limit", () => {
-  const scope = parseMapScope(new URLSearchParams({ regions: "1,2", layers: "resources", resourceIds: "1,2" }), { allowedRegionIds: ["1", "2"] });
-  const resources = Array.from({ length: 50_001 }, (_, index) => ({
-    entityId: String(index + 1),
-    resourceId: index % 2 === 0 ? "1" : "2",
-    regionId: index % 2 === 0 ? "1" : "2",
-    locationX: index % 38_400,
-    locationZ: (index * 2) % 38_400,
-    dimension: "1",
-  }));
-  const payload = buildMapResourcePayload({
-    scope,
-    resourceCoordinatesVerified: true,
-    resourceCollection: {
-      data: { resources }, generation: 4, freshness: "live",
-      provenance: { receivedAt: "2026-08-12T10:00:00.000Z" }, warnings: [],
-      requestedKeys: ["1|resource:1", "2|resource:2"], readyKeys: ["1|resource:1", "2|resource:2"], loadingKeys: [], unavailableKeys: [],
-    },
-  });
-
-  assert.equal(payload.resources.length, 50_001);
-  assert.deepEqual(payload.resources[0], ["1", "1", "1", 0, 0]);
-  assert.deepEqual(payload.layerAvailability, { available: true, status: "live", reason: null });
 });

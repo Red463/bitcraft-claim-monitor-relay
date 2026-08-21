@@ -1,7 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { MAP_RESOURCE_PARTITION_BUDGET, MAP_RESOURCE_TYPE_LIMIT } from "../map/mapResourceSelection.mjs";
 
 const DEFAULT_PAGE_FEATURE_LIMIT = 20_000;
 const DEFAULT_PAGE_BYTE_LIMIT = 4 * 1024 * 1024;
+export const MAP_RESOURCE_LEASE_ACQUISITION_LIMIT = 8;
 
 export class MapResourcePageError extends Error {
   constructor(statusCode, message) {
@@ -88,29 +90,84 @@ function decimalValues(value, label) {
     .sort((left, right) => left.length - right.length || left.localeCompare(right));
 }
 
-export function parseMapResourceSelectionScope(searchParams, { allowedRegionIds = [], allowedResourceIds = null, maxResourceIds = 16, maxPartitions = 256 } = {}) {
+export function parseMapResourceSelectionScope(searchParams, {
+  allowedRegionIds = [],
+  allowedResourceIds = null,
+  maxResourceIds = MAP_RESOURCE_TYPE_LIMIT,
+  maxPartitions = MAP_RESOURCE_PARTITION_BUDGET,
+} = {}) {
   const regionIds = decimalValues(searchParams.get("regions"), "Map resource regions");
   const resourceIds = decimalValues(searchParams.get("resourceIds"), "Map resource ids");
   const allowed = new Set(allowedRegionIds.map((value) => decimal(value, "Allowed map resource region")));
   if (regionIds.some((regionId) => !allowed.has(regionId))) {
     throw new MapResourcePageError(422, "Map resource selection includes a region outside the Relay-ready scope");
   }
-  const resourceLimit = positiveInteger(maxResourceIds, "Map resource selection type limit");
+  const resourceLimit = Math.min(
+    positiveInteger(maxResourceIds, "Map resource selection type limit"),
+    MAP_RESOURCE_TYPE_LIMIT,
+  );
   if (resourceIds.length > resourceLimit) throw new MapResourcePageError(413, `Map resource ids exceed the limit of ${resourceLimit}`);
   validateResourceCatalog(resourceIds, allowedResourceIds);
-  const partitionLimit = positiveInteger(maxPartitions, "Map resource selection partition limit");
+  const partitionLimit = Math.min(
+    positiveInteger(maxPartitions, "Map resource selection partition limit"),
+    MAP_RESOURCE_PARTITION_BUDGET,
+  );
   if (regionIds.length * resourceIds.length > partitionLimit) {
     throw new MapResourcePageError(413, `Map resource partition scope exceeds the limit of ${partitionLimit}`);
   }
-  return { regionIds, resourceIds };
+  const priorityRegionId = searchParams.has("priorityRegionId")
+    ? decimal(searchParams.get("priorityRegionId"), "Map resource priority region")
+    : null;
+  const priorityResourceId = searchParams.has("priorityResourceId")
+    ? decimal(searchParams.get("priorityResourceId"), "Map resource priority id")
+    : null;
+  if (priorityRegionId != null && !regionIds.includes(priorityRegionId)) {
+    throw new MapResourcePageError(422, "Map resource priority region is outside the selected scope");
+  }
+  if (priorityResourceId != null && !resourceIds.includes(priorityResourceId)) {
+    throw new MapResourcePageError(422, "Map resource priority id is outside the selected scope");
+  }
+  return {
+    regionIds,
+    resourceIds,
+    ...(priorityRegionId == null ? {} : { priorityRegionId }),
+    ...(priorityResourceId == null ? {} : { priorityResourceId }),
+  };
 }
 
-export function mapResourceSelectionLeasePlan({ regionIds = [], resourceIds = [] } = {}) {
-  const inputs = [];
-  for (const resourceId of resourceIds) {
-    for (const regionId of regionIds) inputs.push({ regionId, resourceId });
+function canonicalDecimalList(values, label) {
+  return [...new Set((values ?? []).map((value) => decimal(value, label)))]
+    .sort((left, right) => left.length - right.length || left.localeCompare(right));
+}
+
+export function mapResourceSelectionLeasePlan({
+  regionIds = [],
+  resourceIds = [],
+  priorityRegionId = null,
+  priorityResourceId = null,
+} = {}) {
+  const regions = canonicalDecimalList(regionIds, "Map resource lease region");
+  const resources = canonicalDecimalList(resourceIds, "Map resource lease id");
+  const priorityRegion = priorityRegionId == null ? null : decimal(priorityRegionId, "Map resource priority region");
+  const priorityResource = priorityResourceId == null ? null : decimal(priorityResourceId, "Map resource priority id");
+  if (priorityRegion != null && !regions.includes(priorityRegion)) {
+    throw new MapResourcePageError(422, "Map resource priority region is outside the selected scope");
   }
-  return { inputs, concurrency: inputs.length };
+  if (priorityResource != null && !resources.includes(priorityResource)) {
+    throw new MapResourcePageError(422, "Map resource priority id is outside the selected scope");
+  }
+  const inputs = [];
+  if (priorityResource != null) {
+    if (priorityRegion != null) inputs.push({ regionId: priorityRegion, resourceId: priorityResource });
+    for (const regionId of regions) {
+      if (regionId !== priorityRegion) inputs.push({ regionId, resourceId: priorityResource });
+    }
+  }
+  for (const resourceId of resources) {
+    if (resourceId === priorityResource) continue;
+    for (const regionId of regions) inputs.push({ regionId, resourceId });
+  }
+  return { inputs, concurrency: Math.min(MAP_RESOURCE_LEASE_ACQUISITION_LIMIT, inputs.length) };
 }
 
 function availability(collection, key) {

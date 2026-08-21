@@ -1,5 +1,6 @@
 import { MAP_OVERWORLD_DIMENSION, MAP_WORLD_BOUNDS, mapPointFromMobile, normalizeStaticMapPoint } from "../pages/map/mapCoordinates.mjs";
 import { publicAccessDecision } from "../access/accessControl.mjs";
+import { MAP_RESOURCE_PARTITION_BUDGET, MAP_RESOURCE_TYPE_LIMIT } from "../map/mapResourceSelection.mjs";
 
 export const MAP_LAYER_KEYS = [
   "claims",
@@ -18,7 +19,8 @@ export const MAP_LAYER_KEYS = [
 export const MAP_SCOPE_LIMITS = Object.freeze({
   regions: 16,
   playerRegions: 16,
-  resourceIds: 16,
+  resourceIds: MAP_RESOURCE_TYPE_LIMIT,
+  resourcePartitions: MAP_RESOURCE_PARTITION_BUDGET,
   enemyTypes: 16,
   playerIds: 250,
   features: 50_000,
@@ -72,6 +74,9 @@ export function parseMapScope(searchParams, { allowedRegionIds = [], allowedPlay
   const enemyTypes = decimalValues(searchParams.get("enemyTypes"), "enemyTypes", MAP_SCOPE_LIMITS.enemyTypes);
   const playerIds = decimalValues(searchParams.get("playerIds"), "playerIds", MAP_SCOPE_LIMITS.playerIds);
   if (requestedLayers.includes("resources") && !resourceIds.length) throw new MapSnapshotError(422, "resourceIds are required for the resources layer");
+  if (requestedLayers.includes("resources") && regionIds.length * resourceIds.length > MAP_SCOPE_LIMITS.resourcePartitions) {
+    throw new MapSnapshotError(413, `Map resource partition scope exceeds the limit of ${MAP_SCOPE_LIMITS.resourcePartitions}`);
+  }
   if (allowedResourceIds != null && resourceIds.length) {
     const allowedResources = new Set(allowedResourceIds.map((resourceId) => {
       const value = String(resourceId).trim();
@@ -180,42 +185,6 @@ function resourceLayerAvailability(resourceCollection) {
   if (readyCount > 0) return { available: true, status: "partial", pending: loadingCount > 0, reason: loadingCount > 0 ? "Some selected resource positions are still loading." : "Some selected resource positions are unavailable." };
   if (loadingCount > 0) return { available: false, status: "loading", pending: true, reason: "Selected resource positions are loading." };
   return { available: false, status: "unavailable", reason: resourceWarning ?? "Live resource positions are unavailable." };
-}
-
-export function buildMapResourcePayload({ scope, resourceCollection, resourceCoordinatesVerified = false } = {}) {
-  const warnings = [...new Set((resourceCollection?.warnings ?? []).map(String))];
-  if (!resourceCoordinatesVerified) {
-    const reason = "Resource positions are unavailable until the Relay resource/location join is live-verified.";
-    if (!warnings.includes(reason)) warnings.push(reason);
-    return {
-      provider: "relay",
-      generation: String(Number(resourceCollection?.generation) || 0),
-      generatedAt: resourceCollection?.provenance?.receivedAt ?? null,
-      freshness: "unavailable",
-      warnings,
-      scope: { regionIds: scope?.regionIds ?? [], resourceIds: scope?.resourceIds ?? [] },
-      resources: [],
-      layerAvailability: { available: false, status: "unavailable", reason },
-    };
-  }
-  const selected = new Set(scope.resourceIds);
-  const resources = (Array.isArray(resourceCollection?.data?.resources) ? resourceCollection.data.resources : [])
-    .filter((row) => selected.has(String(row.resourceId)) && inScope(row, scope))
-    .map((row) => {
-      const point = recordPoint(row);
-      return [String(row.entityId), String(row.regionId), String(row.resourceId), point.x, point.z];
-    });
-  const layerAvailability = resourceLayerAvailability(resourceCollection);
-  return {
-    provider: "relay",
-    generation: String(Number(resourceCollection?.generation) || 0),
-    generatedAt: resourceCollection?.provenance?.receivedAt ?? null,
-    freshness: layerAvailability.status === "live" ? "live" : layerAvailability.status === "stale" ? "stale" : "partial",
-    warnings,
-    scope: { regionIds: scope.regionIds, resourceIds: scope.resourceIds },
-    resources,
-    layerAvailability,
-  };
 }
 
 export function buildMapSnapshot({

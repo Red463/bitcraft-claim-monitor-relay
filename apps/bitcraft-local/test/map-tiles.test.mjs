@@ -180,5 +180,5 @@ test("production server handles same-origin map tiles before map snapshot acquis
   const server = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
   assert.match(server, /import \{ serveLocalMapTile \} from "\.\/src\/server\/mapTiles\.mjs"/);
   assert.match(server, /await serveLocalMapTile\(url\.pathname, res, terrainTileStore, undefined, relayTerrainRuntime\.health\(\), roadTileStore\)/);
-  assert.ok(server.indexOf("await serveLocalMapTile(url.pathname, res, terrainTileStore, undefined, relayTerrainRuntime.health(), roadTileStore)") < server.indexOf('["/api/local/map/snapshot", "/api/local/map/resources", "/api/local/map/events"].includes(url.pathname)'));
+  assert.ok(server.indexOf("await serveLocalMapTile(url.pathname, res, terrainTileStore, undefined, relayTerrainRuntime.health(), roadTileStore)") < server.indexOf('["/api/local/map/snapshot", "/api/local/map/events"].includes(url.pathname)'));
 });

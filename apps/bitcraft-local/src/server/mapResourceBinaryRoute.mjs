@@ -159,14 +159,24 @@ export async function runWithConcurrency(tasks, limit) {
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("Concurrency limit must be positive");
   const results = new Array(tasks.length);
   let nextIndex = 0;
+  let failed = false;
+  let firstFailure;
   async function worker() {
-    while (nextIndex < tasks.length) {
+    while (!failed && nextIndex < tasks.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await tasks[index]();
+      try {
+        results[index] = await tasks[index]();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstFailure = error;
+        }
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+  if (failed) throw firstFailure;
   return results;
 }
 

@@ -32,6 +32,28 @@ type MapGenerationListener = {
   mapResourceScopeKeys?: Set<string>;
 };
 
+const MAP_LAYER_GENERATION_DOMAINS: Readonly<Record<string, readonly DomainKey[]>> = Object.freeze({
+  claims: ["region-claims", "map-spatial"],
+  markets: ["market"],
+  waystones: ["region-claims"],
+  "empire-settlements": ["empires"],
+  "empire-territory": ["empires"],
+  watchtowers: ["empires"],
+  players: ["members", "players", "map-spatial"],
+  resources: ["map-resources"],
+  enemies: ["map-spatial"],
+  roads: [],
+  "claim-areas": [],
+});
+
+export function mapGenerationDomainsForLayers(layers: readonly string[]): DomainKey[] {
+  const required = new Set<DomainKey>();
+  for (const layer of layers) {
+    for (const domain of MAP_LAYER_GENERATION_DOMAINS[layer] ?? []) required.add(domain);
+  }
+  return DOMAIN_KEYS.filter((domain) => required.has(domain));
+}
+
 export function mapResourceLeaseInputs(scope: MapScopeSelection): Array<{ regionId: string; resourceId: string }> {
   if (!scope.layers.includes("resources")) return [];
   return scope.regionIds.flatMap((regionId) => scope.resourceIds.map((resourceId) => ({ regionId, resourceId })));

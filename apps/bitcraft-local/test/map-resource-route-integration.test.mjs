@@ -6,6 +6,7 @@ import { RelayMapResourceRegionSession } from "../src/server/game-data/mapResour
 import { RelayMapResourceRuntime } from "../src/server/game-data/mapResourceRuntime.ts";
 
 const routeModule = await import("../src/server/game-data/gameDataRoute.ts");
+const snapshotModule = await import("../src/server/mapSnapshot.mjs");
 
 function resourceSnapshot(regionId, resourceId, generation, resources = [], warnings = []) {
   return {
@@ -214,6 +215,30 @@ test("claims-only snapshots accept the selected region spatial source", () => {
   }), 200);
 });
 
+test("map event generation domains are the exact requested-layer dependencies in canonical order", () => {
+  assert.equal(typeof routeModule.mapGenerationDomainsForLayers, "function");
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers([
+    "resources", "players", "claim-areas", "claims", "markets", "waystones",
+    "watchtowers", "empire-territory", "empire-settlements", "enemies", "roads", "claims",
+  ]), [
+    "members",
+    "players",
+    "market",
+    "region-claims",
+    "empires",
+    "map-spatial",
+    "map-resources",
+  ]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["claims"]), ["region-claims", "map-spatial"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["markets"]), ["market"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["waystones"]), ["region-claims"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["empire-settlements", "empire-territory", "watchtowers"]), ["empires"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["players"]), ["members", "players", "map-spatial"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["resources"]), ["map-resources"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["enemies"]), ["map-spatial"]);
+  assert.deepEqual(routeModule.mapGenerationDomainsForLayers(["roads", "claim-areas"]), []);
+});
+
 test("map resource SSE changes reach only listeners for the selected keys", () => {
   assert.equal(typeof routeModule.generationDomainsForListener, "function");
   const event = { changedDomains: ["map-resources"], mapResourceScopeKey: "19|resource:28" };
@@ -359,7 +384,7 @@ test("every resource route authorizes before web readiness discovery or lease ac
     'url.pathname === "/api/local/map/resource-partition"',
     'url.pathname === "/api/local/map/resources"',
     'url.pathname === "/api/local/map/resource-events"',
-    '["/api/local/map/snapshot", "/api/local/map/resources", "/api/local/map/events"].includes(url.pathname)',
+    '["/api/local/map/snapshot", "/api/local/map/events"].includes(url.pathname)',
   ];
   for (const marker of routeMarkers) {
     const start = server.indexOf(marker);
@@ -373,6 +398,54 @@ test("every resource route authorizes before web readiness discovery or lease ac
     const acquisition = route.indexOf("relayMapResourceRuntime.acquire");
     if (acquisition >= 0) assert.ok(acquisition > readiness, `${marker} must ensure readiness before acquiring a lease`);
   }
+});
+
+test("server keeps one canonical paged resources route and removes the dead grouped payload surface", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const exactHandlers = server.match(/if \(req\.method === "GET" && url\.pathname === "\/api\/local\/map\/resources"\)/g) ?? [];
+  assert.equal(exactHandlers.length, 1);
+  assert.doesNotMatch(server, /\["\/api\/local\/map\/snapshot", "\/api\/local\/map\/resources", "\/api\/local\/map\/events"\]/);
+  assert.doesNotMatch(server, /buildMapResourcePayload/);
+  assert.equal("buildMapResourcePayload" in snapshotModule, false);
+});
+
+test("server shares one topology resolver across all map runtimes", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(server, /const relayTopologyDiscovery = createRelayTopologyDiscoveryCache\(\{ discover: discoverRelayTopology \}\)/);
+  assert.equal((server.match(/discoverTopology:\s*relayTopologyDiscovery/g) ?? []).length, 3);
+  for (const runtime of ["RelayMapSpatialScopeManager", "RelayMapResourceRuntime", "RelayMapResourceReadiness"]) {
+    const start = server.indexOf(`new ${runtime}({`);
+    const end = server.indexOf("});", start);
+    assert.ok(start >= 0, runtime);
+    assert.match(server.slice(start, end), /discoverTopology:\s*relayTopologyDiscovery/);
+  }
+});
+
+test("resource and grouped map acquisitions are capped, fenced, indexed, and release populated slots", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const resourceEventsStart = server.indexOf('url.pathname === "/api/local/map/resource-events"');
+  const groupedStart = server.indexOf('["/api/local/map/snapshot", "/api/local/map/events"].includes(url.pathname)');
+  const nextRoute = server.indexOf('url.pathname.startsWith("/api/local/branding/")', groupedStart);
+  const resourceEvents = server.slice(resourceEventsStart, groupedStart);
+  const grouped = server.slice(groupedStart, nextRoute);
+
+  assert.match(resourceEvents, /relayClaimScopeFence\.run\(claimId, async \(\) =>/);
+  assert.match(resourceEvents, /runWithConcurrency\(tasks, leasePlan\.concurrency\)/);
+  assert.match(resourceEvents, /leases\[index\] = lease/);
+  assert.match(resourceEvents, /leases\.filter\(Boolean\).*lease\.release/s);
+  assert.match(grouped, /relayClaimScopeFence\.run\(claimId, async \(\) =>/);
+  assert.match(grouped, /runWithConcurrency\(acquisitionTasks, MAP_RESOURCE_LEASE_ACQUISITION_LIMIT\)/);
+  assert.match(grouped, /spatialLeases\[index\] = lease/);
+  assert.match(grouped, /resourceLeases\[index\] = lease/);
+  assert.match(grouped, /spatialLeases\.filter\(Boolean\).*resourceLeases\.filter\(Boolean\).*lease\.release/s);
+});
+
+test("server derives listener and initial map event domains from the requested layers", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(server, /const domains = mapGenerationDomainsForLayers\(scope\.layers\)/);
+  assert.match(server, /domains:\s*new Set\(domains\)/);
+  assert.match(server, /currentGameDataGenerationEvent\(claimId, domains\)/);
+  assert.doesNotMatch(server, /const domains = \[[^\]]*"map-static"/);
 });
 
 test("server preserves requested spatial regions when combining lease snapshots", () => {

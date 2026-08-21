@@ -37,6 +37,54 @@ export type RelayTopology = {
   regions: Map<RegionId, RelaySourceTopology>;
 };
 
+type RelayTopologyDiscover = (baseUrl: string) => Promise<RelayTopology>;
+
+export function createRelayTopologyDiscoveryCache({
+  discover,
+  ttlMs = 60_000,
+  now = Date.now,
+}: {
+  discover: RelayTopologyDiscover;
+  ttlMs?: number;
+  now?: () => number;
+}): RelayTopologyDiscover {
+  if (typeof discover !== "function") throw new TypeError("Relay topology discover function is required");
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new TypeError("Relay topology cache TTL must be non-negative");
+  const entries = new Map<string, {
+    promise: Promise<RelayTopology>;
+    expiresAt: number;
+    settled: boolean;
+  }>();
+  return (baseUrl) => {
+    const key = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+    const cached = entries.get(key);
+    if (cached && (!cached.settled || cached.expiresAt > now())) return cached.promise;
+    if (cached) entries.delete(key);
+
+    const entry = {
+      promise: Promise.resolve(null as unknown as RelayTopology),
+      expiresAt: Number.POSITIVE_INFINITY,
+      settled: false,
+    };
+    try {
+      entry.promise = Promise.resolve(discover(key));
+    } catch (error) {
+      entry.promise = Promise.reject(error);
+    }
+    entries.set(key, entry);
+    void entry.promise.then(
+      () => {
+        entry.settled = true;
+        entry.expiresAt = now() + ttlMs;
+      },
+      () => {
+        if (entries.get(key) === entry) entries.delete(key);
+      },
+    );
+    return entry.promise;
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>

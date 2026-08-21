@@ -182,3 +182,73 @@ test("runs independent acquisitions with a strict concurrency bound", async () =
   assert.deepEqual(await running, [1, 2, 3, 4]);
   assert.equal(maximum, 2);
 });
+
+test("starts no more than eight of twenty acquisitions and preserves input result order", async () => {
+  let active = 0;
+  let maximum = 0;
+  const started = [];
+  const gates = Array.from({ length: 20 }, () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  });
+  const work = gates.map((gate, index) => async () => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    started.push(index);
+    await gate.promise;
+    active -= 1;
+    return `result-${index}`;
+  });
+
+  const running = runWithConcurrency(work, 8);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(active, 8);
+
+  gates[3].resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(active, 8);
+
+  for (const gate of gates) gate.resolve();
+  assert.deepEqual(await running, Array.from({ length: 20 }, (_, index) => `result-${index}`));
+  assert.equal(maximum, 8);
+});
+
+test("retains the first failure and settles already-started siblings before rejecting", async () => {
+  const firstFailure = new Error("first acquisition failed");
+  const laterFailure = new Error("later acquisition failed");
+  const started = [];
+  const settled = [];
+  const gates = Array.from({ length: 5 }, () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+    return { promise, resolve, reject };
+  });
+  const running = runWithConcurrency(gates.map((gate, index) => async () => {
+    started.push(index);
+    try {
+      await gate.promise;
+      return index;
+    } finally {
+      settled.push(index);
+    }
+  }), 3);
+  let observedFailure = null;
+  void running.catch((error) => { observedFailure = error; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [0, 1, 2]);
+
+  gates[0].reject(firstFailure);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(observedFailure, null, "the runner must wait for siblings that already started");
+  assert.deepEqual(started, [0, 1, 2], "no new work starts after the first failure");
+
+  gates[1].reject(laterFailure);
+  gates[2].resolve();
+  await assert.rejects(running, (error) => error === firstFailure);
+  assert.deepEqual([...settled].sort((left, right) => left - right), [0, 1, 2]);
+  assert.equal(started.includes(3), false);
+});

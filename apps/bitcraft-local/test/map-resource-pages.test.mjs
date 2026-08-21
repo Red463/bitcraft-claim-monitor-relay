@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import * as mapResourcePagesModule from "../src/server/mapResourcePages.mjs";
 import {
   MapResourcePageError,
   buildMapResourcePartitionPayload,
@@ -99,20 +100,32 @@ test("resource selection rejects unknown catalog identities and an oversized Car
   );
 });
 
-test("resource selection accepts 16 resources across all 13 Relay regions", () => {
-  const regionIds = Array.from({ length: 13 }, (_, index) => String(index + 1));
+test("resource selection accepts exactly 256 partitions and rejects 272 even when options try to raise the hard budget", () => {
+  const regionIds = Array.from({ length: 17 }, (_, index) => String(index + 1));
   const resourceIds = Array.from({ length: 16 }, (_, index) => String(index + 1));
   const scope = parseMapResourceSelectionScope(new URLSearchParams({
-    regions: regionIds.join(","),
+    regions: regionIds.slice(0, 16).join(","),
     resourceIds: resourceIds.join(","),
   }), {
     allowedRegionIds: regionIds,
     allowedResourceIds: resourceIds,
     maxResourceIds: 16,
-    maxPartitions: 256,
+    maxPartitions: 999,
   });
 
-  assert.equal(scope.regionIds.length * scope.resourceIds.length, 208);
+  assert.equal(scope.regionIds.length * scope.resourceIds.length, 256);
+  assert.throws(
+    () => parseMapResourceSelectionScope(new URLSearchParams({
+      regions: regionIds.join(","),
+      resourceIds: resourceIds.join(","),
+    }), {
+      allowedRegionIds: regionIds,
+      allowedResourceIds: resourceIds,
+      maxResourceIds: 99,
+      maxPartitions: 999,
+    }),
+    (error) => error instanceof MapResourcePageError && error.statusCode === 413 && /partition/.test(error.message),
+  );
 });
 
 test("resource event leases open one partition in every region before the next resource", () => {
@@ -121,7 +134,7 @@ test("resource event leases open one partition in every region before the next r
     resourceIds: ["28", "130"],
   });
 
-  assert.equal(plan.concurrency, 10);
+  assert.equal(plan.concurrency, 8);
   assert.deepEqual(plan.inputs.slice(0, 5), [
     { regionId: "3", resourceId: "28" },
     { regionId: "7", resourceId: "28" },
@@ -137,7 +150,56 @@ test("resource event leases admit the complete validated 16 by 13 scope", () => 
   const plan = mapResourceSelectionLeasePlan({ regionIds, resourceIds });
 
   assert.equal(plan.inputs.length, 208);
-  assert.equal(plan.concurrency, 208);
+  assert.equal(mapResourcePagesModule.MAP_RESOURCE_LEASE_ACQUISITION_LIMIT, 8);
+  assert.equal(plan.concurrency, 8);
+});
+
+test("resource selection validates priority identities and leases the exact pair before resource-major remainder", () => {
+  const params = new URLSearchParams({
+    regions: "10,2,3",
+    resourceIds: "20,4",
+    priorityRegionId: "10",
+    priorityResourceId: "20",
+  });
+  const scope = parseMapResourceSelectionScope(params, {
+    allowedRegionIds: ["2", "3", "10"],
+    allowedResourceIds: ["4", "20"],
+  });
+
+  assert.deepEqual(scope, {
+    regionIds: ["2", "3", "10"],
+    resourceIds: ["4", "20"],
+    priorityRegionId: "10",
+    priorityResourceId: "20",
+  });
+  assert.deepEqual(mapResourceSelectionLeasePlan(scope), {
+    inputs: [
+      { regionId: "10", resourceId: "20" },
+      { regionId: "2", resourceId: "20" },
+      { regionId: "3", resourceId: "20" },
+      { regionId: "2", resourceId: "4" },
+      { regionId: "3", resourceId: "4" },
+      { regionId: "10", resourceId: "4" },
+    ],
+    concurrency: 6,
+  });
+
+  for (const invalid of [
+    { priorityRegionId: "99", priorityResourceId: "20" },
+    { priorityRegionId: "10", priorityResourceId: "99" },
+  ]) {
+    assert.throws(
+      () => parseMapResourceSelectionScope(new URLSearchParams({
+        regions: "2,3,10",
+        resourceIds: "4,20",
+        ...invalid,
+      }), {
+        allowedRegionIds: ["2", "3", "10"],
+        allowedResourceIds: ["4", "20"],
+      }),
+      (error) => error instanceof MapResourcePageError && error.statusCode === 422 && /priority/i.test(error.message),
+    );
+  }
 });
 
 test("large resource pages slice an already sorted compact partition without sorting it again", () => {
