@@ -68,9 +68,14 @@ function completeScope(state, scope) {
   return state.size === scope.length && scope.every((entry) => isCommitted(state.get(entry.key)));
 }
 
-function confirmedScope(state, scope, readyGenerations) {
+function confirmedScope(state, scope, readyGenerations, coldGenerations, warmRequestedKeys) {
   return completeScope(state, scope)
-    && scope.every((entry) => readyGenerations.get(entry.key) === state.get(entry.key).generation);
+    && scope.every((entry) => {
+      const partition = state.get(entry.key);
+      const coldGeneration = coldGenerations.get(entry.key);
+      if (warmRequestedKeys.has(entry.key) && partition.generation !== coldGeneration) return true;
+      return partition.generation === coldGeneration && readyGenerations.get(entry.key) === partition.generation;
+    });
 }
 
 function warmBenchmarkSelection(regions, resources) {
@@ -418,7 +423,7 @@ export async function runMapResourceClientBenchmark({
     phase = { name: "warm", startedAt: now() };
     const warmHydrated = waitFor((state) => completeScope(state, warmScope), "Benchmark did not hydrate the warm selection");
     const warmConfirmed = waitFor(
-      (state) => confirmedScope(state, warmScope, warmReadyGenerations),
+      (state) => confirmedScope(state, warmScope, warmReadyGenerations, coldGenerations, requestedKeys.warm),
       "Benchmark did not confirm the warm selection",
     );
     loader.setScope(warmScope, warmEventUrl);
@@ -439,7 +444,10 @@ export async function runMapResourceClientBenchmark({
   metrics.warmRequestCount = requestedKeys.warm.size;
   if (coldGenerations && metrics.changedGenerationCount === 0 && currentState.size === warmScope.length) {
     metrics.changedGenerationCount = warmScope.reduce(
-      (count, entry) => count + Number(currentState.get(entry.key)?.generation !== coldGenerations.get(entry.key)),
+      (count, entry) => {
+        const partition = currentState.get(entry.key);
+        return count + Number(isCommitted(partition) && partition.generation !== coldGenerations.get(entry.key));
+      },
       0,
     );
   }

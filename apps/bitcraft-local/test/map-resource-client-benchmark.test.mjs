@@ -306,6 +306,54 @@ test("counts a Response-style 409 recovery as two HTTP attempts in one logical c
   assert.equal(result.metrics.recoveryRequestCount, 1);
 });
 
+test("confirms a changed warm generation committed through canonical 409 recovery", async () => {
+  const entry = scope[0];
+  const scheduler = manualScheduler();
+  const events = eventAdapter([
+    readyEvents([entry], () => "7"),
+    readyEvents([entry], () => "8"),
+  ]);
+  const requestGenerations = [];
+  const running = benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: [entry.resourceId],
+    sseAdapter: events,
+    httpAdapter: {
+      async request(url) {
+        const generation = new URL(url).searchParams.get("generation");
+        requestGenerations.push(generation);
+        if (generation === "8") {
+          return {
+            status: 409,
+            async json() {
+              return {
+                currentGeneration: "9",
+                url: `/api/local/map/resource-partition?regionId=19&resourceId=${entry.resourceId}&generation=9`,
+              };
+            },
+          };
+        }
+        return response(encoded(entry, generation, generation === "9" ? 20 : 0));
+      },
+    },
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  });
+  await drain(100);
+  scheduler.fireAll();
+  const result = await running;
+
+  assert.equal(result.ok, true, result.failures.join("; "));
+  assert.deepEqual(requestGenerations, ["7", "8", "9"]);
+  assert.equal(result.metrics.coldRequestCount, 1);
+  assert.equal(result.metrics.warmRequestCount, 1);
+  assert.equal(result.metrics.coldHttpRequestCount, 1);
+  assert.equal(result.metrics.warmHttpRequestCount, 2);
+  assert.equal(result.metrics.recoveryRequestCount, 1);
+  assert.equal(result.metrics.changedGenerationCount, 1);
+});
+
 test("consumes simultaneous warm hydration and confirmation rejection without an unhandled promise", async () => {
   const entry = scope[0];
   let connectionCount = 0;
@@ -337,6 +385,8 @@ test("consumes simultaneous warm hydration and confirmation rejection without an
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(result.ok, false);
     assert.match(result.failures.join(" "), /event stream failed/i);
+    assert.equal(result.metrics.changedGenerationCount, 0);
+    assert.equal(result.failures.some((failure) => /warm request count/i.test(failure)), false);
     assert.deepEqual(unhandled, []);
   } finally {
     process.off("unhandledRejection", onUnhandled);
@@ -491,6 +541,51 @@ test("rejects embedded credentials in a same-origin partition URL before invokin
   assert.equal(result.ok, false);
   assert.equal(httpCalls, 0);
   assert.equal(JSON.stringify(result).includes("bench-password"), false);
+});
+
+test("rejects a non-loopback base URL before invoking either adapter without leaking user-info", async () => {
+  let adapterCalls = 0;
+  let failure = null;
+  try {
+    await benchmarkModule.runMapResourceClientBenchmark({
+      baseUrl: "https://bench-user:bench-password@example.com",
+      regionIds: ["19"],
+      resourceIds: ["28"],
+      httpAdapter: { request: async () => { adapterCalls += 1; } },
+      sseAdapter: { connect() { adapterCalls += 1; return { close() {} }; } },
+    });
+  } catch (error) {
+    failure = error;
+  }
+
+  assert.match(failure?.message ?? "", /loopback/i);
+  assert.equal(adapterCalls, 0);
+  assert.equal(String(failure).includes("bench-password"), false);
+});
+
+test("rejects a cross-origin partition candidate before HTTP without leaking its URL", async () => {
+  const entry = scope[0];
+  const [event] = readyEvents([entry]);
+  const events = eventAdapter([[
+    {
+      ...event,
+      url: `http://127.0.0.1:18450/api/local/map/resource-partition?regionId=19&resourceId=${entry.resourceId}&generation=7&token=candidate-secret`,
+    },
+  ]]);
+  let httpCalls = 0;
+  const result = await benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: [entry.resourceId],
+    sseAdapter: events,
+    httpAdapter: { request: async () => { httpCalls += 1; } },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(httpCalls, 0);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("candidate-secret"), false);
+  assert.equal(serialized.includes("18450"), false);
 });
 
 test("Node SSE adapter accepts LF-delimited multiline JSON data", async () => {
