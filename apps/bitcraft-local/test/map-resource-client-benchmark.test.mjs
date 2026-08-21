@@ -63,6 +63,14 @@ function readyEvents(entries, generationFor = () => "7") {
   });
 }
 
+function unavailableEvents(entries) {
+  return entries.map((entry) => ({
+    type: "partition-unavailable",
+    key: entry.key,
+    warning: "Partition unavailable during warm confirmation",
+  }));
+}
+
 function eventAdapter(eventSets) {
   const connections = [];
   return {
@@ -150,10 +158,14 @@ test("runs the production loader across every cold partition and a cache-only ex
     completeSelectionElapsedMs: 30,
     warmReselectElapsedMs: 5,
     decodedBytes: 24,
+    warmPartitionCount: 3,
     coldRequestCount: 3,
     warmRequestCount: 0,
+    coldHttpRequestCount: 3,
+    warmHttpRequestCount: 0,
+    recoveryRequestCount: 0,
     changedGenerationCount: 0,
-    maxActiveLoads: 2,
+    maxActiveHttpLoads: 2,
     configuredMaxConcurrentLoads: 2,
     unexpectedHttpCount: 0,
   });
@@ -187,8 +199,148 @@ test("fetches exactly one partition when warm confirmation reports one changed g
   assert.equal(result.ok, true, result.failures.join("; "));
   assert.equal(result.metrics.coldRequestCount, 2);
   assert.equal(result.metrics.warmRequestCount, 1);
+  assert.equal(result.metrics.coldHttpRequestCount, 2);
+  assert.equal(result.metrics.warmHttpRequestCount, 1);
   assert.equal(result.metrics.changedGenerationCount, 1);
   assert.equal(requests.filter((url) => new URL(url).searchParams.get("generation") === "8").length, 1);
+});
+
+test("requires an explicit matching ready event instead of treating warm unavailable state as confirmation", async () => {
+  const scheduler = manualScheduler();
+  const entry = scope[0];
+  const events = eventAdapter([readyEvents([entry]), unavailableEvents([entry])]);
+  const running = benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: [entry.resourceId],
+    sseAdapter: events,
+    httpAdapter: { request: async () => response(encoded(entry, "7")) },
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  });
+  await drain();
+  scheduler.fireAll();
+  const result = await running;
+
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join(" "), /confirm the warm selection/i);
+  assert.equal(result.metrics.warmRequestCount, 0);
+});
+
+test("benchmarks all cold partitions and cache-only reselects a deterministic retained subset", async () => {
+  const entries = Array.from({ length: 9 }, (_, index) => ({
+    key: `19|resource:${index + 1}`,
+    regionId: "19",
+    resourceId: String(index + 1),
+  }));
+  const retained = entries.slice(-8);
+  const scheduler = manualScheduler();
+  const events = eventAdapter([readyEvents(entries), readyEvents(retained)]);
+  const requests = [];
+  const running = benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: entries.map((entry) => entry.resourceId),
+    sseAdapter: events,
+    httpAdapter: {
+      async request(url) {
+        requests.push(url);
+        const parsed = new URL(url);
+        const entry = entries.find((candidate) => candidate.resourceId === parsed.searchParams.get("resourceId"));
+        return response(encoded(entry, parsed.searchParams.get("generation")));
+      },
+    },
+    setTimeout: scheduler.setTimeout,
+    clearTimeout: scheduler.clearTimeout,
+  });
+  await drain(100);
+  scheduler.fireAll();
+  const result = await running;
+
+  assert.equal(result.ok, true, result.failures.join("; "));
+  assert.equal(result.metrics.expectedPartitionCount, 9);
+  assert.equal(result.metrics.committedPartitionCount, 9);
+  assert.equal(result.metrics.warmPartitionCount, 8);
+  assert.equal(result.metrics.coldRequestCount, 9);
+  assert.equal(result.metrics.warmRequestCount, 0);
+  assert.equal(requests.length, 9);
+  assert.deepEqual(new URL(events.connections[1].url).searchParams.get("resourceIds").split(","), retained.map((entry) => entry.resourceId));
+});
+
+test("counts a Response-style 409 recovery as two HTTP attempts in one logical cold partition load", async () => {
+  const entry = scope[0];
+  const events = eventAdapter([
+    readyEvents([entry], () => "7"),
+    readyEvents([entry], () => "8"),
+  ]);
+  let attempts = 0;
+  const result = await benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: [entry.resourceId],
+    sseAdapter: events,
+    httpAdapter: {
+      async request() {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            status: 409,
+            async json() {
+              return {
+                currentGeneration: "8",
+                url: `/api/local/map/resource-partition?regionId=19&resourceId=${entry.resourceId}&generation=8`,
+              };
+            },
+          };
+        }
+        return response(encoded(entry, "8", 10));
+      },
+    },
+  });
+
+  assert.equal(result.ok, true, result.failures.join("; "));
+  assert.equal(result.metrics.coldRequestCount, 1);
+  assert.equal(result.metrics.coldHttpRequestCount, 2);
+  assert.equal(result.metrics.warmRequestCount, 0);
+  assert.equal(result.metrics.warmHttpRequestCount, 0);
+  assert.equal(result.metrics.recoveryRequestCount, 1);
+});
+
+test("consumes simultaneous warm hydration and confirmation rejection without an unhandled promise", async () => {
+  const entry = scope[0];
+  let connectionCount = 0;
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const result = await benchmarkModule.runMapResourceClientBenchmark({
+      baseUrl: "http://127.0.0.1:18449",
+      regionIds: ["19"],
+      resourceIds: [entry.resourceId],
+      httpAdapter: { request: async () => response(encoded(entry, "7")) },
+      sseAdapter: {
+        connect(_url, onEvent, onError) {
+          connectionCount += 1;
+          queueMicrotask(() => {
+            if (connectionCount === 1) {
+              for (const event of readyEvents([entry])) {
+                onEvent({ ...event, freshness: "stale", warning: "Cold stale fixture is not cacheable" });
+              }
+            } else {
+              onError(new Error("warm stream closed"));
+            }
+          });
+          return { close() {} };
+        },
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(result.ok, false);
+    assert.match(result.failures.join(" "), /event stream failed/i);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
 });
 
 test("fails deterministically for missing partitions, malformed binary, and unexpected HTTP", async (t) => {
@@ -243,10 +395,14 @@ test("functional evaluation rejects incomplete, over-concurrent, and broken requ
     completeSelectionElapsedMs: 2,
     warmReselectElapsedMs: 0,
     decodedBytes: 8,
+    warmPartitionCount: 2,
     coldRequestCount: 2,
     warmRequestCount: 2,
+    coldHttpRequestCount: 2,
+    warmHttpRequestCount: 2,
+    recoveryRequestCount: 0,
     changedGenerationCount: 1,
-    maxActiveLoads: 3,
+    maxActiveHttpLoads: 3,
     configuredMaxConcurrentLoads: 2,
     unexpectedHttpCount: 0,
   });
@@ -254,7 +410,7 @@ test("functional evaluation rejects incomplete, over-concurrent, and broken requ
   assert.match(result.failures.join(" "), /committed 2 of 3/i);
   assert.match(result.failures.join(" "), /cold request count/i);
   assert.match(result.failures.join(" "), /warm request count/i);
-  assert.match(result.failures.join(" "), /active loads 3 exceeds 2/i);
+  assert.match(result.failures.join(" "), /active HTTP loads 3 exceeds 2/i);
 });
 
 test("sanitizes adapter failures and never emits authentication or cookie values", async () => {
@@ -307,4 +463,82 @@ test("Node SSE adapter parses fragmented CRLF events and sends no credential hea
   });
   await received;
   assert.deepEqual(events, [{ type: "partition-loading", key: "19|resource:28" }]);
+});
+
+test("rejects embedded credentials in a same-origin partition URL before invoking HTTP", async () => {
+  const entry = scope[0];
+  const [event] = readyEvents([entry]);
+  const events = eventAdapter([[
+    {
+      ...event,
+      url: `http://bench-user:bench-password@127.0.0.1:18449/api/local/map/resource-partition?regionId=19&resourceId=${entry.resourceId}&generation=7`,
+    },
+  ]]);
+  let httpCalls = 0;
+  const result = await benchmarkModule.runMapResourceClientBenchmark({
+    baseUrl: "http://127.0.0.1:18449",
+    regionIds: ["19"],
+    resourceIds: [entry.resourceId],
+    sseAdapter: events,
+    httpAdapter: {
+      async request() {
+        httpCalls += 1;
+        return response(encoded(entry, "7"));
+      },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(httpCalls, 0);
+  assert.equal(JSON.stringify(result).includes("bench-password"), false);
+});
+
+test("Node SSE adapter accepts LF-delimited multiline JSON data", async () => {
+  const encoder = new TextEncoder();
+  const received = await new Promise((resolve, reject) => {
+    const adapter = benchmarkModule.createNodeStreamingSseAdapter({
+      fetchImpl: async () => ({
+        status: 200,
+        body: (async function* () {
+          yield encoder.encode("data: {\n");
+          yield encoder.encode("data: \"type\":\"partition-loading\",\"key\":\"19|resource:28\"}\n\n");
+        })(),
+      }),
+    });
+    const connection = adapter.connect("http://127.0.0.1:18449/events", (event) => {
+      connection.close();
+      resolve(event);
+    }, reject);
+  });
+
+  assert.deepEqual(received, { type: "partition-loading", key: "19|resource:28" });
+});
+
+test("Node SSE adapter aborts a malformed stream and reports one sanitized failure", async () => {
+  const encoder = new TextEncoder();
+  let requestSignal = null;
+  let errorCount = 0;
+  await new Promise((resolve) => {
+    const adapter = benchmarkModule.createNodeStreamingSseAdapter({
+      fetchImpl: async (_url, options) => {
+        requestSignal = options.signal;
+        return {
+          status: 200,
+          body: (async function* () {
+            yield encoder.encode("data: not-json\n\n");
+          })(),
+        };
+      },
+    });
+    adapter.connect("http://127.0.0.1:18449/events", () => {
+      assert.fail("malformed SSE must not publish an event");
+    }, () => {
+      errorCount += 1;
+      resolve();
+    });
+  });
+  await drain();
+
+  assert.equal(errorCount, 1);
+  assert.equal(requestSignal.aborted, true);
 });

@@ -6,6 +6,7 @@ import { resourcePartitionPlan } from "../src/pages/map/mapResourcePartitionStat
 import { createMapResourceBinaryLoader } from "../src/pages/map/mapResourceBinaryLoader.mjs";
 
 const HARD_MAX_CONCURRENT_LOADS = 4;
+const WARM_CACHE_PARTITION_LIMIT = 8;
 const MAX_PARTITIONS = 256;
 const DEFAULT_SELECTION_DEADLINE_MS = 15_000;
 const BINARY_ACCEPT = "application/vnd.timbersteel.map-resource-partition+octet-stream; version=1";
@@ -49,6 +50,7 @@ function normalizeLocalBaseUrl(value) {
 
 function sameOriginUrl(baseUrl, candidate) {
   const resolved = new URL(String(candidate), `${baseUrl}/`);
+  if (resolved.username || resolved.password) throw new BenchmarkFailure("Resource benchmark rejected a credential-bearing URL");
   if (resolved.origin !== baseUrl) throw new BenchmarkFailure("Resource benchmark rejected a cross-origin URL");
   return resolved.toString();
 }
@@ -66,9 +68,26 @@ function completeScope(state, scope) {
   return state.size === scope.length && scope.every((entry) => isCommitted(state.get(entry.key)));
 }
 
-function confirmedScope(state, scope) {
+function confirmedScope(state, scope, readyGenerations) {
   return completeScope(state, scope)
-    && scope.every((entry) => state.get(entry.key).freshness !== "awaiting-confirmation");
+    && scope.every((entry) => readyGenerations.get(entry.key) === state.get(entry.key).generation);
+}
+
+function warmBenchmarkSelection(regions, resources) {
+  if (regions.length >= WARM_CACHE_PARTITION_LIMIT) {
+    return {
+      regions: regions.slice(-WARM_CACHE_PARTITION_LIMIT),
+      resources: resources.slice(-1),
+    };
+  }
+  const retainedResourceCount = Math.min(
+    resources.length,
+    Math.max(1, Math.floor(WARM_CACHE_PARTITION_LIMIT / regions.length)),
+  );
+  return {
+    regions,
+    resources: resources.slice(-retainedResourceCount),
+  };
 }
 
 function finiteThreshold(value) {
@@ -80,15 +99,22 @@ export function evaluateMapResourceClientBenchmark(metrics, thresholds = {}) {
   const failures = [];
   const expected = Number(metrics?.expectedPartitionCount ?? 0);
   const committed = Number(metrics?.committedPartitionCount ?? 0);
+  const warmPartitions = Number(metrics?.warmPartitionCount ?? 0);
   const coldRequests = Number(metrics?.coldRequestCount ?? 0);
   const warmRequests = Number(metrics?.warmRequestCount ?? 0);
+  const coldHttpRequests = Number(metrics?.coldHttpRequestCount ?? 0);
+  const warmHttpRequests = Number(metrics?.warmHttpRequestCount ?? 0);
+  const recoveries = Number(metrics?.recoveryRequestCount ?? 0);
   const changedGenerations = Number(metrics?.changedGenerationCount ?? 0);
-  const maxActiveLoads = Number(metrics?.maxActiveLoads ?? 0);
+  const maxActiveHttpLoads = Number(metrics?.maxActiveHttpLoads ?? 0);
   const configuredLimit = Number(metrics?.configuredMaxConcurrentLoads ?? HARD_MAX_CONCURRENT_LOADS);
   const unexpectedHttp = Number(metrics?.unexpectedHttpCount ?? 0);
 
   if (!Number.isSafeInteger(expected) || expected < 1) failures.push("No requested resource partitions were measured");
   if (committed !== expected) failures.push(`Committed ${committed} of ${expected} requested resource partitions`);
+  if (!Number.isSafeInteger(warmPartitions) || warmPartitions < 1 || warmPartitions > Math.min(expected, WARM_CACHE_PARTITION_LIMIT)) {
+    failures.push(`Warm partition count ${warmPartitions} is outside the retained cache scope`);
+  }
   if (!Number.isFinite(metrics?.firstPartitionElapsedMs)) failures.push("No first-partition elapsed metric was recorded");
   if (!Number.isFinite(metrics?.completeSelectionElapsedMs)) failures.push("No complete-selection elapsed metric was recorded");
   if (!Number.isFinite(metrics?.warmReselectElapsedMs)) failures.push("No warm-reselect elapsed metric was recorded");
@@ -97,8 +123,11 @@ export function evaluateMapResourceClientBenchmark(metrics, thresholds = {}) {
   if (warmRequests !== changedGenerations) {
     failures.push(`Warm request count ${warmRequests} does not match ${changedGenerations} changed generations`);
   }
+  if (coldHttpRequests + warmHttpRequests !== coldRequests + warmRequests + recoveries) {
+    failures.push("HTTP request counts do not match logical partition loads plus recovery attempts");
+  }
   const activeLimit = Math.min(HARD_MAX_CONCURRENT_LOADS, configuredLimit);
-  if (maxActiveLoads > activeLimit) failures.push(`Maximum active loads ${maxActiveLoads} exceeds ${activeLimit}`);
+  if (maxActiveHttpLoads > activeLimit) failures.push(`Maximum active HTTP loads ${maxActiveHttpLoads} exceeds ${activeLimit}`);
   if (unexpectedHttp > 0) failures.push(`Unexpected HTTP response count ${unexpectedHttp}`);
 
   for (const [metric, threshold, label] of [
@@ -219,6 +248,8 @@ export async function runMapResourceClientBenchmark({
   if (!regions.length || !resources.length) throw new TypeError("Benchmark regions and resources are required");
   const scope = resourcePartitionPlan(regions, resources);
   if (scope.length > MAX_PARTITIONS) throw new RangeError("Benchmark selection exceeds 256 resource partitions");
+  const warmSelection = warmBenchmarkSelection(regions, resources);
+  const warmScope = resourcePartitionPlan(warmSelection.regions, warmSelection.resources);
   if (typeof httpAdapter?.request !== "function" || typeof sseAdapter?.connect !== "function") {
     throw new TypeError("Benchmark HTTP and SSE adapters are required");
   }
@@ -229,6 +260,11 @@ export async function runMapResourceClientBenchmark({
   const deadlineMs = positiveInteger(selectionDeadlineMs, DEFAULT_SELECTION_DEADLINE_MS);
   const eventQuery = new URLSearchParams({ regions: regions.join(","), resourceIds: resources.join(",") });
   const eventUrl = `/api/local/map/resource-events?${eventQuery}`;
+  const warmEventQuery = new URLSearchParams({
+    regions: warmSelection.regions.join(","),
+    resourceIds: warmSelection.resources.join(","),
+  });
+  const warmEventUrl = `/api/local/map/resource-events?${warmEventQuery}`;
   const metrics = {
     expectedPartitionCount: scope.length,
     committedPartitionCount: 0,
@@ -236,18 +272,24 @@ export async function runMapResourceClientBenchmark({
     completeSelectionElapsedMs: null,
     warmReselectElapsedMs: null,
     decodedBytes: 0,
+    warmPartitionCount: warmScope.length,
     coldRequestCount: 0,
     warmRequestCount: 0,
+    coldHttpRequestCount: 0,
+    warmHttpRequestCount: 0,
+    recoveryRequestCount: 0,
     changedGenerationCount: 0,
-    maxActiveLoads: 0,
+    maxActiveHttpLoads: 0,
     configuredMaxConcurrentLoads,
     unexpectedHttpCount: 0,
   };
   const runtimeFailures = [];
   let currentState = new Map();
   let phase = null;
-  let totalRequests = 0;
-  let activeLoads = 0;
+  let coldGenerations = null;
+  let activeHttpLoads = 0;
+  const requestedKeys = { cold: new Set(), warm: new Set() };
+  const warmReadyGenerations = new Map();
   const waiters = new Set();
 
   const rejectWaiters = (message) => {
@@ -255,15 +297,18 @@ export async function runMapResourceClientBenchmark({
   };
   const observe = (state) => {
     currentState = state;
-    const committed = scope.filter((entry) => isCommitted(state.get(entry.key)));
-    if (state.size === scope.length) metrics.committedPartitionCount = Math.max(metrics.committedPartitionCount, committed.length);
+    const observedScope = phase?.name === "warm" ? warmScope : scope;
+    const committed = observedScope.filter((entry) => isCommitted(state.get(entry.key)));
+    if (phase?.name === "cold" && state.size === scope.length) {
+      metrics.committedPartitionCount = Math.max(metrics.committedPartitionCount, committed.length);
+    }
     if (phase?.name === "cold" && committed.length > 0 && metrics.firstPartitionElapsedMs == null) {
       metrics.firstPartitionElapsedMs = now() - phase.startedAt;
     }
     if (phase?.name === "cold" && committed.length === scope.length && metrics.completeSelectionElapsedMs == null) {
       metrics.completeSelectionElapsedMs = now() - phase.startedAt;
     }
-    if (phase?.name === "warm" && committed.length === scope.length && metrics.warmReselectElapsedMs == null) {
+    if (phase?.name === "warm" && committed.length === warmScope.length && metrics.warmReselectElapsedMs == null) {
       metrics.warmReselectElapsedMs = now() - phase.startedAt;
     }
     for (const waiter of [...waiters]) {
@@ -295,18 +340,27 @@ export async function runMapResourceClientBenchmark({
   };
 
   const fetchBinary = async (candidate, signal) => {
-    totalRequests += 1;
-    activeLoads += 1;
-    metrics.maxActiveLoads = Math.max(metrics.maxActiveLoads, activeLoads);
+    const requestPhase = phase?.name === "warm" ? "warm" : "cold";
+    const resolvedUrl = sameOriginUrl(root, candidate);
+    const parsedUrl = new URL(resolvedUrl);
+    const requestedRegion = parsedUrl.searchParams.get("regionId");
+    const requestedResource = parsedUrl.searchParams.get("resourceId");
+    if (/^\d+$/.test(requestedRegion ?? "") && /^\d+$/.test(requestedResource ?? "")) {
+      requestedKeys[requestPhase].add(`${BigInt(requestedRegion).toString()}|resource:${BigInt(requestedResource).toString()}`);
+    }
+    metrics[requestPhase === "warm" ? "warmHttpRequestCount" : "coldHttpRequestCount"] += 1;
+    activeHttpLoads += 1;
+    metrics.maxActiveHttpLoads = Math.max(metrics.maxActiveHttpLoads, activeHttpLoads);
     try {
       let response;
       try {
-        response = await httpAdapter.request(sameOriginUrl(root, candidate), { signal });
+        response = await httpAdapter.request(resolvedUrl, { signal });
       } catch {
         throw new BenchmarkFailure("Binary resource partition request failed");
       }
       const status = Number(response?.status);
       if (status === 409) {
+        metrics.recoveryRequestCount += 1;
         let recovery;
         try {
           recovery = typeof response.json === "function" ? await response.json() : response.json;
@@ -325,16 +379,24 @@ export async function runMapResourceClientBenchmark({
         throw new BenchmarkFailure("Binary resource partition body could not be read");
       }
     } finally {
-      activeLoads -= 1;
+      activeHttpLoads -= 1;
     }
   };
 
   const loader = createMapResourceBinaryLoader({
     fetchBinary,
     connectEvents(url, onEvent, onError) {
-      return sseAdapter.connect(sameOriginUrl(root, url), onEvent, () => {
-        onError?.();
+      return sseAdapter.connect(sameOriginUrl(root, url), (event) => {
+        if (phase?.name === "warm" && event?.type === "partition-ready") {
+          const key = String(event.key ?? "");
+          if (warmScope.some((entry) => entry.key === key)) {
+            warmReadyGenerations.set(key, String(event.generation ?? ""));
+          }
+        }
+        onEvent(event);
+      }, () => {
         rejectWaiters("Resource event stream failed");
+        onError?.();
       });
     },
     onChange: observe,
@@ -349,31 +411,37 @@ export async function runMapResourceClientBenchmark({
     const coldComplete = waitFor((state) => completeScope(state, scope), "Benchmark did not complete the requested selection");
     loader.setScope(scope, eventUrl);
     await coldComplete;
-    const coldGenerations = new Map(scope.map((entry) => [entry.key, currentState.get(entry.key).generation]));
-    metrics.coldRequestCount = totalRequests;
+    coldGenerations = new Map(scope.map((entry) => [entry.key, currentState.get(entry.key).generation]));
     metrics.decodedBytes = scope.reduce((total, entry) => total + currentState.get(entry.key).committed.byteLength, 0);
 
     loader.setScope([], eventUrl);
     phase = { name: "warm", startedAt: now() };
-    const warmHydrated = waitFor((state) => completeScope(state, scope), "Benchmark did not hydrate the warm selection");
-    const warmConfirmed = waitFor((state) => confirmedScope(state, scope), "Benchmark did not confirm the warm selection");
-    loader.setScope(scope, eventUrl);
-    await warmHydrated;
-    await warmConfirmed;
-    metrics.warmRequestCount = totalRequests - metrics.coldRequestCount;
-    metrics.changedGenerationCount = scope.reduce(
+    const warmHydrated = waitFor((state) => completeScope(state, warmScope), "Benchmark did not hydrate the warm selection");
+    const warmConfirmed = waitFor(
+      (state) => confirmedScope(state, warmScope, warmReadyGenerations),
+      "Benchmark did not confirm the warm selection",
+    );
+    loader.setScope(warmScope, warmEventUrl);
+    await Promise.all([warmHydrated, warmConfirmed]);
+    metrics.changedGenerationCount = warmScope.reduce(
       (count, entry) => count + Number(currentState.get(entry.key).generation !== coldGenerations.get(entry.key)),
       0,
     );
-    metrics.committedPartitionCount = scope.filter((entry) => isCommitted(currentState.get(entry.key))).length;
   } catch (error) {
     runtimeFailures.push(error instanceof BenchmarkFailure ? error.message : "Resource client benchmark failed");
-    metrics.coldRequestCount = Math.min(metrics.coldRequestCount || totalRequests, totalRequests);
-    metrics.warmRequestCount = Math.max(0, totalRequests - metrics.coldRequestCount);
   } finally {
     phase = null;
     loader.stop();
     rejectWaiters("Resource client benchmark stopped");
+  }
+
+  metrics.coldRequestCount = requestedKeys.cold.size;
+  metrics.warmRequestCount = requestedKeys.warm.size;
+  if (coldGenerations && metrics.changedGenerationCount === 0 && currentState.size === warmScope.length) {
+    metrics.changedGenerationCount = warmScope.reduce(
+      (count, entry) => count + Number(currentState.get(entry.key)?.generation !== coldGenerations.get(entry.key)),
+      0,
+    );
   }
 
   const evaluated = evaluateMapResourceClientBenchmark(metrics, thresholds);
