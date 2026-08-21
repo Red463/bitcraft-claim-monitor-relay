@@ -9,6 +9,23 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.59.0-beta.1] - 2026-08-21
+
+### Added
+
+- Added immediate locating and highlighting for newly selected map resources as soon as the first matching position is available.
+
+### Changed
+
+- Improved map resource loading and warm reselection by prioritizing useful results, bounding background work, and reusing recently decoded resource data.
+- Improved map responsiveness by batching resource drawing and keeping claim, watchtower, focus, and player markers stable during resource updates.
+- Replaced the verified-character halo with a compact diamond marker.
+
+### Fixed
+
+- Fixed stale saved region selections unexpectedly broadening to every ready region.
+- Fixed cancelled, superseded, closed, or restarted resource streams applying obsolete results.
+
 ## [0.58.0-beta.4] - 2026-08-21
 
 ### Changed
