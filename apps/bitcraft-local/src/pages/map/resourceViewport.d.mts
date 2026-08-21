@@ -1,23 +1,25 @@
-export type ResourceViewportDecision = "wait" | "preserve" | "frame";
+import type { BrowserResourcePartition } from "./mapResourceBinaryState.mjs";
 
-export function resourceViewportDecision<T>(input: {
-  selectionKey: string;
-  snapshotSelectionKey: string;
-  consumedSelectionKey: string;
-  loading?: boolean;
-  points: readonly T[];
-  isVisible: (point: T, index: number, points: readonly T[]) => boolean;
-}): ResourceViewportDecision;
+export type ResourceLocateActivation = Readonly<{ id: number; resourceId: string }>;
+export type ResourceLocatePoint = Readonly<{ key: string; regionId: string; resourceId: string; x: number; z: number }>;
 
-export function applyResourceViewport<T>(input: {
-  selectionKey: string;
-  snapshotSelectionKey: string;
-  consumedSelectionKey: string;
-  loading?: boolean;
-  points: readonly T[];
-  isVisible: (point: T, index: number, points: readonly T[]) => boolean;
-  frame: (points: readonly T[]) => void;
-}): string;
+export function newlyAddedResourceIds(previousResourceIds?: readonly unknown[], nextResourceIds?: readonly unknown[]): string[];
+export function resourceLocatePoint(input: {
+  resourceId: string;
+  partitions: ReadonlyMap<string, BrowserResourcePartition>;
+  preferredRegionId?: string;
+  centre?: { x: number; z: number };
+}): ResourceLocatePoint | null;
+export function applyResourceLocate(input: {
+  activation: ResourceLocateActivation | null;
+  consumedActivationId: number | null;
+  partitions: ReadonlyMap<string, BrowserResourcePartition>;
+  preferredRegionId?: string;
+  centre?: { x: number; z: number };
+  isVisible: (point: ResourceLocatePoint) => boolean;
+  highlight: (point: ResourceLocatePoint) => void;
+  locate: (point: ResourceLocatePoint) => void;
+}): number | null;
 
 export function resourceLayerStatus(input: {
   selectionKey: string;

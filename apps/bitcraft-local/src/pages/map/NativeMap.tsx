@@ -17,10 +17,10 @@ import { mapFeatureInRegionScope, mapFeaturesInRegionScope } from "./mapRegionVi
 import { nativeMapRequest } from "./nativeMapRequest.mjs";
 import { isCurrentUserPlayerMarker } from "../../map/playerMarkerIdentity.mjs";
 import { resolvePlayerMarkerColours } from "../../map/playerMarkerColours.mjs";
-import { resourceLayerStatus } from "./resourceViewport.mjs";
+import { applyResourceLocate, resourceLayerStatus, type ResourceLocateActivation, type ResourceLocatePoint } from "./resourceViewport.mjs";
 import { createMapResourceBinaryLoader } from "./mapResourceBinaryLoader.mjs";
 import type { BrowserResourcePartition } from "./mapResourceBinaryState.mjs";
-import { packedResourceBounds, packedResourcePointCount, packedResourceSamples, packedResourceSome } from "./packedResourceCanvasPlan.mjs";
+import { packedResourcePointCount, packedResourceSamples } from "./packedResourceCanvasPlan.mjs";
 import { createMapSnapshotLoader, mapEventNeedsSnapshot } from "./mapSnapshotLoader.mjs";
 import { replaceMapSnapshot } from "./mapSnapshotState.mjs";
 import {
@@ -75,6 +75,12 @@ export type NativeMapToolContent = {
   content: React.ReactNode;
   primaryFocusSelector?: string;
 };
+
+export type NativeMapResourceLocateRequest = ResourceLocateActivation & Readonly<{ startedAt: number }>;
+
+const RESOURCE_LOCATE_START_MARK = "native-map-resource-locate-start";
+const RESOURCE_LOCATE_VISIBLE_MARK = "native-map-resource-locate-visible";
+const RESOURCE_LOCATE_MEASURE = "native-map-resource-click-to-visible";
 
 const MAP_PROJECTION: L.Projection = {
   project(latlng) {
@@ -259,6 +265,8 @@ export function NativeMap({
   visibleRegionIds = [],
   playerRegionIds,
   resourceRegionIds,
+  preferredResourceRegionId,
+  resourceLocateRequest,
   playerIds,
   playerColourOverrides,
   verifiedCharacterPlayerId,
@@ -274,6 +282,8 @@ export function NativeMap({
   visibleRegionIds?: string[];
   playerRegionIds: string[];
   resourceRegionIds: string[];
+  preferredResourceRegionId: string;
+  resourceLocateRequest: NativeMapResourceLocateRequest | null;
   playerIds: string[];
   playerColourOverrides: Readonly<Record<string, string>>;
   verifiedCharacterPlayerId?: string | null;
@@ -289,6 +299,9 @@ export function NativeMap({
   const mapRef = React.useRef<L.Map | null>(null);
   const markerGroupsRef = React.useRef<Record<string, L.LayerGroup> | null>(null);
   const focusGroupRef = React.useRef<L.LayerGroup | null>(null);
+  const resourceLocateGroupRef = React.useRef<L.LayerGroup | null>(null);
+  const resourceLocateTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consumedResourceLocateRef = React.useRef<number | null>(null);
   const ordinaryRendererRef = React.useRef<L.Canvas | null>(null);
   const resourcesRef = React.useRef<PackedResourceCanvasLayer | null>(null);
   const enemiesRef = React.useRef<DensePointLayer | null>(null);
@@ -298,7 +311,6 @@ export function NativeMap({
   const biomeMaskTilesRef = React.useRef<L.TileLayer | null>(null);
   const roadTilesRef = React.useRef<L.TileLayer | null>(null);
   const resourceLoaderRef = React.useRef<ReturnType<typeof createMapResourceBinaryLoader> | null>(null);
-  const resourceFrameSelectionRef = React.useRef("");
   const [snapshot, setSnapshot] = React.useState<MapSnapshot | null>(null);
   const [resourcePartitions, setResourcePartitions] = React.useState<ReadonlyMap<string, BrowserResourcePartition>>(() => new Map());
   const [resourceStreamError, setResourceStreamError] = React.useState("");
@@ -317,7 +329,16 @@ export function NativeMap({
   const [layerVisibility, setLayerVisibility] = React.useState(() => typeof window === "undefined"
     ? defaultMapLayerVisibility()
     : loadMapLayerVisibility(() => window.localStorage));
-  const request = React.useMemo(() => nativeMapRequest({ operationalRegionIds: regionIds, playerRegionIds, resourceRegionIds, playerIds, resourceIds, enemyTypes }), [regionIds.join(","), playerRegionIds.join(","), resourceRegionIds.join(","), playerIds.join(","), resourceIds.join(","), enemyTypes.join(",")]);
+  const request = React.useMemo(() => nativeMapRequest({
+    operationalRegionIds: regionIds,
+    playerRegionIds,
+    resourceRegionIds,
+    playerIds,
+    resourceIds,
+    enemyTypes,
+    priorityResourceId: resourceLocateRequest?.resourceId,
+    priorityRegionId: preferredResourceRegionId,
+  }), [regionIds.join(","), playerRegionIds.join(","), resourceRegionIds.join(","), playerIds.join(","), resourceIds.join(","), enemyTypes.join(","), resourceLocateRequest?.id, preferredResourceRegionId]);
   const snapshotRequestKeyRef = React.useRef(request.eventsUrl);
   snapshotRequestKeyRef.current = request.eventsUrl;
   const resourceSelectionKey = React.useMemo(() => request.resourcePartitions.map((partition) => partition.key).join(","), [request.resourcePartitions]);
@@ -360,6 +381,9 @@ export function NativeMap({
     biomeMaskPane.style.pointerEvents = "none";
     const resourcePane = map.createPane("native-map-resources");
     resourcePane.style.pointerEvents = "none";
+    const resourceLocatePane = map.createPane("native-map-resource-locate");
+    resourceLocatePane.style.zIndex = "575";
+    resourceLocatePane.style.pointerEvents = "none";
     const playerPane = map.createPane("native-map-players");
     applyNativeMapPaneOrder({
       resources: resourcePane,
@@ -397,6 +421,7 @@ export function NativeMap({
     markerGroupsRef.current = markerGroups;
     focusGroupRef.current = L.layerGroup().addTo(map);
     resourcesRef.current = new PackedResourceCanvasLayer().addTo(map);
+    resourceLocateGroupRef.current = L.layerGroup().addTo(map);
     enemiesRef.current = new DensePointLayer("rgba(255, 112, 112, 0.92)").addTo(map);
     mapRef.current = map;
     return () => {
@@ -405,6 +430,9 @@ export function NativeMap({
       mapRef.current = null;
       markerGroupsRef.current = null;
       focusGroupRef.current = null;
+      resourceLocateGroupRef.current = null;
+      if (resourceLocateTimerRef.current) clearTimeout(resourceLocateTimerRef.current);
+      resourceLocateTimerRef.current = null;
       ordinaryRendererRef.current = null;
       resourcesRef.current = null;
       enemiesRef.current = null;
@@ -663,6 +691,62 @@ export function NativeMap({
   }, [resourceSelectionKey, request.resourceEventUrl]);
 
   React.useEffect(() => {
+    if (!resourceLocateRequest || typeof performance === "undefined") return;
+    performance.clearMarks(RESOURCE_LOCATE_START_MARK);
+    performance.mark(RESOURCE_LOCATE_START_MARK, { startTime: resourceLocateRequest.startedAt });
+  }, [resourceLocateRequest?.id]);
+
+  React.useEffect(() => {
+    resourcesRef.current?.setResources(resourcePartitions, visibleRegionIds, resourceColours);
+    const map = mapRef.current;
+    if (!map || !resourceLocateRequest) return;
+    const centre = map.getCenter();
+    const previousConsumed = consumedResourceLocateRef.current;
+    const consumed = applyResourceLocate({
+      activation: resourceLocateRequest,
+      consumedActivationId: previousConsumed,
+      partitions: resourcePartitions,
+      preferredRegionId: preferredResourceRegionId,
+      centre: { x: centre.lng, z: centre.lat },
+      isVisible: (target: ResourceLocatePoint) => map.getBounds().contains(L.latLng(target.z, target.x)),
+      highlight: (target: ResourceLocatePoint) => {
+        const group = resourceLocateGroupRef.current;
+        if (!group) return;
+        group.clearLayers();
+        L.circleMarker(L.latLng(target.z, target.x), {
+          radius: 9,
+          color: "#fff4a3",
+          weight: 3,
+          fillColor: resourceColours[target.resourceId] ?? "#ffffff",
+          fillOpacity: 0.35,
+          interactive: false,
+          pane: "native-map-resource-locate",
+        }).addTo(group);
+        if (resourceLocateTimerRef.current) clearTimeout(resourceLocateTimerRef.current);
+        resourceLocateTimerRef.current = setTimeout(() => {
+          group.clearLayers();
+          resourceLocateTimerRef.current = null;
+        }, 1_600);
+      },
+      locate: (target: ResourceLocatePoint) => {
+        map.flyTo(L.latLng(target.z, target.x), Math.max(map.getZoom(), 1));
+      },
+    });
+    consumedResourceLocateRef.current = consumed;
+    if (consumed === previousConsumed || consumed !== resourceLocateRequest.id || typeof performance === "undefined") return;
+    requestAnimationFrame(() => {
+      try {
+        performance.clearMarks(RESOURCE_LOCATE_VISIBLE_MARK);
+        performance.mark(RESOURCE_LOCATE_VISIBLE_MARK);
+        performance.clearMeasures(RESOURCE_LOCATE_MEASURE);
+        performance.measure(RESOURCE_LOCATE_MEASURE, RESOURCE_LOCATE_START_MARK, RESOURCE_LOCATE_VISIBLE_MARK);
+      } catch {
+        // Performance measurement must never interrupt locating.
+      }
+    });
+  }, [resourcePartitions, visibleRegionIds.join(","), resourceColours, resourceLocateRequest?.id, preferredResourceRegionId]);
+
+  React.useEffect(() => {
     const markerGroups = markerGroupsRef.current;
     const focusGroup = focusGroupRef.current;
     if (!markerGroups || !focusGroup || !ordinaryRendererRef.current) return;
@@ -674,22 +758,6 @@ export function NativeMap({
       const focusMarker = L.marker(leafletPoint({ x: focus.locationX, z: focus.locationZ }), { icon: markerIcon("focus", focusPresentation), keyboard: true });
       focusMarker.bindTooltip(`${focus.name} · N ${readable.north}, E ${readable.east}`, { permanent: true, direction: "top" });
       focusMarker.addTo(focusGroup);
-    }
-    resourcesRef.current?.setResources(resourcePartitions, visibleRegionIds, resourceColours);
-    const map = mapRef.current;
-    if (!resourceSelectionKey) resourceFrameSelectionRef.current = "";
-    else if (map && !resourceLayerLoading && resourceFrameSelectionRef.current !== resourceSelectionKey) {
-      const hasVisiblePoint = packedResourceSome(resourcePartitions, visibleRegionIds, ({ x, z }) => map.getBounds().contains(L.latLng(z, x)));
-      if (!hasVisiblePoint) {
-        const bounds = packedResourceBounds(resourcePartitions, visibleRegionIds);
-        if (bounds) {
-          map.fitBounds(L.latLngBounds([bounds.minZ, bounds.minX], [bounds.maxZ, bounds.maxX]), {
-            padding: [32, 32],
-            maxZoom: 1,
-          });
-        }
-      }
-      resourceFrameSelectionRef.current = resourceSelectionKey;
     }
     if (!snapshot) return;
     const playerColours = resolvePlayerMarkerColours((snapshot.layers.players ?? []).map((feature) => String(feature.playerEntityId ?? feature.entityId)), playerColourOverrides);
@@ -734,7 +802,7 @@ export function NativeMap({
       }
     }
     enemiesRef.current?.setPoints(visibleEnemyPoints);
-  }, [snapshot, resourcePartitions, visibleEnemyPoints, resourceSelectionKey, resourceColours, resourceLayerLoading, playerColourOverrides, verifiedCharacterPlayerId, visibleRegionIds.join(","), focus?.name, focus?.locationX, focus?.locationZ]);
+  }, [snapshot, visibleEnemyPoints, playerColourOverrides, verifiedCharacterPlayerId, visibleRegionIds.join(","), focus?.name, focus?.locationX, focus?.locationZ]);
 
   const debugInformationVisible = layerVisibility.debug === true;
   const accessibleResourceFeatures: MapFeature[] = debugInformationVisible && layerVisibility.resources ? resourceSamples.map((sample) => ({

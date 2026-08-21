@@ -19,6 +19,7 @@ import { MapPlayerTrackingPanel } from "./map/MapPlayerTrackingPanel";
 import { MapRegionSelect } from "./map/MapRegionSelect";
 import { MapResourceFinderPanel } from "./map/MapResourceFinderPanel";
 import { boundedNativeMapRegions, nativeMapResourceRegions, nativeMapResourceSelectionLimit, normalizeNativeMapRegionSelection } from "./map/nativeMapRequest.mjs";
+import { newlyAddedResourceIds } from "./map/resourceViewport.mjs";
 import { selectedResourceColourMap } from "./map/resourceNodeColours.mjs";
 import { RESOURCE_FINDER_BATCH_SIZE, nextResourceLimit, visibleResourceMatches } from "./map/resourceFinderWindow.mjs";
 
@@ -37,6 +38,8 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
   const [selectedIds, setSelectedIds] = usePersistedState<string[] | null>("map.players", null);
   const [externalPlayers, setExternalPlayers] = usePersistedState<MapTrackedExternalPlayer[]>("map.external-players", []);
   const [selectedResources, setSelectedResources] = usePersistedState<string[]>("map.resources", []);
+  const [resourceLocateRequest, setResourceLocateRequest] = React.useState<{ id: number; resourceId: string; startedAt: number } | null>(null);
+  const resourceLocateSequenceRef = React.useRef(0);
   const urlSelectionsApplied = React.useRef(false);
   const [resourceSearch, setResourceSearch] = usePersistedState("map.resource-search", "");
   const [resourceTier, setResourceTier] = usePersistedState("map.resource-tier", "All");
@@ -170,7 +173,16 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
   const mapMarker = focus ?? defaultFocus;
   const mapRegionIds = React.useMemo(() => boundedNativeMapRegions(normalizedRegionSelection, regionOptions), [normalizedRegionSelection.join(","), regionOptions.join(",")]);
   const readyPlayerRegionIds = React.useMemo(() => boundedNativeMapRegions([], readyResourceRegionIds, 16), [readyResourceRegionIds.join(",")]);
-  const resourceMapRegionIds = React.useMemo(() => nativeMapResourceRegions(normalizedRegionSelection, readyResourceRegionIds), [normalizedRegionSelection.join(","), readyResourceRegionIds.join(",")]);
+  const resourceMapRegionIds = React.useMemo(
+    () => nativeMapResourceRegions(resourceRegions, readyResourceRegionIds, String(data.claim.regionId ?? "")),
+    [resourceRegions.join(","), readyResourceRegionIds.join(","), data.claim.regionId],
+  );
+  const preferredResourceRegionId = React.useMemo(() => {
+    if (normalizedRegionSelection.length === 1 && readyResourceRegionIds.includes(normalizedRegionSelection[0])) return normalizedRegionSelection[0];
+    const claimRegionId = String(data.claim.regionId ?? "");
+    if (readyResourceRegionIds.includes(claimRegionId)) return claimRegionId;
+    return resourceMapRegionIds[0] ?? "";
+  }, [normalizedRegionSelection.join(","), readyResourceRegionIds.join(","), resourceMapRegionIds.join(","), data.claim.regionId]);
   const maxNativeResourceSelections = React.useMemo(() => nativeMapResourceSelectionLimit(resourceMapRegionIds), [resourceMapRegionIds.join(",")]);
   const selectedResourceIds = React.useMemo(() => {
     const resourceIds = normalizedSelectedResources.filter((token) => token.startsWith("resource:")).map((token) => token.slice("resource:".length));
@@ -237,6 +249,15 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
   }
   function toggleResource(token: string) {
     const normalizedToken = normalizeMapResourceToken(token);
+    const currentResourceIds = normalizedSelectedResources
+      .filter((value) => value.startsWith("resource:"))
+      .map((value) => value.slice("resource:".length));
+    const candidateResourceId = normalizedToken.startsWith("resource:") ? normalizedToken.slice("resource:".length) : "";
+    const [addedResourceId] = newlyAddedResourceIds(currentResourceIds, [...currentResourceIds, candidateResourceId]);
+    if (addedResourceId && currentResourceIds.length < maxNativeResourceSelections) {
+      resourceLocateSequenceRef.current += 1;
+      setResourceLocateRequest({ id: resourceLocateSequenceRef.current, resourceId: addedResourceId, startedAt: performance.now() });
+    }
     setSelectedResources((prev) => {
       const next = new Set(prev.map(normalizeMapResourceToken).filter(Boolean));
       const selectedResourceCount = [...next].filter((value) => value.startsWith("resource:")).length;
@@ -297,7 +318,24 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
       ) : null}
       <div className="map-workspace native-tools">
         <div className="native-map-host">
-          <NativeMap regionIds={mapRegionIds} visibleRegionIds={normalizedRegionSelection} playerRegionIds={readyPlayerRegionIds} resourceRegionIds={resourceMapRegionIds} playerIds={currentPlayerIds} playerColourOverrides={playerColourOverrides} verifiedCharacterPlayerId={verifiedCharacterPlayerId} resourceIds={selectedResourceIds} resourceColours={selectedResourceColours} enemyTypes={selectedEnemyIds} focus={mapMarker} playerTool={{ label: "Players", count: trackedPlayerCount, content: playerPanel, primaryFocusSelector: "input[placeholder='Find settlement members']" }} resourceTool={{ label: "Resources", count: normalizedSelectedResources.length, content: resourceFinder, primaryFocusSelector: ".map-resource-finder-search input" }} regionControl={regionControl} />
+          <NativeMap
+            regionIds={mapRegionIds}
+            visibleRegionIds={normalizedRegionSelection}
+            playerRegionIds={readyPlayerRegionIds}
+            resourceRegionIds={resourceMapRegionIds}
+            preferredResourceRegionId={preferredResourceRegionId}
+            resourceLocateRequest={resourceLocateRequest}
+            playerIds={currentPlayerIds}
+            playerColourOverrides={playerColourOverrides}
+            verifiedCharacterPlayerId={verifiedCharacterPlayerId}
+            resourceIds={selectedResourceIds}
+            resourceColours={selectedResourceColours}
+            enemyTypes={selectedEnemyIds}
+            focus={mapMarker}
+            playerTool={{ label: "Players", count: trackedPlayerCount, content: playerPanel, primaryFocusSelector: "input[placeholder='Find settlement members']" }}
+            resourceTool={{ label: "Resources", count: normalizedSelectedResources.length, content: resourceFinder, primaryFocusSelector: ".map-resource-finder-search input" }}
+            regionControl={regionControl}
+          />
           {!dedicated ? (
             <a
               className="map-dedicated-tab-link"

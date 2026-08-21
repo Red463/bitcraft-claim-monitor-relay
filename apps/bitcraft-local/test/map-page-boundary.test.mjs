@@ -137,7 +137,7 @@ test("Map page owns the region selector and supplies its selected scope to the n
   assert.match(mapPage, /<MapRegionSelect/);
   assert.match(mapPage, /const normalizedRegionSelection = React\.useMemo/);
   assert.match(mapPage, /boundedNativeMapRegions\(\[\], readyResourceRegionIds, 16\)/);
-  assert.match(mapPage, /nativeMapResourceRegions\(normalizedRegionSelection, readyResourceRegionIds\)/);
+  assert.match(mapPage, /nativeMapResourceRegions\(resourceRegions, readyResourceRegionIds, String\(data\.claim\.regionId \?\? ""\)\)/);
   assert.match(mapPage, /playerRegionIds=\{readyPlayerRegionIds\}/);
   assert.match(mapPage, /visibleRegionIds=\{normalizedRegionSelection\}/);
   assert.match(mapPage, /boundedNativeMapRegions\(normalizedRegionSelection, regionOptions\)/);
@@ -272,27 +272,48 @@ test("Native map keeps resources below operational markers, players, and tooltip
   assert.doesNotMatch(nativeMap, /pane: feature\.kind === "player" \? "native-map-players" : undefined/);
 });
 
-test("Native map projects region-scoped dense points before rendering and resource framing", () => {
+test("Native map projects region-scoped dense points before rendering and resource locating", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
 
   assert.match(nativeMap, /packedResourcePointCount\(resourcePartitions, visibleRegionIds\)/);
   assert.match(nativeMap, /const visibleEnemyPoints = React\.useMemo\(\(\) => mapFeaturesInRegionScope\(snapshot\?\.layers\.enemies \?\? \[\], visibleRegionIds\)/);
   assert.match(nativeMap, /resourcesRef\.current\?\.setResources\(resourcePartitions, visibleRegionIds, resourceColours\)/);
   assert.match(nativeMap, /enemiesRef\.current\?\.setPoints\(visibleEnemyPoints\)/);
-  assert.match(nativeMap, /packedResourceSome\(resourcePartitions, visibleRegionIds/);
-  assert.match(nativeMap, /packedResourceBounds\(resourcePartitions, visibleRegionIds\)/);
+  assert.match(nativeMap, /resourceLocatePoint|applyResourceLocate/);
+  assert.doesNotMatch(nativeMap, /packedResourceBounds|packedResourceSome/);
   assert.doesNotMatch(nativeMap, /resourceRowsFromPartitions|mapResourceFeatures|visibleResourcePoints/);
   assert.doesNotMatch(nativeMap, /enemiesRef\.current\?\.setPoints\(snapshot\.layers\.enemies \?\? \[\]\)/);
 });
 
-test("Native map frames a newly selected off-screen resource result once", () => {
+test("Map resource clicks pass transient locate intent and validated request priority", () => {
+  const mapPage = readFileSync(new URL("../src/pages/MapPage.tsx", import.meta.url), "utf8");
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
-  assert.match(nativeMap, /packedResourceSome/);
-  assert.match(nativeMap, /packedResourceBounds/);
-  assert.match(nativeMap, /resourceFrameSelectionRef/);
-  assert.match(nativeMap, /map\.fitBounds\(L\.latLngBounds\(\[bounds\.minZ, bounds\.minX\], \[bounds\.maxZ, bounds\.maxX\]\)/);
-  assert.match(nativeMap, /padding:\s*\[32, 32\]/);
-  assert.match(nativeMap, /maxZoom:\s*1/);
+  assert.match(mapPage, /const \[resourceLocateRequest, setResourceLocateRequest\]/);
+  assert.match(mapPage, /newlyAddedResourceIds\(currentResourceIds, \[\.\.\.currentResourceIds, candidateResourceId\]\)/);
+  assert.match(mapPage, /resourceLocateSequenceRef\.current \+= 1/);
+  assert.match(mapPage, /setResourceLocateRequest\(\{ id: resourceLocateSequenceRef\.current, resourceId: addedResourceId/);
+  assert.match(mapPage, /resourceLocateRequest=\{resourceLocateRequest\}/);
+  assert.match(mapPage, /preferredResourceRegionId=\{preferredResourceRegionId\}/);
+  assert.match(nativeMap, /priorityResourceId: resourceLocateRequest\?\.resourceId/);
+  assert.match(nativeMap, /priorityRegionId: preferredResourceRegionId/);
+  assert.match(nativeMap, /applyResourceLocate/);
+  assert.match(nativeMap, /map\.flyTo\(L\.latLng\(target\.z, target\.x\), Math\.max\(map\.getZoom\(\), 1\)\)/);
+  assert.match(nativeMap, /native-map-resource-locate-start/);
+  assert.match(nativeMap, /native-map-resource-locate-visible/);
+  assert.match(nativeMap, /native-map-resource-click-to-visible/);
+  assert.match(nativeMap, /createPane\("native-map-resource-locate"\)/);
+  assert.match(nativeMap, /pane: "native-map-resource-locate"/);
+  assert.doesNotMatch(nativeMap, /resourceFrameSelectionRef|packedResourceBounds/);
+});
+
+test("resource Canvas synchronization and locating are isolated from ordinary marker updates", () => {
+  const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
+  const resourceEffectStart = nativeMap.indexOf("resourcesRef.current?.setResources(resourcePartitions, visibleRegionIds, resourceColours)");
+  const markerEffectStart = nativeMap.indexOf("const markerGroups = markerGroupsRef.current");
+  assert.ok(resourceEffectStart >= 0);
+  assert.ok(markerEffectStart >= 0);
+  assert.ok(resourceEffectStart < markerEffectStart);
+  assert.doesNotMatch(nativeMap.slice(resourceEffectStart, markerEffectStart), /snapshot|markerGroups/);
 });
 
 test("Native map requests only same-origin locally provisioned terrain tiles", () => {
@@ -448,7 +469,7 @@ test("Native map separates event and snapshot limits and ignores the initial str
 
 test("Native map uses event-driven snapshot loading without a snapshot polling timer", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
-  const snapshotEffect = nativeMap.slice(nativeMap.indexOf("const loader = createMapSnapshotLoader"), nativeMap.indexOf("React.useEffect(() => {\n    const markerGroups"));
+  const snapshotEffect = nativeMap.slice(nativeMap.indexOf("const loader = createMapSnapshotLoader"), nativeMap.indexOf("React.useEffect(() => {\n    if (!resourceLocateRequest"));
 
   assert.match(snapshotEffect, /new EventSource\(request\.eventsUrl/);
   assert.match(snapshotEffect, /mapEventNeedsSnapshot\(JSON\.parse\(message\.data\)\)/);

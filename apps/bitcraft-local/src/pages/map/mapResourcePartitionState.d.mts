@@ -10,7 +10,7 @@ export type ResourcePartition = ResourcePartitionPlan & {
   lastComplete: null | { generation: string; rows: readonly CompactResourceRow[]; warnings: readonly string[]; freshness: string };
 };
 export function resourcePartitionKey(regionId: string, resourceId: string): string;
-export function resourcePartitionPlan(regionIds?: string[], resourceIds?: string[]): ResourcePartitionPlan[];
+export function resourcePartitionPlan(regionIds?: string[], resourceIds?: string[], options?: { priorityResourceId?: string; priorityRegionId?: string }): ResourcePartitionPlan[];
 export function replaceResourcePartition(state: Map<string, ResourcePartition>, partition: Partial<ResourcePartition> & Pick<ResourcePartition, "key" | "generation" | "rows">): Map<string, ResourcePartition>;
 export function applyResourcePartitionPage(state: Map<string, ResourcePartition>, page: Partial<ResourcePartition> & Pick<ResourcePartition, "key" | "generation" | "rows" | "complete">): Map<string, ResourcePartition>;
 export function retainResourcePartitions(state: Map<string, ResourcePartition>, wantedKeys?: string[]): Map<string, ResourcePartition>;

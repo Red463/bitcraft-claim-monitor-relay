@@ -14,9 +14,32 @@ test("resource partition plans are decimal-canonical and Cartesian", () => {
   assert.equal(resourcePartitionKey("019", "00028"), "19|resource:28");
   assert.deepEqual(resourcePartitionPlan(["24", "019", "24"], ["1000028", "28"]).map((entry) => entry.key), [
     "19|resource:28",
-    "19|resource:1000028",
     "24|resource:28",
+    "19|resource:1000028",
     "24|resource:1000028",
+  ]);
+});
+
+test("resource partition plans prioritize the exact locate pair then its resource across regions", () => {
+  assert.deepEqual(resourcePartitionPlan(["24", "19", "31"], ["54", "28"], {
+    priorityResourceId: "54",
+    priorityRegionId: "24",
+  }).map((entry) => entry.key), [
+    "24|resource:54",
+    "19|resource:54",
+    "31|resource:54",
+    "19|resource:28",
+    "24|resource:28",
+    "31|resource:28",
+  ]);
+  assert.deepEqual(resourcePartitionPlan(["24", "19"], ["54", "28"], {
+    priorityResourceId: "999",
+    priorityRegionId: "999",
+  }).map((entry) => entry.key), [
+    "19|resource:28",
+    "24|resource:28",
+    "19|resource:54",
+    "24|resource:54",
   ]);
 });
 

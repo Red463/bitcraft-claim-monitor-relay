@@ -23,12 +23,22 @@ function compareEntityRows(left, right) {
   return left[0].length - right[0].length || left[0].localeCompare(right[0]);
 }
 
-export function resourcePartitionPlan(regionIds = [], resourceIds = []) {
-  return decimalSort(regionIds, "Resource partition region id").flatMap((regionId) => (
-    decimalSort(resourceIds, "Resource partition type id").map((resourceId) => ({
+export function resourcePartitionPlan(regionIds = [], resourceIds = [], options = {}) {
+  const regions = decimalSort(regionIds, "Resource partition region id");
+  const resources = decimalSort(resourceIds, "Resource partition type id");
+  const priorityResourceId = resources.includes(String(options.priorityResourceId)) ? String(options.priorityResourceId) : null;
+  const priorityRegionId = regions.includes(String(options.priorityRegionId)) ? String(options.priorityRegionId) : null;
+  const orderedResources = priorityResourceId
+    ? [priorityResourceId, ...resources.filter((resourceId) => resourceId !== priorityResourceId)]
+    : resources;
+  return orderedResources.flatMap((resourceId) => {
+    const orderedRegions = resourceId === priorityResourceId && priorityRegionId
+      ? [priorityRegionId, ...regions.filter((regionId) => regionId !== priorityRegionId)]
+      : regions;
+    return orderedRegions.map((regionId) => ({
       key: resourcePartitionKey(regionId, resourceId), regionId, resourceId,
-    }))
-  ));
+    }));
+  });
 }
 
 function normalizedRows(rows, identity) {
