@@ -160,6 +160,29 @@ test("cancelling an unfinished visibility measurement removes its movement liste
   assert.equal(completed, 0);
 });
 
+test("cancelling after scheduling paint cancels the frame and prevents late visibility completion", () => {
+  let paint = null;
+  let frameCancelled = 0;
+  let completed = 0;
+  const cancel = scheduleResourceLocateVisible({
+    isVisible: () => true,
+    onMoveEnd: () => {
+      throw new Error("an already visible target must not wait for movement");
+    },
+    requestFrame: (callback) => {
+      paint = callback;
+      return () => { frameCancelled += 1; };
+    },
+    onVisible: () => { completed += 1; },
+  });
+
+  assert.equal(typeof paint, "function");
+  cancel();
+  assert.equal(frameCancelled, 1);
+  paint();
+  assert.equal(completed, 0, "a cancelled frame callback cannot complete visibility measurement");
+});
+
 test("resource layer status still reports progressive loading and availability", () => {
   assert.equal(resourceLayerStatus({
     selectionKey: "28", snapshotSelectionKey: "28", available: false,
