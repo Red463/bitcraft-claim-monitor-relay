@@ -150,7 +150,11 @@ export function createMapResourceBinaryLoader({
         if (controller.signal.aborted || active.get(key) !== request || stopped || paused || !partitions.has(key)) return;
         const current = partitions.get(key);
         if (!current) return;
-        if (/^\d+$/.test(current.generation ?? "") && compareGenerations(request.generation, current.generation) < 0) return;
+        if (
+          !awaitingConfirmation.has(key)
+          && /^\d+$/.test(current.generation ?? "")
+          && compareGenerations(request.generation, current.generation) < 0
+        ) return;
         const decoded = decodeResourcePartition(payload, {
           regionId: current.regionId,
           resourceId: current.resourceId,

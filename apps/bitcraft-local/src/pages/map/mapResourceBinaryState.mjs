@@ -82,16 +82,33 @@ export function applyMapResourceBinaryEvent(state, event) {
   if (!current) return { partitions: state, requiresFetch: false };
   if (event.type === "partition-ready") {
     const generation = String(event.generation);
-    if (current.generation != null && isOlderDecimalGeneration(generation, current.generation)) {
+    if (
+      current.generation != null
+      && current.freshness !== "awaiting-confirmation"
+      && isOlderDecimalGeneration(generation, current.generation)
+    ) {
       return { partitions: state, requiresFetch: false };
     }
-    const freshness = String(event.freshness ?? current.freshness);
+    const generationMatches = current.generation != null && current.generation === generation;
+    const incomingFreshness = String(event.freshness ?? current.freshness);
+    let freshness = current.freshness;
+    let status = current.status;
+    let warning = current.warning;
+    if (current.generation == null || generationMatches) {
+      freshness = incomingFreshness;
+      status = current.generation == null ? "loading" : freshness === "stale" ? "stale" : "live";
+      warning = event.warning == null ? null : String(event.warning);
+    } else if (incomingFreshness === "stale" || incomingFreshness === "unavailable") {
+      freshness = "stale";
+      status = "stale";
+      warning = event.warning == null ? current.warning : String(event.warning);
+    }
     return {
       partitions: replace(state, key, {
         ...current,
         freshness,
-        status: current.generation == null ? "loading" : freshness === "stale" ? "stale" : "live",
-        warning: event.warning == null ? null : String(event.warning),
+        status,
+        warning,
       }),
       requiresFetch: current.generation !== generation,
     };

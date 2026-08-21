@@ -333,6 +333,61 @@ test("commits a cold stale-ready generation as stale and excludes it from the de
   loader.stop();
 });
 
+test("keeps stale last-good metadata while a newer live generation fetches and does not cache the old bytes", async () => {
+  const events = connections();
+  const generationEight = [deferred(), deferred()];
+  let generationEightCalls = 0;
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => {
+      if (url === "/generation-7-stale") return bytes(bush, "7", packResourceCoordinate(7, 7));
+      const completion = generationEight[generationEightCalls];
+      generationEightCalls += 1;
+      return completion.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=stale-old-generation");
+  let stream = events.opened.at(-1);
+  stream.onEvent({
+    ...ready(bush, "7", "/generation-7-stale"),
+    freshness: "stale",
+    warning: "Generation 7 is last-good",
+  });
+  await drain();
+  stream.onEvent(ready(bush, "8", "/generation-8-live"));
+  await drain();
+
+  let current = loader.state().get(bush.key);
+  assert.equal(current.generation, "7");
+  assert.equal(current.freshness, "stale");
+  assert.equal(current.status, "stale");
+  assert.equal(current.warning, "Generation 7 is last-good");
+  assert.equal(generationEightCalls, 1);
+
+  loader.setScope([], "/events?scope=stale-old-empty");
+  loader.setScope([bush], "/events?scope=stale-old-reselected");
+  assert.equal(loader.state().get(bush.key).generation, null);
+  stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "8", "/generation-8-live"));
+  await drain();
+  assert.equal(generationEightCalls, 1);
+
+  generationEight[0].resolve(bytes(bush, "8", packResourceCoordinate(8, 8)));
+  await drain();
+  assert.equal(generationEightCalls, 2);
+  assert.equal(loader.state().get(bush.key).generation, null);
+  generationEight[1].resolve(bytes(bush, "8", packResourceCoordinate(8, 8)));
+  await drain();
+
+  current = loader.state().get(bush.key);
+  assert.equal(current.generation, "8");
+  assert.equal(current.freshness, "live");
+  assert.equal(current.status, "live");
+  assert.equal(current.warning, null);
+  loader.stop();
+});
+
 test("keeps stale and unavailable events authoritative when an active fetch completes", async () => {
   for (const type of ["partition-stale", "partition-unavailable"]) {
     const events = connections();
@@ -523,6 +578,42 @@ test("hydrates a fresh deselected partition before SSE and confirms an exact gen
   await drain();
   assert.equal(requests.length, 2);
   assert.equal(loader.state().get(bush.key).generation, "8");
+  loader.stop();
+});
+
+test("fetches and commits an authoritative lower generation after warm-cache hydration", async () => {
+  const events = connections();
+  const generationNine = deferred();
+  const requests = [];
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => {
+      requests.push(url);
+      if (url === "/generation-10") return bytes(bush, "10", packResourceCoordinate(10, 10));
+      return generationNine.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=generation-reset-cold");
+  events.opened.at(-1).onEvent(ready(bush, "10", "/generation-10"));
+  await drain();
+  loader.setScope([], "/events?scope=generation-reset-empty");
+  loader.setScope([bush], "/events?scope=generation-reset-warm");
+  assert.equal(loader.state().get(bush.key).generation, "10");
+  assert.equal(loader.state().get(bush.key).freshness, "awaiting-confirmation");
+
+  events.opened.at(-1).onEvent(ready(bush, "9", "/generation-9"));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10", "/generation-9"]);
+  assert.equal(loader.state().get(bush.key).generation, "10");
+  assert.equal(loader.state().get(bush.key).freshness, "awaiting-confirmation");
+
+  generationNine.resolve(bytes(bush, "9", packResourceCoordinate(9, 9)));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10", "/generation-9"]);
+  assert.equal(loader.state().get(bush.key).generation, "9");
+  assert.equal(loader.state().get(bush.key).freshness, "live");
+  assert.deepEqual([...loader.state().get(bush.key).committed], [packResourceCoordinate(9, 9)]);
   loader.stop();
 });
 
