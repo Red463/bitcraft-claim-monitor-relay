@@ -421,7 +421,7 @@ test("server shares one topology resolver across all map runtimes", () => {
   }
 });
 
-test("resource and grouped map acquisitions are capped, fenced, indexed, and release populated slots", () => {
+test("resource events use the tested lifecycle helper while grouped map acquisitions remain capped and indexed", () => {
   const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   const resourceEventsStart = server.indexOf('url.pathname === "/api/local/map/resource-events"');
   const groupedStart = server.indexOf('["/api/local/map/snapshot", "/api/local/map/events"].includes(url.pathname)');
@@ -430,9 +430,9 @@ test("resource and grouped map acquisitions are capped, fenced, indexed, and rel
   const grouped = server.slice(groupedStart, nextRoute);
 
   assert.match(resourceEvents, /relayClaimScopeFence\.run\(claimId, async \(\) =>/);
-  assert.match(resourceEvents, /runWithConcurrency\(tasks, leasePlan\.concurrency\)/);
-  assert.match(resourceEvents, /leases\[index\] = lease/);
-  assert.match(resourceEvents, /leases\.filter\(Boolean\).*lease\.release/s);
+  assert.match(resourceEvents, /createMapResourceEventLeaseAcquisition\(\{/);
+  assert.match(resourceEvents, /acquisition\.run\(\)/);
+  assert.match(resourceEvents, /acquisition\.release\(\)/);
   assert.match(grouped, /relayClaimScopeFence\.run\(claimId, async \(\) =>/);
   assert.match(grouped, /runWithConcurrency\(acquisitionTasks, MAP_RESOURCE_LEASE_ACQUISITION_LIMIT\)/);
   assert.match(grouped, /spatialLeases\[index\] = lease/);

@@ -14,6 +14,32 @@ import {
 
 const binaryRouteModule = await import("../src/server/mapResourceBinaryRoute.mjs");
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+function nextTurn() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+function observedLease({ subscribeError = null } = {}) {
+  const observed = { releases: 0, subscriptions: 0, unsubscriptions: 0 };
+  return {
+    observed,
+    lease: {
+      async release() { observed.releases += 1; },
+      subscribe() {
+        observed.subscriptions += 1;
+        if (subscribeError) throw subscribeError;
+        return () => { observed.unsubscriptions += 1; };
+      },
+    },
+  };
+}
+
 function cachedPartition() {
   const coordinates = Uint32Array.of(packResourceCoordinate(10, 20));
   const encoded = encodeResourcePartition({
@@ -251,4 +277,110 @@ test("retains the first failure and settles already-started siblings before reje
   await assert.rejects(running, (error) => error === firstFailure);
   assert.deepEqual([...settled].sort((left, right) => left - right), [0, 1, 2]);
   assert.equal(started.includes(3), false);
+});
+
+test("resource-event acquisition stops queued work on close and releases late out-of-order leases exactly once", async () => {
+  const inputs = Array.from({ length: 20 }, (_, index) => ({ regionId: "19", resourceId: String(index + 1) }));
+  const gates = inputs.map(() => deferred());
+  const leases = inputs.map(() => observedLease());
+  const started = [];
+  const unavailable = [];
+  let active = 0;
+  let maximum = 0;
+  let closed = false;
+  const acquisition = binaryRouteModule.createMapResourceEventLeaseAcquisition({
+    inputs,
+    concurrency: 8,
+    acquire: async (input) => {
+      const index = Number(input.resourceId) - 1;
+      started.push(index);
+      active += 1;
+      maximum = Math.max(maximum, active);
+      try {
+        return await gates[index].promise;
+      } finally {
+        active -= 1;
+      }
+    },
+    isClosed: () => closed,
+    onEvent() {},
+    onInitial() {},
+    onUnavailable: (input) => unavailable.push(input.resourceId),
+  });
+
+  const running = acquisition.run();
+  void running.catch(() => {});
+  await nextTurn();
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(maximum, 8);
+
+  gates[5].resolve(leases[5].lease);
+  await nextTurn();
+  gates[1].resolve(leases[1].lease);
+  await nextTurn();
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.equal(active, 8);
+
+  closed = true;
+  const releasing = acquisition.release();
+  for (const index of [9, 0, 8, 2, 7, 3, 6, 4]) gates[index].resolve(leases[index].lease);
+  await assert.rejects(running, /closed/i);
+  await releasing;
+  await acquisition.release();
+
+  assert.equal(maximum, 8);
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "request close must stop every remaining queued acquisition");
+  assert.deepEqual(unavailable, [], "request close must not emit partition-unavailable");
+  for (let index = 0; index < inputs.length; index += 1) {
+    assert.equal(leases[index].observed.releases, index < 10 ? 1 : 0, `lease ${index} release count`);
+    assert.equal(leases[index].observed.subscriptions, index === 1 || index === 5 ? 1 : 0, `lease ${index} subscription count`);
+    assert.equal(leases[index].observed.unsubscriptions, index === 1 || index === 5 ? 1 : 0, `lease ${index} unsubscription count`);
+  }
+});
+
+test("resource-event acquisition reports ordinary partition failures and continues after subscription and initial failures", async () => {
+  const inputs = Array.from({ length: 5 }, (_, index) => ({ regionId: "19", resourceId: String(index + 1) }));
+  const subscribeFailure = new Error("subscribe failed");
+  const leases = [
+    null,
+    observedLease({ subscribeError: subscribeFailure }),
+    observedLease(),
+    observedLease(),
+    observedLease(),
+  ];
+  const unavailable = [];
+  const initial = [];
+  const acquisition = binaryRouteModule.createMapResourceEventLeaseAcquisition({
+    inputs,
+    concurrency: 2,
+    acquire: async (input) => {
+      const index = Number(input.resourceId) - 1;
+      if (index === 0) throw new Error("acquire failed");
+      return leases[index].lease;
+    },
+    isClosed: () => false,
+    onEvent() {},
+    onInitial: (input) => {
+      initial.push(input.resourceId);
+      if (input.resourceId === "3") throw new Error("initial callback failed");
+    },
+    onUnavailable: (input, error) => unavailable.push([input.resourceId, error.message]),
+  });
+
+  await acquisition.run();
+  assert.deepEqual(unavailable.sort(([left], [right]) => Number(left) - Number(right)), [
+    ["1", "acquire failed"],
+    ["2", "subscribe failed"],
+    ["3", "initial callback failed"],
+  ]);
+  assert.deepEqual(initial, ["3", "4", "5"]);
+
+  await acquisition.release();
+  await acquisition.release();
+  assert.deepEqual(leases.slice(1).map(({ observed }) => observed), [
+    { releases: 1, subscriptions: 1, unsubscriptions: 0 },
+    { releases: 1, subscriptions: 1, unsubscriptions: 1 },
+    { releases: 1, subscriptions: 1, unsubscriptions: 1 },
+    { releases: 1, subscriptions: 1, unsubscriptions: 1 },
+  ]);
 });

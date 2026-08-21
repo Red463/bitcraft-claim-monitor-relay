@@ -41,6 +41,7 @@ import {
   MapResourceBinaryRouteError,
   binaryPartitionRecoveryResponse,
   binaryPartitionResponse,
+  createMapResourceEventLeaseAcquisition,
   initialMapResourcePartitionEvent,
   parseMapResourceBinaryScope,
   publicMapResourcePartitionEvent,
@@ -8270,19 +8271,7 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         return send(res, error instanceof MapResourcePageError ? error.statusCode : 422, { error: error instanceof Error ? error.message : String(error) });
       }
-      const leases = [];
-      const unsubscribers = [];
       let requestClosed = false;
-      let released = false;
-      const releaseLeases = async () => {
-        if (released) return;
-        released = true;
-        for (const unsubscribe of unsubscribers.filter(Boolean)) unsubscribe();
-        unsubscribers.length = 0;
-        const populatedLeases = leases.filter(Boolean);
-        leases.length = 0;
-        await Promise.allSettled(populatedLeases.map((lease) => lease.release()));
-      };
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
@@ -8295,68 +8284,52 @@ const server = createServer(async (req, res) => {
         res.write(`data: ${JSON.stringify(publicMapResourcePartitionEvent(event))}\n\n`);
       };
       res.write(`data: ${JSON.stringify({ type: "stream-ready" })}\n\n`);
+      const leasePlan = mapResourceSelectionLeasePlan(scope);
+      const acquisition = createMapResourceEventLeaseAcquisition({
+        inputs: leasePlan.inputs,
+        concurrency: leasePlan.concurrency,
+        acquire: ({ regionId, resourceId }) => relayMapResourceRuntime.acquire({ regionId, resourceId }),
+        isClosed: () => requestClosed,
+        onEvent: ({ regionId, resourceId }, event, lease) => {
+          const key = mapResourceScopeKey(regionId, resourceId);
+          if (event.type === "partition-delta" && event.additions.length + event.removals.length > 4_096) {
+            const current = lease.current();
+            if (current) writeResourceEvent({
+              type: "partition-ready",
+              key,
+              generation: current.generation,
+              pointCount: current.pointCount,
+              encodedBytes: current.encodedBytes,
+              receivedAt: current.receivedAt,
+              freshness: current.freshness,
+            });
+            return;
+          }
+          writeResourceEvent(event);
+        },
+        onInitial: ({ regionId, resourceId }, lease) => {
+          writeResourceEvent(initialMapResourcePartitionEvent(mapResourceScopeKey(regionId, resourceId), lease.current()));
+        },
+        onUnavailable: ({ regionId, resourceId }, error) => {
+          writeResourceEvent({
+            type: "partition-unavailable",
+            key: mapResourceScopeKey(regionId, resourceId),
+            warning: "Map resource partition is temporarily unavailable",
+            ...(error instanceof MapResourceAdmissionError
+              ? { retryAfterSeconds: error.retryAfterSeconds }
+              : {}),
+          });
+        },
+      });
+      const releaseLeases = () => acquisition.release();
       const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": keep-alive\n\n"); }, 15_000);
       req.once("close", () => {
         requestClosed = true;
         clearInterval(heartbeat);
         void releaseLeases();
       });
-      const leasePlan = mapResourceSelectionLeasePlan(scope);
-      const tasks = leasePlan.inputs.map(({ regionId, resourceId }, index) => async () => {
-        let lease = null;
-        try {
-          const key = mapResourceScopeKey(regionId, resourceId);
-          lease = await acquireMapLeaseUnlessClosed(
-            () => relayMapResourceRuntime.acquire({ regionId, resourceId }),
-            () => requestClosed,
-            "Map resource event request closed during lease acquisition.",
-          );
-          leases[index] = lease;
-          if (requestClosed) {
-            leases[index] = undefined;
-            await lease.release();
-            return;
-          }
-          const unsubscribe = lease.subscribe((event) => {
-            if (event.type === "partition-delta" && event.additions.length + event.removals.length > 4_096) {
-              const current = lease.current();
-              if (current) writeResourceEvent({
-                type: "partition-ready",
-                key,
-                generation: current.generation,
-                pointCount: current.pointCount,
-                encodedBytes: current.encodedBytes,
-                receivedAt: current.receivedAt,
-                freshness: current.freshness,
-              });
-              return;
-            }
-            writeResourceEvent(event);
-          });
-          unsubscribers[index] = unsubscribe;
-          writeResourceEvent(initialMapResourcePartitionEvent(key, lease.current()));
-        } catch (error) {
-          unsubscribers[index]?.();
-          unsubscribers[index] = undefined;
-          if (leases[index]) {
-            const acquiredLease = leases[index];
-            leases[index] = undefined;
-            await acquiredLease.release();
-          }
-          if (requestClosed) return;
-          const key = mapResourceScopeKey(regionId, resourceId);
-          writeResourceEvent({
-            type: "partition-unavailable",
-            key,
-            warning: "Map resource partition is temporarily unavailable",
-            ...(error instanceof MapResourceAdmissionError
-              ? { retryAfterSeconds: error.retryAfterSeconds }
-              : {}),
-          });
-        }
-      });
       void relayClaimScopeFence.run(claimId, async () => {
-        await runWithConcurrency(tasks, leasePlan.concurrency);
+        await acquisition.run();
       }).then(async (acquiredForCurrentClaim) => {
         if (acquiredForCurrentClaim && currentClaimId() === claimId) return;
         requestClosed = true;

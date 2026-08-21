@@ -180,4 +180,74 @@ export async function runWithConcurrency(tasks, limit) {
   return results;
 }
 
+export function createMapResourceEventLeaseAcquisition({
+  inputs,
+  concurrency,
+  acquire,
+  isClosed,
+  onEvent,
+  onInitial,
+  onUnavailable,
+  closedMessage = "Map resource event request closed during lease acquisition.",
+}) {
+  if (!Array.isArray(inputs)) throw new TypeError("Map resource event inputs must be an array");
+  for (const [label, callback] of Object.entries({ acquire, isClosed, onEvent, onInitial, onUnavailable })) {
+    if (typeof callback !== "function") throw new TypeError(`Map resource event ${label} callback is required`);
+  }
+  const leases = new Array(inputs.length);
+  const unsubscribers = new Array(inputs.length);
+  let released = false;
+  let releasePromise = null;
+  let runPromise = null;
+  const closed = () => released || Boolean(isClosed());
+  const closeError = () => new Error(closedMessage);
+
+  function settleCleanup(unsubscribe, lease) {
+    const cleanup = [];
+    if (typeof unsubscribe === "function") cleanup.push(Promise.resolve().then(() => unsubscribe()));
+    if (lease && typeof lease.release === "function") cleanup.push(Promise.resolve().then(() => lease.release()));
+    return Promise.allSettled(cleanup);
+  }
+
+  function cleanupSlot(index) {
+    const unsubscribe = unsubscribers[index];
+    const lease = leases[index];
+    unsubscribers[index] = undefined;
+    leases[index] = undefined;
+    return settleCleanup(unsubscribe, lease);
+  }
+
+  const tasks = inputs.map((input, index) => async () => {
+    if (closed()) throw closeError();
+    try {
+      const lease = await acquire(input);
+      if (closed()) {
+        await settleCleanup(null, lease);
+        throw closeError();
+      }
+      leases[index] = lease;
+      const unsubscribe = lease.subscribe((event) => onEvent(input, event, lease));
+      unsubscribers[index] = unsubscribe;
+      await onInitial(input, lease);
+      if (closed()) throw closeError();
+    } catch (error) {
+      await cleanupSlot(index);
+      if (closed()) throw error;
+      await onUnavailable(input, error);
+    }
+  });
+
+  return {
+    run() {
+      runPromise ??= runWithConcurrency(tasks, concurrency);
+      return runPromise;
+    },
+    release() {
+      released = true;
+      releasePromise ??= Promise.all(inputs.map((_, index) => cleanupSlot(index))).then(() => undefined);
+      return releasePromise;
+    },
+  };
+}
+
 export const MAP_RESOURCE_PARTITION_CONTENT_TYPE = CONTENT_TYPE;

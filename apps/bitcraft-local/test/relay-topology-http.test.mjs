@@ -117,6 +117,21 @@ test("shared topology discovery evicts failures immediately", async () => {
   assert.equal(calls, 2);
 });
 
+test("shared topology discovery immediately evicts a synchronous discovery throw", async () => {
+  let calls = 0;
+  const cachedDiscover = createRelayTopologyDiscoveryCache({
+    discover: () => {
+      calls += 1;
+      if (calls === 1) throw new Error("Synchronous Relay discovery failure");
+      return Promise.resolve({ call: calls });
+    },
+  });
+
+  await assert.rejects(cachedDiscover("https://relay.example///"), /Synchronous Relay discovery failure/);
+  assert.deepEqual(await cachedDiscover("https://relay.example"), { call: 2 });
+  assert.equal(calls, 2);
+});
+
 test("topology discovery supports current live-source health and fingerprints public schemas", async () => {
   let now = 0;
   const discoveryOptions = {

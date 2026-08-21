@@ -202,6 +202,24 @@ test("resource selection validates priority identities and leases the exact pair
   }
 });
 
+test("resource lease order is explicit for resource-only, region-only, and absent priority hints", () => {
+  const base = { regionIds: ["10", "2"], resourceIds: ["20", "4"] };
+  const canonical = [
+    { regionId: "2", resourceId: "4" },
+    { regionId: "10", resourceId: "4" },
+    { regionId: "2", resourceId: "20" },
+    { regionId: "10", resourceId: "20" },
+  ];
+  assert.deepEqual(mapResourceSelectionLeasePlan(base).inputs, canonical);
+  assert.deepEqual(mapResourceSelectionLeasePlan({ ...base, priorityRegionId: "10" }).inputs, canonical);
+  assert.deepEqual(mapResourceSelectionLeasePlan({ ...base, priorityResourceId: "20" }).inputs, [
+    { regionId: "2", resourceId: "20" },
+    { regionId: "10", resourceId: "20" },
+    { regionId: "2", resourceId: "4" },
+    { regionId: "10", resourceId: "4" },
+  ]);
+});
+
 test("large resource pages slice an already sorted compact partition without sorting it again", () => {
   const rows = Array.from({ length: 120_000 }, (_, index) => [String(index + 1), "19", "130", index, index + 1]);
   let sortCalls = 0;
