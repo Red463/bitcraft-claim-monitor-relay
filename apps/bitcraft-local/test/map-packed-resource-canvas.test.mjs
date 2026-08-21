@@ -118,3 +118,12 @@ test("batches each nonempty partition into one Canvas path", () => {
   assert.equal((canvasLayer.match(/context\.stroke\(\)/g) ?? []).length, 1);
   assert.equal((canvasLayer.match(/context\.fill\(\)/g) ?? []).length, 1);
 });
+
+test("starts a new Canvas subpath for every packed resource circle", () => {
+  const canvasLayer = readFileSync(new URL("../src/pages/map/PackedResourceCanvasLayer.ts", import.meta.url), "utf8");
+
+  assert.match(canvasLayer, /context\.moveTo\(pixel\.x \+ radius, pixel\.y\);\s*context\.arc\(pixel\.x, pixel\.y, radius, 0, Math\.PI \* 2\);/);
+  assert.equal((canvasLayer.match(/context\.beginPath\(\)/g) ?? []).length, 1);
+  assert.equal((canvasLayer.match(/context\.stroke\(\)/g) ?? []).length, 1);
+  assert.equal((canvasLayer.match(/context\.fill\(\)/g) ?? []).length, 1);
+});
