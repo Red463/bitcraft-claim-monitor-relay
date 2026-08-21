@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import { packResourceCoordinate } from "../src/map/resourcePartitionCodec.mjs";
 import {
@@ -106,4 +107,14 @@ test("keeps every visible marker at a precise close-up zoom", () => {
 
   assert.equal(plan.pointCount, 15);
   assert.equal(plan.stride, 1);
+});
+
+test("batches each nonempty partition into one Canvas path", () => {
+  const canvasLayer = readFileSync(new URL("../src/pages/map/PackedResourceCanvasLayer.ts", import.meta.url), "utf8");
+
+  assert.match(canvasLayer, /let partitionHasVisiblePoint = false;/);
+  assert.match(canvasLayer, /for \(let index = startIndex; index < endIndex; index \+= 1\)[\s\S]*if \(!partitionHasVisiblePoint\) \{[\s\S]*context\.beginPath\(\);[\s\S]*context\.arc\([\s\S]*if \(partitionHasVisiblePoint\) \{[\s\S]*context\.stroke\(\);[\s\S]*context\.fill\(\);/);
+  assert.equal((canvasLayer.match(/context\.beginPath\(\)/g) ?? []).length, 1);
+  assert.equal((canvasLayer.match(/context\.stroke\(\)/g) ?? []).length, 1);
+  assert.equal((canvasLayer.match(/context\.fill\(\)/g) ?? []).length, 1);
 });

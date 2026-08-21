@@ -223,11 +223,14 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
   content.className = `native-map-marker-content${presentation.mode === "image" && presentation.badgeCrop ? " native-map-marker-content--badge-crop" : ""}${variant ? ` native-map-marker-content--${variant}` : ""}`;
   if (kind === "player") {
     if (color) content.style.setProperty("--player-marker-color", color);
-    const pulse = document.createElement("span");
-    pulse.className = "native-map-player-pulse";
     const dot = document.createElement("span");
     dot.className = "native-map-player-dot";
-    content.append(pulse, dot);
+    if (!currentUser) {
+      const pulse = document.createElement("span");
+      pulse.className = "native-map-player-pulse";
+      content.appendChild(pulse);
+    }
+    content.appendChild(dot);
   } else {
     const glyph = document.createElement("span");
     glyph.className = "native-map-marker-glyph";
@@ -242,7 +245,7 @@ function markerIcon(kind: string, presentation: MapMarkerPresentation, color?: s
     image.addEventListener("error", () => image.remove(), { once: true });
     content.prepend(image);
   }
-  const size = currentUser ? 28 : kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
+  const size = currentUser ? 20 : kind === "player" || variant === "watchtower" ? 24 : variant === "claim-tier" || variant === "claim-npc" ? 32 : 30;
   return L.divIcon({
     className: `native-map-marker native-map-marker--${markerKindClass(kind)}${currentUser ? " native-map-marker--current-user" : ""}`,
     html: content,
@@ -345,7 +348,8 @@ export function NativeMap({
   const resourceSelectionKey = React.useMemo(() => request.resourcePartitions.map((partition) => partition.key).join(","), [request.resourcePartitions]);
   const wantedResourceKeys = React.useMemo(() => request.resourcePartitions.map((partition) => partition.key), [resourceSelectionKey]);
   const resourcePointCount = React.useMemo(() => packedResourcePointCount(resourcePartitions, visibleRegionIds), [resourcePartitions, visibleRegionIds.join(",")]);
-  const resourceSamples = React.useMemo(() => packedResourceSamples(resourcePartitions, visibleRegionIds, 250), [resourcePartitions, visibleRegionIds.join(",")]);
+  const debugInformationVisible = layerVisibility.debug === true;
+  const resourceSamples = React.useMemo(() => debugInformationVisible ? packedResourceSamples(resourcePartitions, visibleRegionIds, 250) : [], [debugInformationVisible, resourcePartitions, visibleRegionIds.join(",")]);
   const visibleEnemyPoints = React.useMemo(() => mapFeaturesInRegionScope(snapshot?.layers.enemies ?? [], visibleRegionIds), [snapshot?.layers.enemies, visibleRegionIds.join(",")]);
   const resourceStatuses = wantedResourceKeys.map((key) => resourcePartitions.get(key));
   const startedResourcePartitionCount = resourceStatuses.filter((status) => status && (status.generation != null || status.provisional.length > 0 || status.status !== "loading")).length;
@@ -825,7 +829,6 @@ export function NativeMap({
     enemiesRef.current?.setPoints(visibleEnemyPoints);
   }, [snapshot, visibleEnemyPoints, playerColourOverrides, verifiedCharacterPlayerId, visibleRegionIds.join(","), focus?.name, focus?.locationX, focus?.locationZ]);
 
-  const debugInformationVisible = layerVisibility.debug === true;
   const accessibleResourceFeatures: MapFeature[] = debugInformationVisible && layerVisibility.resources ? resourceSamples.map((sample) => ({
     kind: "resource",
     entityId: `${sample.key}:${sample.x}:${sample.z}`,

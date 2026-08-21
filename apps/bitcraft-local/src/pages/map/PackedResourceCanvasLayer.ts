@@ -70,6 +70,7 @@ export class PackedResourceCanvasLayer extends L.Layer {
     context.strokeStyle = "rgba(3, 8, 12, .92)";
     for (const { partition, coordinates, startIndex, endIndex } of plan.partitions) {
       context.fillStyle = this.#colours[partition.resourceId] ?? RESOURCE_NODE_FALLBACK_COLOUR;
+      let partitionHasVisiblePoint = false;
       for (let index = startIndex; index < endIndex; index += 1) {
         const packed = coordinates[index];
         const x = packed & 0xffff;
@@ -80,8 +81,13 @@ export class PackedResourceCanvasLayer extends L.Layer {
         if (!draw) continue;
         const point = L.latLng(z, x);
         const pixel = this.#map.latLngToContainerPoint(point);
-        context.beginPath();
+        if (!partitionHasVisiblePoint) {
+          context.beginPath();
+          partitionHasVisiblePoint = true;
+        }
         context.arc(pixel.x, pixel.y, 3, 0, Math.PI * 2);
+      }
+      if (partitionHasVisiblePoint) {
         context.stroke();
         context.fill();
       }

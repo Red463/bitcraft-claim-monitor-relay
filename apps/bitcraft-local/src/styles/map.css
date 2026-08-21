@@ -232,12 +232,11 @@ body:has(.floating-actions:not(.floating-actions-collapsed)) .map-dedicated-tab-
 .native-map-marker--player .native-map-marker-content { width: 24px; height: 24px; overflow: visible; background: transparent; border: 0; box-shadow: none; }
 .native-map-player-dot { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border: 1px solid rgba(255,255,255,.96); border-radius: 50%; background: var(--player-marker-color, #38bdf8); box-shadow: 0 1px 3px rgba(0,0,0,.9); transform: translate(-50%, -50%); }
 .native-map-player-pulse { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border: 2px solid var(--player-marker-color, #38bdf8); border-radius: 50%; animation: native-map-player-pulse 2s ease-out infinite; pointer-events: none; }
-.native-map-marker--current-user { width: 28px; height: 28px; }
-.native-map-marker--current-user .native-map-marker-content { width: 28px; height: 28px; }
-.native-map-marker--current-user .native-map-marker-content::before { content: ""; position: absolute; inset: 3px; border: 3px solid var(--player-marker-color, #38bdf8); border-radius: 50%; box-shadow: 0 0 0 3px rgba(255,255,255,.9), 0 0 14px var(--player-marker-color, #38bdf8); pointer-events: none; }
-.native-map-marker--current-user .native-map-player-dot { width: 10px; height: 10px; border-width: 2px; }
+.native-map-marker--current-user { width: 20px; height: 20px; }
+.native-map-marker--current-user .native-map-marker-content { width: 20px; height: 20px; }
+.native-map-marker--current-user .native-map-player-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.96); border-radius: 0; box-shadow: none; transform: translate(-50%, -50%) rotate(45deg); }
 @keyframes native-map-player-pulse { 0% { opacity: .72; transform: translate(-50%, -50%) scale(.75); } 75%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(2.75); } }
-@media (prefers-reduced-motion: reduce) { .native-map-player-pulse { animation: none; } .native-map-marker--current-user .native-map-player-pulse { opacity: .28; transform: translate(-50%, -50%) scale(2.3); } }
+@media (prefers-reduced-motion: reduce) { .native-map-player-pulse { animation: none; } }
 .native-map-marker--focus .native-map-marker-content { width: 32px; height: 32px; border-color: #f0c64f; color: #f0c64f; }
 .native-map-marker--claim { width: 32px; height: 32px; }
 .native-map-marker--claim .native-map-marker-content--badge-crop {
