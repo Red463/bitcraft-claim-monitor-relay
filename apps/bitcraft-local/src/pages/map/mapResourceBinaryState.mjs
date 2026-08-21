@@ -55,6 +55,16 @@ export function reconcileMapResourceBinaryScope(state, scope = []) {
   return changed ? output : state;
 }
 
+export function markMapResourceBinaryAwaitingConfirmation(state) {
+  let output = null;
+  for (const [key, current] of state) {
+    if (current.generation == null || current.freshness === "awaiting-confirmation") continue;
+    if (!output) output = new Map(state);
+    output.set(key, { ...current, freshness: "awaiting-confirmation" });
+  }
+  return output ?? state;
+}
+
 export function applyMapResourceBinaryCommitted(state, key, decoded, metadata = {}) {
   const current = state.get(key);
   if (!current) return state;

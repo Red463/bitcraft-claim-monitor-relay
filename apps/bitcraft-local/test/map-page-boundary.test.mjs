@@ -141,6 +141,8 @@ test("Map page owns the region selector and supplies its selected scope to the n
   assert.match(mapPage, /nativeMapPreferredResourceRegion\(normalizedRegionSelection, resourceMapRegionIds, String\(data\.claim\.regionId \?\? ""\)\)/);
   assert.match(mapPage, /playerRegionIds=\{readyPlayerRegionIds\}/);
   assert.match(mapPage, /visibleRegionIds=\{normalizedRegionSelection\}/);
+  assert.match(mapPage, /resourceRegionIds=\{resourceMapRegionIds\}/);
+  assert.match(mapPage, /const resourceRegionValue = resourceRegions\.length === 0 \? "All" : resourceMapRegionIds\.length === 1 \? resourceMapRegionIds\[0\] : "All"/);
   assert.match(mapPage, /boundedNativeMapRegions\(normalizedRegionSelection, regionOptions\)/);
   assert.doesNotMatch(mapPage, /boundedNativeMapRegions\(normalizedRegionSelection, operationalRegionOptions\)/);
   assert.doesNotMatch(mapPage, /visibleRegionIds=\{resourceRegions\}/);
@@ -274,12 +276,12 @@ test("Native map keeps resources below operational markers, players, and tooltip
   assert.doesNotMatch(nativeMap, /pane: feature\.kind === "player" \? "native-map-players" : undefined/);
 });
 
-test("Native map projects region-scoped dense points before rendering and resource locating", () => {
+test("Native map keeps resource fallback visibility separate from operational visibility", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
 
-  assert.match(nativeMap, /packedResourcePointCount\(resourcePartitions, visibleRegionIds\)/);
+  assert.match(nativeMap, /packedResourcePointCount\(resourcePartitions, resourceRegionIds\)/);
   assert.match(nativeMap, /const visibleEnemyPoints = React\.useMemo\(\(\) => mapFeaturesInRegionScope\(snapshot\?\.layers\.enemies \?\? \[\], visibleRegionIds\)/);
-  assert.match(nativeMap, /resourcesRef\.current\?\.setResources\(resourcePartitions, visibleRegionIds, resourceColours\)/);
+  assert.match(nativeMap, /resourcesRef\.current\?\.setResources\(resourcePartitions, resourceRegionIds, resourceColours\)/);
   assert.match(nativeMap, /enemiesRef\.current\?\.setPoints\(visibleEnemyPoints\)/);
   assert.match(nativeMap, /resourceLocatePoint|applyResourceLocate/);
   assert.doesNotMatch(nativeMap, /packedResourceBounds|packedResourceSome/);
@@ -325,20 +327,22 @@ test("ordinary marker synchronization owns group clearing and excludes resource 
 
 test("resource publication only synchronizes packed Canvas and plans locating", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
-  const resourceEffectStart = nativeMap.indexOf("resourcesRef.current?.setResources(resourcePartitions, visibleRegionIds, resourceColours)");
+  const resourceEffectStart = nativeMap.indexOf("resourcesRef.current?.setResources(resourcePartitions, resourceRegionIds, resourceColours)");
   const resourceEffectEnd = nativeMap.indexOf("  React.useEffect(() => {", resourceEffectStart + 1);
   const resourceEffect = nativeMap.slice(resourceEffectStart, resourceEffectEnd);
 
   assert.ok(resourceEffectStart >= 0);
   assert.match(resourceEffect, /applyResourceLocate/);
+  assert.match(resourceEffect, /\[resourcePartitions, resourceRegionIds\.join\(","\), resourceColours, resourceLocateRequest\?\.id, preferredResourceRegionId\]/);
+  assert.doesNotMatch(resourceEffect, /visibleRegionIds/);
   assert.doesNotMatch(resourceEffect, /markerGroups|focusGroup|enemiesRef|snapshot/);
 });
 
 test("Native map derives packed debug samples only while Debug information is visible", () => {
   const nativeMap = readFileSync(new URL("../src/pages/map/NativeMap.tsx", import.meta.url), "utf8");
 
-  assert.match(nativeMap, /const debugInformationVisible = layerVisibility\.debug === true;[\s\S]*const resourceSamples = React\.useMemo\(\(\) => debugInformationVisible \? packedResourceSamples\(resourcePartitions, visibleRegionIds, 250\) : \[\], \[debugInformationVisible, resourcePartitions, visibleRegionIds\.join\(","\)\]\);/);
-  assert.match(nativeMap, /const resourcePointCount = React\.useMemo\(\(\) => packedResourcePointCount\(resourcePartitions, visibleRegionIds\)/);
+  assert.match(nativeMap, /const debugInformationVisible = layerVisibility\.debug === true;[\s\S]*const resourceSamples = React\.useMemo\(\(\) => debugInformationVisible \? packedResourceSamples\(resourcePartitions, resourceRegionIds, 250\) : \[\], \[debugInformationVisible, resourcePartitions, resourceRegionIds\.join\(","\)\]\);/);
+  assert.match(nativeMap, /const resourcePointCount = React\.useMemo\(\(\) => packedResourcePointCount\(resourcePartitions, resourceRegionIds\)/);
 });
 
 test("Native map requests only same-origin locally provisioned terrain tiles", () => {

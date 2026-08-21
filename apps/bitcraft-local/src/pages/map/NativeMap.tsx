@@ -347,9 +347,9 @@ export function NativeMap({
   snapshotRequestKeyRef.current = request.eventsUrl;
   const resourceSelectionKey = React.useMemo(() => request.resourcePartitions.map((partition) => partition.key).join(","), [request.resourcePartitions]);
   const wantedResourceKeys = React.useMemo(() => request.resourcePartitions.map((partition) => partition.key), [resourceSelectionKey]);
-  const resourcePointCount = React.useMemo(() => packedResourcePointCount(resourcePartitions, visibleRegionIds), [resourcePartitions, visibleRegionIds.join(",")]);
+  const resourcePointCount = React.useMemo(() => packedResourcePointCount(resourcePartitions, resourceRegionIds), [resourcePartitions, resourceRegionIds.join(",")]);
   const debugInformationVisible = layerVisibility.debug === true;
-  const resourceSamples = React.useMemo(() => debugInformationVisible ? packedResourceSamples(resourcePartitions, visibleRegionIds, 250) : [], [debugInformationVisible, resourcePartitions, visibleRegionIds.join(",")]);
+  const resourceSamples = React.useMemo(() => debugInformationVisible ? packedResourceSamples(resourcePartitions, resourceRegionIds, 250) : [], [debugInformationVisible, resourcePartitions, resourceRegionIds.join(",")]);
   const visibleEnemyPoints = React.useMemo(() => mapFeaturesInRegionScope(snapshot?.layers.enemies ?? [], visibleRegionIds), [snapshot?.layers.enemies, visibleRegionIds.join(",")]);
   const resourceStatuses = wantedResourceKeys.map((key) => resourcePartitions.get(key));
   const startedResourcePartitionCount = resourceStatuses.filter((status) => status && (status.generation != null || status.provisional.length > 0 || status.status !== "loading")).length;
@@ -706,7 +706,7 @@ export function NativeMap({
   }, [resourceLocateRequest?.id]);
 
   React.useEffect(() => {
-    resourcesRef.current?.setResources(resourcePartitions, visibleRegionIds, resourceColours);
+    resourcesRef.current?.setResources(resourcePartitions, resourceRegionIds, resourceColours);
     const map = mapRef.current;
     if (!map || !resourceLocateRequest) return;
     const centre = map.getCenter();
@@ -769,7 +769,7 @@ export function NativeMap({
         }
       },
     });
-  }, [resourcePartitions, visibleRegionIds.join(","), resourceColours, resourceLocateRequest?.id, preferredResourceRegionId]);
+  }, [resourcePartitions, resourceRegionIds.join(","), resourceColours, resourceLocateRequest?.id, preferredResourceRegionId]);
 
   React.useEffect(() => {
     const markerGroups = markerGroupsRef.current;

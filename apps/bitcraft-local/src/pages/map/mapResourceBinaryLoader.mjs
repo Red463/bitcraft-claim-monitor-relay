@@ -3,6 +3,7 @@ import {
   applyMapResourceBinaryCommitted,
   applyMapResourceBinaryEvent,
   createMapResourceBinaryState,
+  markMapResourceBinaryAwaitingConfirmation,
   reconcileMapResourceBinaryScope,
 } from "./mapResourceBinaryState.mjs";
 
@@ -61,6 +62,7 @@ export function createMapResourceBinaryLoader({
   let stopped = false;
   let connectionEpoch = 0;
   let cacheBytes = 0;
+  let scopePriority = new Map();
   const pending = new Map();
   const active = new Map();
   const decodedCache = new Map();
@@ -186,10 +188,13 @@ export function createMapResourceBinaryLoader({
     if (paused || stopped) return;
     while (active.size < loadLimit) {
       let selected = null;
+      let selectedPriority = Number.POSITIVE_INFINITY;
       for (const entry of pending) {
         if (!active.has(entry[0])) {
+          const priority = scopePriority.get(entry[0]) ?? Number.POSITIVE_INFINITY;
+          if (selected && priority >= selectedPriority) continue;
           selected = entry;
-          break;
+          selectedPriority = priority;
         }
       }
       if (!selected) return;
@@ -208,6 +213,7 @@ export function createMapResourceBinaryLoader({
     if (!/^\d+$/.test(normalizedGeneration)) return;
     const current = partitions.get(key);
     if (current?.generation === normalizedGeneration && !awaitingConfirmation.has(key)) return;
+    const allowsAuthoritativeReset = awaitingConfirmation.has(key);
     const work = {
       key,
       generation: normalizedGeneration,
@@ -218,7 +224,7 @@ export function createMapResourceBinaryLoader({
     const queued = pending.get(key);
     if (queued) {
       const queuedComparison = compareGenerations(normalizedGeneration, queued.generation);
-      if (queuedComparison < 0) return;
+      if (queuedComparison < 0 && !allowsAuthoritativeReset) return;
       if (queuedComparison === 0) {
         queued.freshness = work.freshness;
         queued.warning = work.warning;
@@ -228,7 +234,7 @@ export function createMapResourceBinaryLoader({
     const running = active.get(key);
     if (running) {
       const runningComparison = compareGenerations(normalizedGeneration, running.generation);
-      if (!running.controller.signal.aborted && runningComparison < 0) return;
+      if (!running.controller.signal.aborted && runningComparison < 0 && !allowsAuthoritativeReset) return;
       if (!running.controller.signal.aborted && runningComparison === 0) {
         running.freshness = work.freshness;
         running.warning = work.warning;
@@ -244,6 +250,16 @@ export function createMapResourceBinaryLoader({
 
   const handleEvent = (event) => {
     if (paused || stopped || !event || typeof event !== "object") return;
+    if (event.type === "stream-ready") {
+      pending.clear();
+      for (const request of active.values()) request.controller.abort();
+      const next = markMapResourceBinaryAwaitingConfirmation(partitions);
+      for (const [key, current] of next) {
+        if (current.generation != null) awaitingConfirmation.add(key);
+      }
+      publish(next);
+      return;
+    }
     const key = String(event.key ?? "");
     if (!partitions.has(key)) return;
     try {
@@ -304,7 +320,12 @@ export function createMapResourceBinaryLoader({
   return {
     setScope(scope, nextEventUrl) {
       if (stopped) return;
-      const wanted = new Set((scope ?? []).map((entry) => String(entry.key)));
+      scopePriority = new Map();
+      for (const [index, entry] of (scope ?? []).entries()) {
+        const key = String(entry.key);
+        if (!scopePriority.has(key)) scopePriority.set(key, index);
+      }
+      const wanted = new Set(scopePriority.keys());
       for (const [key, current] of partitions) {
         if (!wanted.has(key)) cachePartition(current);
       }

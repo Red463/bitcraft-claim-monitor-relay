@@ -221,7 +221,7 @@ export function MapPanel({ data, focus, onClearFocus, activeRegionScopeKey, dedi
     const region = mapResourceRegions.find((entry) => String(entry.regionId) === String(id)) ?? activeRegions.find((entry) => String(entry.regionId) === String(id)) ?? data.regionStatus.find((entry) => String(entry.regionId) === String(id)) ?? { regionId: id };
     return { id, label: activeRegionLabel({ ...region, regionId: String(region.regionId ?? id) }, String(data.claim.regionId ?? "")) };
   }), [regionOptions, mapResourceRegions, activeRegions, data.regionStatus, data.claim.regionId]);
-  const resourceRegionValue = normalizedRegionSelection.length === 1 ? normalizedRegionSelection[0] : "All";
+  const resourceRegionValue = resourceRegions.length === 0 ? "All" : resourceMapRegionIds.length === 1 ? resourceMapRegionIds[0] : "All";
   function setResourceRegion(value: string) {
     setResourceRegions(value === "All" ? [] : [value]);
   }

@@ -173,17 +173,56 @@ test("coalesces duplicate queued work and replaces obsolete queued and active ge
   await drain();
   assert.equal(loader.state().get(bush.key).generation, null);
   assert.equal(requests.length, 2);
-  assert.equal(requests[1].url, "/ferns-9");
+  assert.equal(requests[1].url, "/bush-8");
 
-  completions.get("/ferns-9").resolve(bytes(ferns, "9", packResourceCoordinate(9, 9)));
+  completions.get("/bush-8").resolve(bytes(bush, "8", packResourceCoordinate(8, 8)));
   await drain();
   assert.equal(requests.length, 3);
-  assert.equal(requests[2].url, "/bush-8");
-  completions.get("/bush-8").resolve(bytes(bush, "8", packResourceCoordinate(8, 8)));
+  assert.equal(requests[2].url, "/ferns-9");
+  completions.get("/ferns-9").resolve(bytes(ferns, "9", packResourceCoordinate(9, 9)));
   await drain();
   assert.equal(requests.length, 3);
   assert.equal(loader.state().get(ferns.key).generation, "9");
   assert.equal(loader.state().get(bush.key).generation, "8");
+  loader.stop();
+});
+
+test("starts the newly prioritized scope entry before older pending work", async () => {
+  const a1 = partition("19", "2");
+  const a2 = partition("24", "2");
+  const b = partition("19", "125");
+  const events = connections();
+  const requests = [];
+  const completions = new Map();
+  const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 1,
+    fetchBinary: (url) => {
+      requests.push(url);
+      const completion = deferred();
+      completions.set(url, completion);
+      return completion.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+
+  loader.setScope([a1, a2], "/events?scope=a");
+  events.opened.at(-1).onEvent(ready(a1, "7", "/a1"));
+  events.opened.at(-1).onEvent(ready(a2, "7", "/a2"));
+  await drain();
+  assert.deepEqual(requests, ["/a1"]);
+
+  loader.setScope([b, a1, a2], "/events?scope=b-first");
+  events.opened.at(-1).onEvent(ready(b, "7", "/b"));
+  completions.get("/a1").resolve(bytes(a1, "7", packResourceCoordinate(1, 1)));
+  await drain();
+  assert.deepEqual(requests, ["/a1", "/b"]);
+
+  completions.get("/b").resolve(bytes(b, "7", packResourceCoordinate(2, 2)));
+  await drain();
+  assert.deepEqual(requests, ["/a1", "/b", "/a2"]);
+  completions.get("/a2").resolve(bytes(a2, "7", packResourceCoordinate(3, 3)));
+  await drain();
   loader.stop();
 });
 
@@ -614,6 +653,209 @@ test("fetches and commits an authoritative lower generation after warm-cache hyd
   assert.equal(loader.state().get(bush.key).generation, "9");
   assert.equal(loader.state().get(bush.key).freshness, "live");
   assert.deepEqual([...loader.state().get(bush.key).committed], [packResourceCoordinate(9, 9)]);
+  loader.stop();
+});
+
+test("accepts an authoritative lower generation after a restarted active stream", async () => {
+  const events = connections();
+  const generationOne = deferred();
+  const requests = [];
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => {
+      requests.push(url);
+      if (url === "/generation-10") return bytes(bush, "10", packResourceCoordinate(10, 10));
+      return generationOne.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=active-generation-reset");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "10", "/generation-10"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "10");
+
+  stream.onEvent({ type: "stream-ready" });
+  assert.equal(loader.state().get(bush.key).freshness, "awaiting-confirmation");
+  stream.onEvent(ready(bush, "1", "/generation-1"));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10", "/generation-1"]);
+  assert.equal(loader.state().get(bush.key).generation, "10", "old committed bytes remain while the reset fetch is pending");
+
+  generationOne.resolve(bytes(bush, "1", packResourceCoordinate(1, 1)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "1");
+  assert.equal(loader.state().get(bush.key).freshness, "live");
+  assert.deepEqual([...loader.state().get(bush.key).committed], [packResourceCoordinate(1, 1)]);
+  loader.stop();
+});
+
+test("authoritative stream reset supersedes an active old-stream generation", async () => {
+  const events = connections();
+  const requests = [];
+  const signals = new Map();
+  const completions = new Map();
+  const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 1,
+    fetchBinary: async (url, signal) => {
+      requests.push(url);
+      signals.set(url, signal);
+      if (url === "/generation-10") return bytes(bush, "10", packResourceCoordinate(10, 10));
+      const completion = deferred();
+      completions.set(url, completion);
+      return completion.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=active-old-stream");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "10", "/generation-10"));
+  await drain();
+  stream.onEvent(ready(bush, "11", "/generation-11"));
+  await drain();
+
+  stream.onEvent({ type: "stream-ready" });
+  stream.onEvent(ready(bush, "1", "/generation-1"));
+  await drain();
+  assert.equal(signals.get("/generation-11").aborted, true, "authoritative lower work aborts the old-stream request");
+
+  completions.get("/generation-11").resolve(bytes(bush, "11", packResourceCoordinate(11, 11)));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10", "/generation-11", "/generation-1"]);
+  assert.equal(loader.state().get(bush.key).generation, "10", "late old-stream bytes cannot publish");
+
+  completions.get("/generation-1").resolve(bytes(bush, "1", packResourceCoordinate(1, 1)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "1");
+  loader.stop();
+});
+
+test("authoritative stream reset replaces queued old-stream generation", async () => {
+  const events = connections();
+  const requests = [];
+  const completions = new Map();
+  const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 1,
+    fetchBinary: async (url) => {
+      requests.push(url);
+      if (url === "/generation-10") return bytes(bush, "10", packResourceCoordinate(10, 10));
+      const completion = deferred();
+      completions.set(url, completion);
+      return completion.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=queued-old-stream");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "10", "/generation-10"));
+  await drain();
+  stream.onEvent(ready(bush, "11", "/generation-11"));
+  stream.onEvent(ready(bush, "12", "/generation-12"));
+  await drain();
+
+  stream.onEvent({ type: "stream-ready" });
+  stream.onEvent(ready(bush, "1", "/generation-1"));
+  completions.get("/generation-11").resolve(bytes(bush, "11", packResourceCoordinate(11, 11)));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10", "/generation-11", "/generation-1"], "authoritative lower work replaces the queued higher generation");
+  assert.equal(loader.state().get(bush.key).generation, "10", "late old-stream bytes cannot publish");
+
+  completions.get("/generation-1").resolve(bytes(bush, "1", packResourceCoordinate(1, 1)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "1");
+  loader.stop();
+});
+
+test("stream-ready invalidates old-stream work before exact confirmation", async () => {
+  const events = connections();
+  const requests = [];
+  const signals = new Map();
+  const completions = new Map();
+  const loader = createMapResourceBinaryLoader({
+    maxConcurrentLoads: 1,
+    fetchBinary: async (url, signal) => {
+      requests.push(url);
+      signals.set(url, signal);
+      if (url === "/bush-10") return bytes(bush, "10", packResourceCoordinate(10, 10));
+      if (url === "/ferns-10") return bytes(ferns, "10", packResourceCoordinate(10, 10));
+      const completion = deferred();
+      completions.set(url, completion);
+      return completion.promise;
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush, ferns], "/events?scope=stream-boundary");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "10", "/bush-10"));
+  await drain();
+  stream.onEvent(ready(ferns, "10", "/ferns-10"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "10");
+  assert.equal(loader.state().get(ferns.key).generation, "10");
+
+  stream.onEvent(ready(bush, "11", "/bush-11"));
+  stream.onEvent(ready(ferns, "11", "/ferns-11"));
+  await drain();
+  assert.deepEqual(requests, ["/bush-10", "/ferns-10", "/bush-11"]);
+
+  stream.onEvent({ type: "stream-ready" });
+  stream.onEvent(ready(bush, "10", "/bush-10-confirmation"));
+  stream.onEvent(ready(ferns, "10", "/ferns-10-confirmation"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).freshness, "live");
+  assert.equal(loader.state().get(ferns.key).freshness, "live");
+
+  completions.get("/bush-11").resolve(bytes(bush, "11", packResourceCoordinate(11, 11)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "10", "late old-stream bytes cannot publish after exact confirmation");
+  assert.equal(loader.state().get(ferns.key).generation, "10");
+  assert.equal(signals.get("/bush-11").aborted, true);
+  assert.deepEqual(requests, ["/bush-10", "/ferns-10", "/bush-11"], "old pending work is discarded at the stream boundary");
+
+  stream.onEvent(ready(bush, "12", "/bush-12"));
+  await drain();
+  assert.deepEqual(requests, ["/bush-10", "/ferns-10", "/bush-11", "/bush-12"]);
+  completions.get("/bush-12").resolve(bytes(bush, "12", packResourceCoordinate(12, 12)));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "12");
+  assert.equal(loader.state().get(bush.key).freshness, "live");
+  loader.stop();
+});
+
+test("keeps ordinary generation fencing and restores it after exact stream confirmation", async () => {
+  const events = connections();
+  const requests = [];
+  const loader = createMapResourceBinaryLoader({
+    fetchBinary: async (url) => {
+      requests.push(url);
+      return bytes(bush, "10", packResourceCoordinate(10, 10));
+    },
+    connectEvents: events.connectEvents,
+    onError() {},
+  });
+  loader.setScope([bush], "/events?scope=active-generation-fence");
+  const stream = events.opened.at(-1);
+  stream.onEvent(ready(bush, "10", "/generation-10"));
+  await drain();
+
+  stream.onEvent(ready(bush, "9", "/generation-9"));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10"], "an existing stream cannot roll back a confirmed partition");
+
+  stream.onEvent({ type: "stream-ready" });
+  assert.equal(loader.state().get(bush.key).freshness, "awaiting-confirmation");
+  stream.onEvent(ready(bush, "10", "/unchanged"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).freshness, "live");
+  assert.deepEqual(requests, ["/generation-10"], "an exact stream confirmation does not refetch");
+
+  stream.onEvent(ready(bush, "8", "/generation-8"));
+  await drain();
+  assert.deepEqual(requests, ["/generation-10"], "exact confirmation restores the lower-generation fence");
+  assert.equal(loader.state().get(bush.key).generation, "10");
   loader.stop();
 });
 

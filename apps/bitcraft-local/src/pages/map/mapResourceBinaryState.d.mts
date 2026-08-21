@@ -22,6 +22,9 @@ export function reconcileMapResourceBinaryScope(
   state: ReadonlyMap<string, BrowserResourcePartition>,
   scope?: BrowserResourcePartitionScope[],
 ): ReadonlyMap<string, BrowserResourcePartition>;
+export function markMapResourceBinaryAwaitingConfirmation(
+  state: ReadonlyMap<string, BrowserResourcePartition>,
+): ReadonlyMap<string, BrowserResourcePartition>;
 export function applyMapResourceBinaryCommitted(
   state: ReadonlyMap<string, BrowserResourcePartition>,
   key: string,
