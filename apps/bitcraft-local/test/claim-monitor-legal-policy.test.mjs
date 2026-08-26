@@ -11,14 +11,15 @@ test("Claim Monitor publishes a distinct accurate policy under the same controll
   });
   const text = JSON.stringify(policy);
 
-  assert.equal(policy.version, "2026-08-25");
-  assert.equal(policy.effectiveDate, "2026-08-25");
+  assert.equal(policy.version, "2026-08-26");
+  assert.equal(policy.effectiveDate, "2026-08-26");
   assert.equal(policy.operator.controllerName, "Thomas Bush");
   assert.equal(policy.operator.projectName, "BitCraft Claim Monitor");
   assert.equal(policy.operator.privacyEmail, "privacy@claim-monitor.com");
   for (const phrase of ["Discord OAuth", "plans", "bearer links", "BitCraft Relay", "security logs", "export", "deletion"]) {
     assert.match(text, new RegExp(phrase, "i"));
   }
+  assert.doesNotMatch(text, /settlement|timbersteel/i);
   assert.doesNotMatch(text, /continuous monitoring|Discord bot|Discord services|Featurebase|analytics events/i);
   const inactivity = policy.retention.find((rule) => rule.key === "inactive-account");
   assert.match(inactivity.rule, /24 months/i);

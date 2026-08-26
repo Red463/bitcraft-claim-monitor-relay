@@ -100,6 +100,8 @@ test("my plans renders owned and shared roles and exposes creation", async () =>
     assert.match(document.body.textContent, /My plans/);
     assert.match(document.body.textContent, /North wall/);
     assert.match(document.body.textContent, /Shared forge/);
+    assert.match(document.body.textContent, /Claim #42/);
+    assert.doesNotMatch(document.body.textContent, /Settlement #42/);
     assert.match(document.body.textContent, /Owner/);
     assert.match(document.body.textContent, /Viewer/);
     assert.ok(document.querySelector("a[href='/plans/new']"));

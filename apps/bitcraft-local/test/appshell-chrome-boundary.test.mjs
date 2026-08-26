@@ -11,16 +11,16 @@ test("application shell exposes contextual Obsidian Ledger surface modes", () =>
 
 test("application tools use one anchored utility bar", () => {
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
-  const utility = readFileSync(new URL("../src/components/main/AppUtilityBar.tsx", import.meta.url), "utf8");
+  const utility = readFileSync(new URL("../src/components/app-chrome/AppUtilityBar.tsx", import.meta.url), "utf8");
   assert.match(appShell, /<AppUtilityBar/);
   assert.doesNotMatch(appShell, /layout\.floatingActionsCollapsed|mobileFloatingActionsOpen|floating-actions/);
   assert.match(utility, /aria-label="Application tools"/);
-  assert.match(utility, /Search commands/);
+  assert.match(appShell, /Search commands/);
 });
 
 test("global refresh uses the page-cycle lifecycle with consistent manual feedback", () => {
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
-  const utility = readFileSync(new URL("../src/components/main/AppUtilityBar.tsx", import.meta.url), "utf8");
+  const utility = readFileSync(new URL("../src/components/app-chrome/AppUtilityBar.tsx", import.meta.url), "utf8");
 
   assert.match(appShell, /createPageRefreshController/);
   assert.match(appShell, /createPageRefreshTaskCoordinator/);
@@ -29,14 +29,14 @@ test("global refresh uses the page-cycle lifecycle with consistent manual feedba
   assert.match(appShell, /requestManualRefresh/);
   assert.match(appShell, /pageRefreshCycle/);
   assert.match(appShell, /pageRefreshCoordinator/);
-  assert.match(utility, /aria-busy=\{refreshing\}/);
-  assert.match(utility, /aria-disabled=\{refreshDisabled\}/);
+  assert.match(utility, /aria-busy=\{action\.busy/);
+  assert.match(utility, /aria-disabled=\{action\.disabled/);
   assert.match(appShell, /manualRefreshButtonLabel/);
-  assert.match(utility, /is-refreshing/);
+  assert.match(appShell, /is-refreshing/);
   assert.match(appShell, /const manualRefreshIsCoolingDown = !manualRefreshIsRefreshing && manualRefreshCooldownMs > 0/);
-  assert.match(utility, /coolingDownSeconds > 0 \? "is-cooldown"/);
+  assert.match(appShell, /is-cooldown/);
   assert.match(utility, /className="refresh-cooldown-countdown"/);
-  assert.match(utility, /\{coolingDownSeconds\}s/);
+  assert.match(appShell, /manualRefreshCooldownSeconds\}s/);
   assert.match(appShell, /role="status"[^>]*aria-live="polite"/s);
   assert.match(appShell, /Data refreshed/);
   assert.match(appShell, /Refresh available in/);
@@ -65,14 +65,16 @@ test("obsolete floating action rail CSS is removed after tools move to the utili
 });
 test("footer presents build provenance and secondary actions in a flat two-part layout", () => {
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  const footer = readFileSync(new URL("../src/components/app-chrome/AppFooter.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
   assert.match(appShell, /fetch\(`\$\{LOCAL_API\}\/health`, \{ cache: "no-store" \}\)/);
   assert.match(appShell, /setAppBuildId/);
   assert.match(appShell, /appBuildIdRef/);
   assert.match(appShell, /footer-build/);
-  assert.match(appShell, /className="footer-primary"/);
-  assert.match(appShell, /className="footer-secondary"/);
+  assert.match(appShell, /<AppFooter/);
+  assert.match(footer, /className="footer-primary"/);
+  assert.match(footer, /className="footer-secondary"/);
   assert.match(appShell, /APP_VERSION/);
   assert.match(css, /\.app-footer\s*\{[^}]*border-top:\s*1px solid var\(--line-subtle\)[^}]*background:\s*var\(--canvas\)[^}]*box-shadow:\s*none/s);
   const buildRule = css.match(/\.app-footer \.footer-build\s*\{(?<body>[^}]+)\}/)?.groups?.body ?? "";
@@ -84,10 +86,10 @@ test("dedicated map mode keeps the map route while omitting optional application
 
   assert.match(appShell, /const dedicatedMapView = isDedicatedMapView\(routeSearch\)/);
   assert.match(appShell, /<MapPanel[^>]*dedicated=\{dedicatedMapView\}/s);
-  assert.match(appShell, /!dedicatedMapView \? \([\s\S]*className="mobile-shell-bar"/);
-  assert.match(appShell, /\{!dedicatedMapView && active !== "admin" \? <footer className="app-footer">/);
+  assert.match(appShell, /sidebar=\{dedicatedMapView \? null/);
+  assert.match(appShell, /footer=\{!dedicatedMapView && active !== "admin" \? <AppFooter/);
   assert.match(appShell, /app-shell[^`]*\$\{dedicatedMapView \? "map-dedicated-shell" : ""\}/);
-  assert.match(appShell, /!dedicatedMapView \? <AppUtilityBar/);
+  assert.match(appShell, /utilityBar=\{dedicatedMapView \? null : <AppUtilityBar/);
   assert.match(appShell, /\{!dedicatedMapView \? \([\s\S]*release-update-banner/);
   assert.match(appShell, /LegalAcceptanceDialog/);
 });
@@ -110,15 +112,18 @@ test("app chrome uses the approved Claim Monitor logo and favicon as defaults", 
   assert.match(index, /type="image\/x-icon" href="\/favicon\.ico"/);
   assert.match(appShell, /const DEFAULT_APP_LOGO_URL = "\/claim-monitor-logo\.png"/);
   assert.match(appShell, /const DEFAULT_FAVICON_URL = "\/favicon\.ico"/);
-  assert.match(appShell, /appSettings\.branding\.logo\s*\?\s*<img[\s\S]*:\s*<img src=\{DEFAULT_APP_LOGO_URL\} alt=""/);
+  assert.match(appShell, /logoUrl:\s*appSettings\.branding\.logo/);
+  assert.match(appShell, /fallbackLogoUrl:\s*DEFAULT_APP_LOGO_URL/);
   assert.equal(existsSync(new URL("claim-monitor-logo.png", publicDirectory)), true);
   assert.equal(existsSync(new URL("favicon.ico", publicDirectory)), true);
 });
 
 test("configured branding falls back to bundled logo and favicon after load errors", () => {
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  const sidebar = readFileSync(new URL("../src/components/app-chrome/AppSidebar.tsx", import.meta.url), "utf8");
 
-  assert.match(appShell, /onError=\{\(event\) => \{\s*event\.currentTarget\.onerror = null;\s*event\.currentTarget\.src = DEFAULT_APP_LOGO_URL;/s);
+  assert.match(appShell, /fallbackLogoUrl:\s*DEFAULT_APP_LOGO_URL/);
+  assert.match(sidebar, /event\.currentTarget\.onerror = null/);
   assert.match(appShell, /const probe = new Image\(\)/);
   assert.match(appShell, /probe\.onerror = \(\) => \{[\s\S]*link\.href = DEFAULT_FAVICON_URL;[\s\S]*link\.type = "image\/x-icon";/);
   assert.match(appShell, /let disposed = false;/);
@@ -147,5 +152,25 @@ test("sidebar overview label preserves the existing command group key", () => {
   assert.match(navigation, /\{\s*id:\s*"command",\s*label:\s*"Overview"/);
   assert.doesNotMatch(navigation, /\{\s*id:\s*"overview"/);
   assert.doesNotMatch(navigation, /label:\s*"Command"/);
+});
+
+test("dedicated AppShell supplies every existing chrome capability to shared components", () => {
+  const shell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /from "\.\/components\/app-chrome"/);
+  assert.match(shell, /<AppFrame/);
+  assert.match(shell, /<AppSidebar/);
+  assert.match(shell, /<AppUtilityBar/);
+  assert.match(shell, /<AppFooter/);
+  for (const capability of ["Sign in with Discord", "Join Discord Server", "Search commands", "Admin console", "Browser settings", "Updates", "Help and application information", "Privacy & Analytics", "Terms & Bot Use"]) {
+    assert.match(shell, new RegExp(capability.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("both profiles keep one shared frame contract", () => {
+  const dedicated = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  const publicChrome = readFileSync(new URL("../src/public/PublicChrome.tsx", import.meta.url), "utf8");
+  assert.match(dedicated, /<AppFrame/);
+  assert.match(publicChrome, /<AppFrame/);
+  assert.doesNotMatch(publicChrome, /from\s+["']\.\.\/AppShell["']/);
 });
 

@@ -58,6 +58,7 @@ test("AppShell imports only top-level shell dependencies after admin/settings ex
   assert.doesNotMatch(appShell, /buildConstructionProjects|constructionNeededMaterials|mapWithBrowserConcurrency|discordColorToHex|NOTIFICATION_SOUND_OPTIONS|THEME_FIELD_GROUPS/);
   assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
   assert.equal(appShell.includes('import { UserSettingsDialog } from "./components/main/UserSettingsDialog";'), true);
+  assert.match(appShell, /from "\.\/components\/app-chrome"/);
 });
 
 test("TimbersteelRoot gates AppShell on bootstrap after main selects a host profile", () => {

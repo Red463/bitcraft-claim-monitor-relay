@@ -378,8 +378,8 @@ export function legalPolicyForEnvironment(env = {}) {
   });
 }
 
-export const CLAIM_MONITOR_LEGAL_VERSION = "2026-08-25";
-export const CLAIM_MONITOR_LEGAL_EFFECTIVE_DATE = "2026-08-25";
+export const CLAIM_MONITOR_LEGAL_VERSION = "2026-08-26";
+export const CLAIM_MONITOR_LEGAL_EFFECTIVE_DATE = "2026-08-26";
 
 const claimMonitorProviders = Object.freeze([
   {
@@ -400,7 +400,7 @@ const claimMonitorProviders = Object.freeze([
     key: "bitcraft-relay",
     name: "BitCraft Relay",
     role: "Public BitCraft game-data relay",
-    data: "Settlement and catalog lookups requested while a user searches, opens a page, or refreshes visible data.",
+    data: "Claim and catalog lookups requested while a user searches, opens a page, or refreshes visible data.",
     location: "The Relay operator and infrastructure locations have not been published to this app; processing may occur outside the United Kingdom.",
   },
   {
@@ -438,7 +438,7 @@ function claimMonitorTermsSections(operator) {
       id: "accounts",
       title: "Anonymous use and Discord OAuth accounts",
       paragraphs: [
-        "Public settlement lookups work without an account. Optional signed-in features use Discord OAuth with the identify scope only and store a separate Claim Monitor account and session.",
+        "Public claim lookups work without an account. Optional signed-in features use Discord OAuth with the identify scope only and store a separate Claim Monitor account and session.",
         `You must be at least ${operator.minimumAge} years old and protect access to the Discord account used to sign in.`,
       ],
     },
@@ -446,7 +446,7 @@ function claimMonitorTermsSections(operator) {
       id: "relay",
       title: "Public game-data lookups",
       paragraphs: [
-        "BitCraft Relay supplies public settlement and catalog results when you search, open a settlement page, refresh visible data, or use a plan feature. Results may be delayed, partial, unavailable, or inaccurate and are not guaranteed facts.",
+        "BitCraft Relay supplies public claim and catalog results when you search, open a claim page, refresh visible data, or use a plan feature. Results may be delayed, partial, unavailable, or inaccurate and are not guaranteed facts.",
       ],
     },
     {
@@ -527,7 +527,7 @@ function claimMonitorPrivacySections(operator) {
       title: "Exports, reauthentication, and deletion",
       paragraphs: [
         "A signed-in user can download an account export. Account deletion requires recent reauthentication with the same Discord account and a preflight that identifies the required disposition of owned plans before deletion can complete.",
-        "Deletion removes the public Claim Monitor account and associated live public-profile data according to the chosen plan dispositions. It does not delete Discord membership, create or remove a Timbersteel administrator, alter a Timbersteel account, or delete data held independently by providers. Restricted backup copies expire under the backup rotation, and pseudonymous restore receipts prevent deleted public data from silently returning.",
+        "Deletion removes the public Claim Monitor account and associated live public-profile data according to the chosen plan dispositions. It does not delete Discord membership, create or remove an administrator in another service, alter an account in another service, or delete data held independently by providers. Restricted backup copies expire under the backup rotation, and pseudonymous restore receipts prevent deleted public data from silently returning.",
       ],
     },
     {

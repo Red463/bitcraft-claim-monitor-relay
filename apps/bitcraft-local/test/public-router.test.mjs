@@ -11,10 +11,15 @@ try {
 test("public router accepts only the supported canonical paths", () => {
   assert.ok(publicRoutes, "public route boundary must exist");
 
-  assert.deepEqual(publicRoutes.resolvePublicRoute("/"), { id: "overview", params: {} });
-  assert.deepEqual(publicRoutes.resolvePublicRoute("/settlements/18446744073709551615"), {
-    id: "settlement",
+  assert.deepEqual(publicRoutes.resolvePublicRoute("/"), { id: "home", params: {} });
+  assert.deepEqual(publicRoutes.resolvePublicRoute("/claims/18446744073709551615"), {
+    id: "dashboard",
     params: { claimId: "18446744073709551615" },
+  });
+  assert.deepEqual(publicRoutes.resolvePublicRoute("/settlements/18446744073709551615"), {
+    id: "dashboard",
+    params: { claimId: "18446744073709551615" },
+    canonicalPath: "/claims/18446744073709551615",
   });
   assert.deepEqual(publicRoutes.resolvePublicRoute("/plans"), { id: "plans", params: {} });
   assert.deepEqual(publicRoutes.resolvePublicRoute("/plans/new"), { id: "plan-new", params: {} });

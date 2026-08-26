@@ -15,6 +15,12 @@ test("public settlement search validates NFKC visible text and canonical unsigne
   assert.ok(publicData, "public data module must exist");
   assert.deepEqual(publicData.normalizePublicSearchQuery("  Ｏａｋ  "), { kind: "name", value: "Oak" });
   assert.deepEqual(publicData.normalizePublicSearchQuery("18446744073709551615"), { kind: "id", value: "18446744073709551615" });
+  assert.throws(
+    () => publicData.normalizePublicSearchQuery("ab"),
+    (error) => error instanceof publicData.PublicDataError
+      && error.status === 400
+      && error.message === "Claim search requires 3-64 visible Unicode characters.",
+  );
   for (const invalid of ["ab", "a\nb", "01", "18446744073709551616", "x".repeat(65)]) {
     assert.throws(() => publicData.normalizePublicSearchQuery(invalid), { name: "PublicDataError", status: 400 });
   }
@@ -261,7 +267,7 @@ test("public settlement search uses a fixed stale warning without exception deta
   const stale = await service.searchSettlements("oak");
   assert.deepEqual(stale.warnings, [{
     code: "relay_search_stale",
-    message: "Settlement search results are stale while Relay recovers.",
+    message: "Claim search results are stale while Relay recovers.",
   }]);
   assert.doesNotMatch(JSON.stringify(stale), /relay\.secret|token|hidden|GET/);
 });
@@ -398,7 +404,7 @@ test("public settlement snapshot uses a fixed stale warning without exception de
   const stale = await service.snapshot("42", "claim");
   assert.deepEqual(stale.warnings, [{
     code: "relay_snapshot_stale",
-    message: "Settlement snapshot data is stale while Relay recovers.",
+    message: "Claim snapshot data is stale while Relay recovers.",
   }]);
   assert.doesNotMatch(JSON.stringify(stale), /relay\.secret|config|password|hidden|Authorization/);
 });

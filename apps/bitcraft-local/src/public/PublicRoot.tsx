@@ -10,6 +10,12 @@ export default function PublicRoot({ profile }: { profile: FrontendProfile }) {
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
+  React.useEffect(() => {
+    if (!route.canonicalPath) return;
+    const canonicalUrl = `${route.canonicalPath}${window.location.search}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", canonicalUrl);
+    setRoute(resolvePublicRoute(route.canonicalPath));
+  }, [route.canonicalPath]);
   if (route.id === "not-found") {
     return <main className="public-not-found" data-public-route="not-found"><h1>Page not found</h1><p>This public claim-monitor page is not available.</p><a className="toolbar-button primary" href="/">Open claim monitor</a></main>;
   }

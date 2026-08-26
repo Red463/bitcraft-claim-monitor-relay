@@ -24,7 +24,7 @@ test("disabled public profile renders maintenance without an operable settlement
       features: disabledFeatures,
     }));
     assert.match(document.body.textContent, /not enabled yet/i);
-    assert.equal(document.querySelector("#public-settlement-search"), null);
+    assert.equal(document.querySelector("#home-claim-finder-input"), null);
     assert.doesNotMatch(document.body.textContent, /Not found|being prepared/i);
   } finally {
     if (view) await view.unmount();
@@ -41,7 +41,7 @@ test("public shell fails closed when a caller omits server-owned feature flags",
     const { PublicAppShell } = await vite.ssrLoadModule("/src/public/PublicAppShell.tsx");
     view = await mount(React.createElement(PublicAppShell, { route: { id: "home", params: {} } }));
     assert.match(document.body.textContent, /not enabled yet/i);
-    assert.equal(document.querySelector("#public-settlement-search"), null);
+    assert.equal(document.querySelector("#home-claim-finder-input"), null);
   } finally {
     if (view) await view.unmount();
     await vite.close();
@@ -59,11 +59,11 @@ test("enabled read-only profile presents settlement search without unfinished pl
       route: resolvePublicRoute("/"),
       features: { ...disabledFeatures, publicProfileEnabled: true, publicLegalConfigurationConfirmed: true },
     }));
-    const search = document.querySelector("#public-settlement-search");
+    const search = document.querySelector("#home-claim-finder-input");
     assert.ok(search);
-    assert.equal(document.querySelector('label[for="public-settlement-search"]')?.textContent, "FIND A BITCRAFT SETTLEMENT");
-    assert.equal(search.getAttribute("placeholder"), "Settlement name or exact claim ID");
-    assert.match(document.body.textContent, /Enter at least 3 characters from the settlement name, or paste the exact claim ID\./);
+    assert.equal(document.querySelector('label[for="home-claim-finder-input"]')?.textContent, "FIND A BITCRAFT CLAIM");
+    assert.equal(search.getAttribute("placeholder"), "Claim name or exact claim ID");
+    assert.match(document.body.textContent, /Enter at least 3 characters from the claim name, or paste the exact claim ID\./);
     assert.doesNotMatch(document.body.textContent, /being prepared/i);
   } finally {
     if (view) await view.unmount();
@@ -72,7 +72,7 @@ test("enabled read-only profile presents settlement search without unfinished pl
   }
 });
 
-test("first-time public visitors receive compact settlement selection guidance", async () => {
+test("first-time public visitors receive compact claim selection guidance", async () => {
   const dom = installDom("http://localhost/");
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
   let view;
@@ -86,9 +86,9 @@ test("first-time public visitors receive compact settlement selection guidance",
     assert.match(document.body.textContent, /Welcome to Claim Monitor/);
     assert.match(document.body.textContent, /current, read-only data/i);
     assert.match(document.body.textContent, /Enter at least three characters/i);
-    assert.match(document.body.textContent, /Select the correct result/i);
-    assert.match(document.body.textContent, /Use the settlement navigation/i);
-    assert.match(document.body.textContent, /does not continuously monitor public settlements/i);
+    assert.match(document.body.textContent, /Select the correct claim/i);
+    assert.match(document.body.textContent, /Use the claim navigation/i);
+    assert.match(document.body.textContent, /does not continuously monitor public claims/i);
     assert.match(document.body.textContent, /public history, notifications, or Discord services/i);
   } finally {
     if (view) await view.unmount();
@@ -112,9 +112,9 @@ test("returning public visitors receive compact search until clearing recents re
     }));
 
     assert.doesNotMatch(document.body.textContent, /Welcome to Claim Monitor/);
-    assert.match(document.body.textContent, /Recent settlements/);
+    assert.match(document.body.textContent, /Recent claims/);
     assert.match(document.body.textContent, /Basin of Cairn/);
-    assert.ok(document.querySelector("#public-settlement-search"));
+    assert.ok(document.querySelector("#home-claim-finder-input"));
 
     window.localStorage.removeItem("claim-monitor.public.recent-settlements");
     await view.unmount();
@@ -123,7 +123,7 @@ test("returning public visitors receive compact search until clearing recents re
       features: { ...disabledFeatures, publicProfileEnabled: true, publicLegalConfigurationConfirmed: true },
     }));
     assert.match(document.body.textContent, /Welcome to Claim Monitor/);
-    assert.doesNotMatch(document.body.textContent, /Recent settlements/);
+    assert.doesNotMatch(document.body.textContent, /Recent claims/);
   } finally {
     if (view) await view.unmount();
     await vite.close();
@@ -131,7 +131,7 @@ test("returning public visitors receive compact search until clearing recents re
   }
 });
 
-test("public Help explains settlement selection and on-demand limitations", async () => {
+test("public Help explains claim selection and on-demand limitations", async () => {
   const dom = installDom("http://localhost/help");
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
   let view;
@@ -142,7 +142,7 @@ test("public Help explains settlement selection and on-demand limitations", asyn
       features: { ...disabledFeatures, publicProfileEnabled: true, publicLegalConfigurationConfirmed: true },
     }));
 
-    assert.match(document.body.textContent, /Finding a settlement/i);
+    assert.match(document.body.textContent, /Finding a claim/i);
     assert.match(document.body.textContent, /at least three characters/i);
     assert.match(document.body.textContent, /loaded on demand/i);
     assert.match(document.body.textContent, /no public history, alerts, notifications, or Discord services/i);

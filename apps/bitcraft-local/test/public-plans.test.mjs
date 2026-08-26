@@ -582,6 +582,7 @@ test("public plan computation uses only public settlement sources and isolates p
   assert.equal(unavailable.available, false);
   assert.deepEqual(unavailable.document, plan43.document);
   assert.equal(unavailable.warnings[0].code, "public_plan_computation_unavailable");
+  assert.match(unavailable.warnings[0].message, /current claim and catalog data/);
 });
 
 test("public plan computation fails closed when any required catalog node is unavailable", async () => {

@@ -19,12 +19,14 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return payload;
 }
 
-export function searchPublicSettlements(query: string, signal?: AbortSignal) {
+export function searchPublicClaims(query: string, signal?: AbortSignal) {
   return getJson<{ query: string; hints: PublicHint[]; stale: boolean; ageMs: number; warnings: unknown[] }>(
     `/api/public/settlements/search?q=${encodeURIComponent(query)}`,
     signal,
   );
 }
+
+export const searchPublicSettlements = searchPublicClaims;
 
 export function loadPublicSnapshot(claimId: string, domains: string[], signal?: AbortSignal) {
   return getJson<PublicSnapshot>(

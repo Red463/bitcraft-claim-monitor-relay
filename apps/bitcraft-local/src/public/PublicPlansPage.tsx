@@ -47,9 +47,9 @@ function MyPlans({ plans }: { plans: Row[] }) {
   return <section className="public-panel public-plan-workspace">
     <header className="public-plan-header"><div><p className="public-eyebrow">Collaboration</p><h1>My plans</h1></div><a className="toolbar-button primary" href="/plans/new"><Plus size={16} /> New plan</a></header>
     {plans.length ? <div className="public-plan-list">{plans.map((plan) => <a href={`/plans/${encodeURIComponent(String(plan.id))}`} key={String(plan.id)}>
-      <div><strong>{String(plan.title)}</strong><span>Settlement #{String(plan.claimId)} · {String(plan.status)}</span></div>
+      <div><strong>{String(plan.title)}</strong><span>Claim #{String(plan.claimId)} · {String(plan.status)}</span></div>
       <span className="public-plan-role">{roleLabel(plan.role)}</span>
-    </a>)}</div> : <p>No plans yet. Create the first plan for your settlement.</p>}
+    </a>)}</div> : <p>No plans yet. Create the first plan for your claim.</p>}
   </section>;
 }
 
@@ -69,7 +69,7 @@ function NewPlan({ csrfToken }: { csrfToken: string }) {
   }
   return <section className="public-panel public-plan-workspace"><header><p className="public-eyebrow">My plans</p><h1>Create plan</h1></header>
     <form className="public-plan-form" onSubmit={submit}>
-      <label><span>Settlement claim ID</span><input required inputMode="numeric" pattern="0|[1-9][0-9]*" value={claimId} onChange={(event) => setClaimId(event.target.value)} /></label>
+      <label><span>Claim ID</span><input required inputMode="numeric" pattern="0|[1-9][0-9]*" value={claimId} onChange={(event) => setClaimId(event.target.value)} /></label>
       <label><span>Plan title</span><input required maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       {message ? <p role="alert">{message}</p> : null}
       <div className="public-account-actions"><a className="toolbar-button" href="/plans">Cancel</a><button className="toolbar-button primary" disabled={busy}><Plus size={16} /> {busy ? "Creating…" : "Create plan"}</button></div>
@@ -133,7 +133,7 @@ function PlanEditor({ initialPlan, csrfToken }: { initialPlan: Row; csrfToken: s
   }
 
   return <section className="public-panel public-plan-workspace">
-    <header className="public-plan-header"><div><p className="public-eyebrow">Settlement #{String(plan.claimId)} · {roleLabel(plan.role)}</p><h1>{String(plan.title)}</h1><span className="public-plan-role">{String(plan.status)}</span></div><a className="toolbar-button" href="/plans">Back to My plans</a></header>
+    <header className="public-plan-header"><div><p className="public-eyebrow">Claim #{String(plan.claimId)} · {roleLabel(plan.role)}</p><h1>{String(plan.title)}</h1><span className="public-plan-role">{String(plan.status)}</span></div><a className="toolbar-button" href="/plans">Back to My plans</a></header>
     {message ? <div className="public-plan-message" role="alert">{message}{conflict ? <div className="public-account-actions"><button className="toolbar-button" onClick={() => void run("reload", () => refresh())}><RefreshCw size={15} /> Reload server version</button><button className="toolbar-button" onClick={() => void run("copy", () => copyText(draft))}><Clipboard size={15} /> Copy unsaved draft</button></div> : null}</div> : null}
     <div className="public-plan-editor-grid">
       <section><h2>Plan document</h2><p>Targets use typed catalog keys such as <code>items:7</code> or <code>cargo:7</code>. Quantities remain decimal strings.</p><textarea aria-label="Plan document JSON" spellCheck={false} readOnly={!canEdit} value={draft} onInput={(event) => setDraft(event.currentTarget.value)} />

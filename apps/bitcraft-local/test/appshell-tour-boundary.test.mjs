@@ -85,8 +85,8 @@ test("tour does not force a settings modal open during guided steps", () => {
   assert.doesNotMatch(manager, /onOpenUserSettings\?\.\(\);/);
 });
 test("tour anchors are stable data attributes rather than CSS selectors", () => {
-  const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
-  const appUtilityBar = readFileSync(new URL("../src/components/main/AppUtilityBar.tsx", import.meta.url), "utf8");
+  const appSidebar = readFileSync(new URL("../src/components/app-chrome/AppSidebar.tsx", import.meta.url), "utf8");
+  const appUtilityBar = readFileSync(new URL("../src/components/app-chrome/AppUtilityBar.tsx", import.meta.url), "utf8");
   const dashboard = readFileSync(new URL("../src/pages/DashboardPage.tsx", import.meta.url), "utf8");
   const leaderboard = readFileSync(new URL("../src/pages/LeaderboardPage.tsx", import.meta.url), "utf8");
   const members = readFileSync(new URL("../src/pages/MembersPage.tsx", import.meta.url), "utf8");
@@ -105,7 +105,7 @@ test("tour anchors are stable data attributes rather than CSS selectors", () => 
   const sync = readFileSync(new URL("../src/pages/SyncPage.tsx", import.meta.url), "utf8");
   const userSettingsDialog = readFileSync(new URL("../src/components/main/UserSettingsDialog.tsx", import.meta.url), "utf8");
 
-  assert.match(appShell, /data-tour="sidebar-navigation"/);
+  assert.match(appSidebar, /data-tour="sidebar-navigation"/);
   assert.match(appUtilityBar, /data-tour="floating-actions"/);
   assert.match(dashboard, /data-tour="dashboard-summary"/);
   assert.match(leaderboard, /data-tour="leaderboard-page"/);

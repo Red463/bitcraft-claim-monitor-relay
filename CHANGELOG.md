@@ -9,6 +9,20 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.63.0-beta.12] - 2026-08-26
+
+### Added
+
+- Added dedicated Members and Professions views for public claims.
+- Added a global claim finder with a keyboard shortcut and canonical claim URLs.
+- Added visible disabled navigation for planned public features so visitors can see what is coming next.
+
+### Changed
+
+- Unified the public and dedicated experiences around the same sidebar, top bar, footer, responsive layout, and mobile navigation.
+- Updated public-facing language to consistently describe BitCraft claims without referring to the dedicated community application.
+- Preserved every existing dedicated application destination and capability while sharing its application frame.
+
 ## [0.63.0-beta.11] - 2026-08-26
 
 ### Added

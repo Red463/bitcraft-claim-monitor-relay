@@ -1,100 +1,71 @@
 import React from "react";
-import { Boxes, ChevronRight, Hammer, Home, RefreshCw, Search, UserRound, Users } from "lucide-react";
+import { Hammer } from "lucide-react";
 import type { FrontendProfile } from "../api/profile";
-import { loadPublicSnapshot, searchPublicCatalog, searchPublicSettlements, type PublicHint, type PublicSnapshot } from "./api";
+import { searchPublicCatalog } from "./api";
 import { PublicAccountSettings } from "./PublicAccountSettings";
+import { PublicClaimFinder } from "./PublicClaimFinder";
+import { PublicClaimPages } from "./PublicClaimPages";
+import { PublicChrome } from "./PublicChrome";
 import { PublicLegalPage } from "./PublicLegalPage";
 import { PublicPlanAccessPage } from "./PublicPlanAccessPage";
 import { PublicPlansPage } from "./PublicPlansPage";
-import { addRecentSettlement, readRecentSettlements } from "./preferences.mjs";
-import { publicSettlementPath } from "./routes.mjs";
-import { createVisibleRefreshController } from "./visibleRefresh.mjs";
+import { readRecentClaims } from "./preferences.mjs";
+import type { PublicRoute } from "./routes.mjs";
+import { usePublicSnapshot } from "./usePublicSnapshot";
 
-type Route = { id: string; params: Record<string, string> };
 type PublicFeatures = FrontendProfile["features"];
 type Row = Record<string, unknown>;
 const row = (value: unknown): Row => value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(row) : [];
-const title = (route: Route) => ({ settlement: "Overview", members: "Members & professions", inventory: "Shared inventory", crafts: "Craft monitor", calculator: "Craft calculator" }[route.id] ?? "Claim Monitor");
-const domains = (route: Route) => route.id === "members" ? ["claim", "members", "citizens"] : route.id === "inventory" ? ["claim", "inventories"] : route.id === "crafts" ? ["claim", "crafts"] : ["claim"];
-
-function number(value: unknown) { const text = String(value ?? "0"); try { return /^\d+$/.test(text) ? BigInt(text).toLocaleString() : text; } catch { return text; } }
-function warning(value: unknown) { const data = row(value); return String(data.message ?? data.code ?? value ?? "Some live data is incomplete."); }
-
-function TypedStack({ stack }: { stack: Row }) {
-  const catalogKey = String(stack.catalogKey ?? `${stack.itemType === "cargo" ? "cargo" : "items"}:${stack.itemId ?? ""}`);
-  return <li className="public-stack"><span>{catalogKey.startsWith("cargo:") ? "Cargo" : "Item"} · #{String(stack.itemId ?? "—")}</span><strong>{number(stack.amount ?? stack.quantity)}</strong></li>;
-}
-
-function Freshness({ snapshot, refreshing }: { snapshot: PublicSnapshot | null; refreshing: boolean }) {
-  if (!snapshot) return null;
-  const seconds = Math.max(0, Math.round(snapshot.ageMs / 1000));
-  return <span className={`public-freshness ${snapshot.stale ? "is-stale" : ""}`}>{refreshing ? "Refreshing…" : snapshot.stale ? `Stale · ${seconds}s old` : `Live · ${seconds}s old`}</span>;
-}
-
-function Overview({ claim }: { claim: Row }) {
-  const metrics: Array<[string, unknown]> = [["Tier", claim.tier], ["Supplies", claim.supplies], ["Treasury", claim.treasury], ["Tiles", claim.numTiles]];
-  return <section className="public-metric-grid">{metrics.map(([label, value]) => <article className="public-panel" key={label}><span>{label}</span><strong>{value == null ? "Unavailable" : number(value)}</strong></article>)}</section>;
-}
-
-function Members({ members, citizens }: { members: Row; citizens: Row }) {
-  const profiles = rows(citizens.data);
-  return <section className="public-panel"><h2>Current roster</h2>{!members.data ? <p>Member data is temporarily unavailable.</p> : <div className="public-table">{rows(members.data).map((member) => {
-    const profile = profiles.find((candidate) => String(candidate.playerEntityId) === String(member.playerEntityId)); const skills = row(profile?.skills); const names = row(profile?.skillNames);
-    return <article key={String(member.entityId)}><strong>{String(member.userName || "Unknown member")}</strong><span>{Object.entries(skills).map(([id, level]) => `${String(names[id] ?? id)} ${level}`).join(" · ") || "No profession data"}</span></article>;
-  })}</div>}</section>;
-}
-
-function Inventory({ inventory }: { inventory: Row }) {
-  const data = row(inventory.data); const buildings = rows(data.buildings);
-  return <section className="public-panel"><h2>Shared inventory</h2>{!inventory.data ? <p>Inventory data is temporarily unavailable.</p> : buildings.length === 0 ? <p>No shared inventory is currently reported.</p> : <div className="public-inventory-grid">{buildings.map((building) => <article key={String(building.entityId)}><h3>{String(building.nickname || building.name || "Building")}</h3><ul>{rows(building.items).map((stack, index) => <TypedStack key={`${String(stack.catalogKey)}-${index}`} stack={stack} />)}</ul></article>)}</div>}</section>;
-}
-
-function Crafts({ crafts }: { crafts: Row }) {
-  const results = rows(row(crafts.data).craftResults);
-  return <section className="public-panel"><h2>Current and completed crafts</h2>{!crafts.data ? <p>Craft data is temporarily unavailable.</p> : results.length === 0 ? <p>No crafts are currently reported.</p> : <div className="public-table">{results.map((craft) => <article key={String(craft.entityId)}><strong>{String(craft.buildingName || "Settlement craft")}</strong><span>{craft.completed === true ? "Completed" : `In progress · ${number(craft.progress)} / ${number(craft.totalActionsRequired)}`} · {rows(craft.craftedItem).map((stack) => String(stack.catalogKey ?? "item")).join(", ") || "No output listed"}</span></article>)}</div>}</section>;
-}
-
-function SnapshotPage({ route }: { route: Route }) {
-  const claimId = route.params.claimId; const [snapshot, setSnapshot] = React.useState<PublicSnapshot | null>(null); const [loading, setLoading] = React.useState(true); const [error, setError] = React.useState(""); const [refreshing, setRefreshing] = React.useState(false); const refreshRef = React.useRef<() => Promise<void>>(async () => {});
-  const refresh = React.useCallback(async () => {
-    setRefreshing(true); setError("");
-    try { const next = await loadPublicSnapshot(claimId, domains(route)); setSnapshot(next); const claim = row(row(next.domains.claim).data); const name = String(claim.name ?? "").trim(); if (name) addRecentSettlement(window.localStorage, { claimId, name, regionId: next.regionId }); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Public data is temporarily unavailable."); }
-    finally { setLoading(false); setRefreshing(false); }
-  }, [claimId, route.id]);
-  refreshRef.current = refresh;
-  React.useEffect(() => { void refresh(); }, [refresh]);
-  React.useEffect(() => { const controller = createVisibleRefreshController({ isVisible: () => document.visibilityState === "visible", refresh: () => refreshRef.current() }); const listener = () => controller.visibilityChanged(); controller.start(); document.addEventListener("visibilitychange", listener); return () => { document.removeEventListener("visibilitychange", listener); controller.stop(); }; }, []);
-  if (loading && !snapshot) return <section className="public-state" role="status">Loading current settlement state…</section>;
-  if (error && !snapshot) return <section className="public-state is-error" role="alert">{error}</section>;
-  const claim = row(row(snapshot?.domains.claim).data); const domainWarnings = Object.values(snapshot?.domains ?? {}).flatMap((domain) => rows(row(domain).warnings)); const warnings = [...(snapshot?.warnings ?? []), ...domainWarnings];
-  return <><header className="public-page-heading"><div><p>Settlement #{claimId}</p><h1>{String(claim.name ?? "Settlement")}</h1><span>Region {String(snapshot?.regionId ?? "—")}</span></div><div className="public-heading-actions"><Freshness snapshot={snapshot} refreshing={refreshing} /><button className="toolbar-button" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} /> Refresh</button></div></header>{warnings.length > 0 && <section className="public-warning" role="status">{warnings.map(warning).join(" ")}</section>}{error && <section className="public-warning" role="alert">Refresh failed; showing the last received data. {error}</section>}{route.id === "settlement" && <Overview claim={claim} />}{route.id === "members" && <Members members={row(snapshot?.domains.members)} citizens={row(snapshot?.domains.citizens)} />}{route.id === "inventory" && <Inventory inventory={row(snapshot?.domains.inventories)} />}{route.id === "crafts" && <Crafts crafts={row(snapshot?.domains.crafts)} />}</>;
-}
+const PUBLIC_TITLES: Partial<Record<PublicRoute["id"], string>> = { dashboard: "Overview", members: "Members", professions: "Professions", inventory: "Shared inventory", crafts: "Craft monitor", calculator: "Craft calculator" };
+const title = (route: PublicRoute) => PUBLIC_TITLES[route.id] ?? "Claim Monitor";
 
 function WelcomePanel() {
-  return <section className="public-panel public-welcome"><header><p className="public-eyebrow">Public BitCraft settlement data</p><h1>Welcome to Claim Monitor</h1><p>Claim Monitor provides current, read-only data for BitCraft settlements, including the overview, members and professions, shared inventory, and crafts.</p></header><ol><li><strong>Find your settlement</strong><span>Enter at least three characters from its name, or paste the exact claim ID.</span></li><li><strong>Select the correct result</strong><span>Check the settlement name, claim ID, and region before opening it.</span></li><li><strong>Explore current data</strong><span>Use the settlement navigation to open Overview, Members, Inventory, and Craft monitor.</span></li></ol><p className="public-welcome-note">Public data is loaded on demand and refreshes while the page is open. Claim Monitor does not continuously monitor public settlements or provide public history, notifications, or Discord services.</p></section>;
+  return <section className="public-panel public-welcome"><header><p className="public-eyebrow">Public BitCraft claim data</p><h1>Welcome to Claim Monitor</h1><p>Claim Monitor provides current, read-only data for BitCraft claims, including the overview, members and professions, shared inventory, and crafts.</p></header><ol><li><strong>Find your claim</strong><span>Enter at least three characters from its name, or paste the exact claim ID.</span></li><li><strong>Select the correct claim</strong><span>Check the claim name, claim ID, and region before opening it.</span></li><li><strong>Explore current data</strong><span>Use the claim navigation to open Overview, Members, Inventory, and Craft monitor.</span></li></ol><p className="public-welcome-note">Claim data is loaded on demand and refreshes while the page is open. Claim Monitor does not continuously monitor public claims or provide public history, notifications, or Discord services.</p></section>;
 }
 
-function SearchPanel({ showWelcome = false }: { showWelcome?: boolean }) {
-  const [query, setQuery] = React.useState(""); const [results, setResults] = React.useState<PublicHint[]>([]); const [message, setMessage] = React.useState(""); const [recent] = React.useState(() => readRecentSettlements(window.localStorage));
-  async function search(event: React.FormEvent) { event.preventDefault(); setMessage(""); try { const result = await searchPublicSettlements(query); setResults(result.hints); if (!result.hints.length) setMessage("No matching settlements found."); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Search is unavailable."); } }
-  const entries: PublicHint[] = results.length ? results : recent.map((value) => ({ claimId: value.claimId, name: value.name, regionId: value.regionId }));
-  return <>{showWelcome && recent.length === 0 ? <WelcomePanel /> : null}<section className="public-search-panel"><form onSubmit={search}><label htmlFor="public-settlement-search">FIND A BITCRAFT SETTLEMENT</label><p id="public-settlement-search-help">Enter at least 3 characters from the settlement name, or paste the exact claim ID.</p><div><input id="public-settlement-search" aria-describedby="public-settlement-search-help" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Settlement name or exact claim ID" /><button className="toolbar-button primary" type="submit"><Search size={16} /> Search</button></div></form>{message && <p role="status">{message}</p>}{entries.length > 0 && <div className="public-search-results"><span>{results.length ? "Matches" : "Recent settlements"}</span>{entries.map((entry) => { const href = publicSettlementPath(entry); return href && <a key={entry.claimId} href={href}><strong>{entry.name}</strong><small>#{entry.claimId} · region {entry.regionId ?? "—"}</small><ChevronRight size={16} /></a>; })}</div>}</section></>;
+function HomeExperience() {
+  const [showWelcome] = React.useState(() => readRecentClaims(window.localStorage).length === 0);
+  return <>{showWelcome ? <WelcomePanel /> : null}<PublicClaimFinder mode="home" idPrefix="home-claim-finder" /></>;
 }
 
 function Calculator() {
   const [query, setQuery] = React.useState(""); const [results, setResults] = React.useState<Row[]>([]); const [message, setMessage] = React.useState("");
   async function search(event: React.FormEvent) { event.preventDefault(); try { const payload = await searchPublicCatalog(query); setResults([...rows(payload.items), ...rows(payload.cargos)]); setMessage(""); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Catalog search is unavailable."); } }
-  return <section className="public-panel"><h1>Craft calculator</h1><p>Search the shared global catalog. This tool does not use settlement-specific data.</p><form className="public-catalog-search" onSubmit={search}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search catalog" /><button className="toolbar-button primary">Search</button></form>{message && <p role="alert">{message}</p>}<div className="public-table">{results.map((item) => <article key={`${String(item.itemType)}:${String(item.id)}`}><strong>{String(item.name ?? "Catalog entry")}</strong><span>{item.itemType === 1 || item.kind === "cargo" ? "Cargo" : "Item"} · #{String(item.id ?? "—")}</span></article>)}</div></section>;
+  return <section className="public-panel"><h1>Craft calculator</h1><p>Search the shared global catalog. This tool does not use claim-specific data.</p><form className="public-catalog-search" onSubmit={search}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search catalog" /><button className="toolbar-button primary">Search</button></form>{message && <p role="alert">{message}</p>}<div className="public-table">{results.map((item) => <article key={`${String(item.itemType)}:${String(item.id)}`}><strong>{String(item.name ?? "Catalog entry")}</strong><span>{item.itemType === 1 || item.kind === "cargo" ? "Cargo" : "Item"} · #{String(item.id ?? "—")}</span></article>)}</div></section>;
 }
 
-function Help() { return <section className="public-panel public-help"><h1>Help</h1><section><h2>Finding a settlement</h2><p>Enter at least three characters from a BitCraft settlement name, or paste its exact claim ID. Select the correct result by checking its name, claim ID, and region.</p></section><section><h2>Viewing current data</h2><p>Use the settlement navigation to view its Overview, Members and professions, Shared inventory, and Craft monitor pages.</p></section><section><h2>How public data works</h2><p>Settlement data is loaded on demand and refreshes while the page is visible. Public settlements have no public history, alerts, notifications, or Discord services.</p></section></section>; }
-function Placeholder({ route }: { route: Route }) { return <section className="public-panel public-placeholder"><h1>{title(route)}</h1><p>That public page is not available.</p></section>; }
-function Navigation({ route, collaborationEnabled }: { route: Route; collaborationEnabled: boolean }) { const claimId = route.params.claimId; const links: Array<[string, string, string, typeof Home]> = claimId ? [["Overview", `/settlements/${claimId}`, "settlement", Home], ["Members", `/settlements/${claimId}/members`, "members", Users], ["Inventory", `/settlements/${claimId}/inventory`, "inventory", Boxes], ["Craft monitor", `/settlements/${claimId}/crafts`, "crafts", Hammer]] : []; return <aside className="public-sidebar"><a className="brand" href="/"><div><h1>Claim Monitor</h1><span>Public settlement data</span></div></a><nav>{links.map(([label, href, id, Icon]) => <a className={route.id === id ? "active" : ""} href={href} key={id}><Icon size={16} />{label}</a>)}<a className={route.id === "calculator" ? "active" : ""} href="/calculator"><Hammer size={16} />Craft calculator</a><a href="/help">Help</a>{collaborationEnabled && <><a href="/plans">Plans</a><a className={["account", "settings"].includes(route.id) ? "active" : ""} href="/settings"><UserRound size={16} />Account &amp; settings</a></>}<a className={route.id === "terms" ? "active" : ""} href="/terms">Terms</a><a className={route.id === "privacy" ? "active" : ""} href="/privacy">Privacy</a></nav></aside>; }
+function Help() { return <section className="public-panel public-help"><h1>Help</h1><section><h2>Finding a claim</h2><p>Enter at least three characters from a BitCraft claim name, or paste its exact claim ID. Select the correct claim by checking its name, claim ID, and region.</p></section><section><h2>Viewing current data</h2><p>Use the claim navigation to view its Overview, Members and professions, Shared inventory, and Craft monitor pages.</p></section><section><h2>How public data works</h2><p>Claim data is loaded on demand and refreshes while the page is visible. Public claims have no public history, alerts, notifications, or Discord services.</p></section></section>; }
+function Placeholder({ route }: { route: PublicRoute }) { return <section className="public-panel public-placeholder"><h1>{title(route)}</h1><p>That public page is not available.</p></section>; }
+const ROADMAP_TITLES: Record<string, string> = { leaderboard: "Leaderboard", construction: "Construction", research: "Research", "local-market": "Local Market", market: "Market", region: "Region", empires: "Empires", map: "Map", activity: "Activity", "public-craft-finder": "Public Craft Finder" };
 const defaultFeatures: PublicFeatures = { publicProfileEnabled: false, publicCollaborationEnabled: false, publicLegalConfigurationConfirmed: false };
-export function PublicAppShell({ route, features = defaultFeatures }: { route: Route; features?: PublicFeatures }) {
-  if (!features.publicProfileEnabled) return <div className="public-app-shell"><Navigation route={route} collaborationEnabled={false} /><main className="public-main"><section className="public-panel public-placeholder"><h1>Claim Monitor</h1><p>The public settlement service is not enabled yet.</p></section></main></div>;
-  const settlement = ["settlement", "members", "inventory", "crafts"].includes(route.id); const identity = route.id === "account" || route.id === "settings"; const legal = route.id === "terms" || route.id === "privacy"; const planAccess = route.id === "shared-plan" || route.id === "invite"; const planWorkspace = ["plans", "plan-new", "plan"].includes(route.id); const collaborationRoute = identity || planAccess || planWorkspace;
-  return <div className="public-app-shell"><Navigation route={route} collaborationEnabled={features.publicCollaborationEnabled} /><main className="public-main">{!identity && !legal && !planWorkspace && !planAccess ? <SearchPanel showWelcome={route.id === "overview"} /> : null}{collaborationRoute && !features.publicCollaborationEnabled ? <section className="public-panel public-placeholder"><h1>Collaboration is not enabled yet</h1><p>Public settlement search and current-state pages remain available.</p></section> : settlement ? <SnapshotPage route={route} /> : route.id === "calculator" ? <Calculator /> : route.id === "overview" ? null : route.id === "help" ? <Help /> : identity ? <PublicAccountSettings page={route.id as "account" | "settings"} /> : legal ? <PublicLegalPage type={route.id as "terms" | "privacy"} /> : planAccess ? <PublicPlanAccessPage route={route as { id: "shared-plan" | "invite"; params: Record<string, string> }} /> : planWorkspace ? <PublicPlansPage route={route as { id: "plans" | "plan-new" | "plan"; params: Record<string, string> }} /> : <Placeholder route={route} />}</main></div>;
+export function PublicAppShell({ route, features = defaultFeatures }: { route: PublicRoute; features?: PublicFeatures }) {
+  const snapshotRoute = features.publicProfileEnabled ? route : { id: "not-found", params: {} } as PublicRoute;
+  const snapshotController = usePublicSnapshot(snapshotRoute);
+  const [claimFinderOpen, setClaimFinderOpen] = React.useState(false);
+  React.useEffect(() => {
+    const open = (event: KeyboardEvent) => {
+      if (!features.publicProfileEnabled || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setClaimFinderOpen(true);
+    };
+    document.addEventListener("keydown", open);
+    return () => document.removeEventListener("keydown", open);
+  }, [features.publicProfileEnabled]);
+  const openClaimFinder = () => { if (features.publicProfileEnabled) setClaimFinderOpen(true); };
+  if (!features.publicProfileEnabled) return <PublicChrome route={route} features={features} controller={snapshotController} onOpenClaimFinder={openClaimFinder}><div className="page-view public-page-view"><section className="public-panel public-placeholder"><h1>Claim Monitor</h1><p>The public claim service is not enabled yet.</p></section></div></PublicChrome>;
+  const claimPage = ["dashboard", "members", "professions", "inventory", "crafts"].includes(route.id); const identity = route.id === "account" || route.id === "settings"; const legal = route.id === "terms" || route.id === "privacy"; const planAccess = route.id === "shared-plan" || route.id === "invite"; const planWorkspace = ["plans", "plan-new", "plan"].includes(route.id); const collaborationRoute = identity || planAccess || planWorkspace;
+  const pageContent = collaborationRoute && !features.publicCollaborationEnabled
+    ? <section className="public-panel public-placeholder"><h1>Collaboration is not enabled yet</h1><p>Public claim search and current-state pages remain available.</p></section>
+    : claimPage ? <PublicClaimPages route={route} controller={snapshotController} />
+      : route.id === "calculator" ? <Calculator />
+        : route.id === "home" ? null
+          : route.id === "help" ? <Help />
+            : identity ? <PublicAccountSettings page={route.id as "account" | "settings"} />
+              : legal ? <PublicLegalPage type={route.id as "terms" | "privacy"} />
+                : planAccess ? <PublicPlanAccessPage route={route as { id: "shared-plan" | "invite"; params: Record<string, string> }} />
+                  : planWorkspace ? <PublicPlansPage route={route as { id: "plans" | "plan-new" | "plan"; params: Record<string, string> }} />
+                    : route.id === "coming-soon" ? <section className="public-panel public-placeholder"><h1>{ROADMAP_TITLES[route.params.feature] ?? "Claim feature"}</h1><p>This claim feature is coming soon.</p></section>
+                      : <Placeholder route={route} />;
+  return <><PublicChrome route={route} features={features} controller={snapshotController} onOpenClaimFinder={openClaimFinder}><div className="page-view public-page-view">{route.id === "home" ? <HomeExperience /> : null}{pageContent}</div></PublicChrome>{claimFinderOpen ? <PublicClaimFinder mode="dialog" idPrefix="dialog-claim-finder" autoFocus onSelect={() => setClaimFinderOpen(false)} onClose={() => setClaimFinderOpen(false)} /> : null}</>;
 }

@@ -5,19 +5,17 @@ import "./styles/notifications.css";
 import "./styles/app-popups.css";
 import "./styles/first-run-tour.css";
 import {
-  ArrowDown,
+  Bell,
   CheckCircle2,
+  CircleHelp,
   ExternalLink,
   FileText,
-  LockKeyhole,
+  KeyRound,
   MessageCircle,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
   RefreshCw,
+  Search,
   Settings,
   Shield,
-  X,
 } from "lucide-react";
 import packageJson from "../package.json";
 import { useFeaturebase } from "featurebase-js/react";
@@ -42,7 +40,16 @@ import { CookieBanner, DedicatedLegalPage, DiscordSignInPrompt, HelpCenter, Priv
 import { LegalAcceptanceDialog, type PublicLegalPolicy } from "./components/main/LegalAcceptanceDialog";
 import { AccountDeletionDialog } from "./components/main/AccountDeletionDialog";
 import { FirstRunTourManager } from "./components/main/FirstRunTourManager";
-import { AppUtilityBar } from "./components/main/AppUtilityBar";
+import {
+  AppFooter,
+  AppFrame,
+  AppSidebar,
+  AppUtilityBar,
+  type AppBrand,
+  type AppNavigationGroup,
+  type AppUtilityAction,
+  type AppUtilityCommand,
+} from "./components/app-chrome";
 import { useBrowserNotificationSmoke } from "./notifications/useBrowserNotificationSmoke";
 import { useBrowserNotificationSources } from "./notifications/useBrowserNotificationSources";
 import { useToastNotifications } from "./notifications/useToastNotifications";
@@ -281,21 +288,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
   const [active, setActive] = usePersistedState<ActivePanel>("navigation.page", "dashboard");
   const [routeSearch, setRouteSearch] = React.useState(() => window.location.search);
   const mainRef = React.useRef<HTMLElement | null>(null);
-  const navigationRef = React.useRef<HTMLElement | null>(null);
-  const mobileNavigationTriggerRef = React.useRef<HTMLButtonElement | null>(null);
-  const mobileNavigationWasOpenRef = React.useRef(false);
-  const [mobileNavigationOpen, setMobileNavigationOpen] = React.useState(false);
   const [routeStatus, setRouteStatus] = React.useState("");
-  const [isNarrowViewport, setIsNarrowViewport] = React.useState(() => window.matchMedia("(max-width: 920px)").matches);
-  const [collapsedNavTooltip, setCollapsedNavTooltip] = React.useState<{ label: string; left: number; top: number } | null>(null);
-  React.useEffect(() => {
-    const narrowViewport = window.matchMedia("(max-width: 920px)");
-    const updateNarrowViewport = () => {
-      setIsNarrowViewport(narrowViewport.matches);
-    };
-    narrowViewport.addEventListener("change", updateNarrowViewport);
-    return () => narrowViewport.removeEventListener("change", updateNarrowViewport);
-  }, []);
   const defaultPageAppliedRef = React.useRef(false);
   const savedPageRef = React.useRef(hasPersistedState("navigation.page") || Boolean(urlPanel()));
   const [appSettings, setAppSettings] = React.useState<AppSettings>(() => normalizeAppSettings(initialBootstrap.config));
@@ -382,42 +375,6 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
   const [commandOpen, setCommandOpen] = React.useState(false);
   const [accountSettingsHydratedFor, setAccountSettingsHydratedFor] = React.useState("");
   const accountSettingsSyncPause = React.useRef<{ target: string; settled: boolean } | null>(null);
-  const showCollapsedNavTooltip = React.useCallback((anchor: HTMLAnchorElement, label: string) => {
-    if (!sidebarCollapsed || mobileNavigationOpen) return;
-    const rect = anchor.getBoundingClientRect();
-    setCollapsedNavTooltip({ label, left: rect.right + 10, top: rect.top + rect.height / 2 });
-  }, [mobileNavigationOpen, sidebarCollapsed]);
-  React.useEffect(() => {
-    setCollapsedNavTooltip(null);
-  }, [active, mobileNavigationOpen, sidebarCollapsed]);
-  React.useEffect(() => {
-    if (!collapsedNavTooltip) return;
-    const navigation = navigationRef.current;
-    const clearCollapsedNavTooltip = () => setCollapsedNavTooltip(null);
-    window.addEventListener("resize", clearCollapsedNavTooltip);
-    navigation?.addEventListener("scroll", clearCollapsedNavTooltip);
-    return () => {
-      window.removeEventListener("resize", clearCollapsedNavTooltip);
-      navigation?.removeEventListener("scroll", clearCollapsedNavTooltip);
-    };
-  }, [collapsedNavTooltip]);
-  React.useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = mobileNavigationOpen ? "hidden" : previousOverflow;
-    return () => { document.body.style.overflow = previousOverflow; };
-  }, [mobileNavigationOpen]);
-  React.useEffect(() => {
-    if (!mobileNavigationOpen && mobileNavigationWasOpenRef.current) mobileNavigationTriggerRef.current?.focus();
-    mobileNavigationWasOpenRef.current = mobileNavigationOpen;
-  }, [mobileNavigationOpen]);
-  React.useEffect(() => {
-    if (!mobileNavigationOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileNavigationOpen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [mobileNavigationOpen]);
   const trackPageRefreshPromise = React.useCallback(<T,>(taskKey: string, promise: Promise<T>): Promise<T> => {
     const activeCycle = pageRefreshCycle?.page === active ? pageRefreshCycle : null;
     if (!activeCycle) return promise;
@@ -1010,138 +967,196 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
   const sidebarAccountName = accountDisplayName(userAuth.user);
   const sidebarAccountStatus = accountCharacterStatusLabel(userAuth.user);
   const sidebarAccountInitial = sidebarAccountName.slice(0, 1).toUpperCase();
-  const mobileNavigationUnavailable = isNarrowViewport && !mobileNavigationOpen;
   const surfaceMode = surfaceModeForPanel(active);
-  return (
-    <div className={`app-shell density-${density} surface-mode-${surfaceMode} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${dedicatedMapView ? "map-dedicated-shell" : ""} ${active === "admin" ? "admin-focused-shell" : ""}`}>
-      {!dedicatedMapView ? (<>
-        <header className="mobile-shell-bar">
-        <span><strong className="mobile-shell-brand">Claim Monitor</strong><small className="mobile-shell-route">{activePageLabel}</small></span>
-        <button ref={mobileNavigationTriggerRef} type="button" aria-label="Open navigation" aria-controls="mobile-navigation" aria-expanded={mobileNavigationOpen} onClick={() => setMobileNavigationOpen(true)}>
-          <Menu size={18} />
-        </button>
-      </header>
-      {mobileNavigationOpen ? <button type="button" className="mobile-navigation-backdrop" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)} /> : null}
-      <aside id="mobile-navigation" aria-label="Mobile navigation" aria-hidden={mobileNavigationUnavailable ? true : undefined} inert={mobileNavigationUnavailable ? true : undefined} className={`app-sidebar ${mobileNavigationOpen ? "mobile-open" : ""}`}>
-        <button type="button" className="mobile-navigation-close" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)}><X size={18} /></button>
-        <div className="brand">
-          {appSettings.branding.logo
-            ? <img src={`${appSettings.branding.logo.url}?v=${encodeURIComponent(appSettings.branding.logo.updatedAt)}`} alt="" onError={(event) => {
-              event.currentTarget.onerror = null;
-              event.currentTarget.src = DEFAULT_APP_LOGO_URL;
-            }} />
-            : <img src={DEFAULT_APP_LOGO_URL} alt="" />}
-          <div title={settlementNavigationLabel(settlementName)}><h1>{settlementNavigationLabel(settlementName)}</h1><span>Claim Monitor</span></div>
-          <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
-            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-        </div>
-        <div className="sidebar-top-stack">
-          <section className={`sidebar-account-card ${userAuth.user ? "signed-in" : "signed-out"}`} aria-label="Account">
-            {userAuth.user ? (
-              <button type="button" className="sidebar-account-main" onClick={() => setUserSettingsOpen(true)} title="Open account settings">
-                <span className="sidebar-account-avatar">{userAuth.user.avatarUrl ? <img src={userAuth.user.avatarUrl} alt="" /> : sidebarAccountInitial}</span>
-                <span className="sidebar-account-copy"><strong>{sidebarAccountName}</strong><small>{sidebarAccountStatus}</small></span>
-              </button>
-            ) : (
-              <>
-                <div className="sidebar-account-main">
-                  <span className="sidebar-account-avatar"><MessageCircle size={16} /></span>
-                  <span className="sidebar-account-copy"><strong>Not signed in</strong><small>Sign in to save settings and verify your character.</small></span>
-                </div>
-                {userAuth.discordLoginEnabled ? <button className="sidebar-account-action" onClick={() => discordLogin()}><MessageCircle size={14} /> Sign in with Discord</button> : <span className="sidebar-account-disabled">Discord login unavailable</span>}
-              </>
-            )}
-          </section>
-          <a className="discord-cta" href={DISCORD_URL} target="_blank" rel="noreferrer"><DiscordIcon size={18} /><span>Join Discord Server</span><ExternalLink size={13} /></a>
-        </div>
-        <nav ref={navigationRef} aria-label="Main navigation" data-tour="sidebar-navigation">
-          {NAV_GROUPS.map((group) => {
-            const hasActivePage = group.items.some(([id]) => active === id);
-            const isOpen = sidebarGroups[group.id] ?? true;
-            const showItems = isOpen || hasActivePage;
-            return (
-              <section className={`sidebar-section ${showItems ? "" : "is-collapsed"} ${hasActivePage ? "has-active" : ""}`} key={group.id}>
-                <button
-                  className="sidebar-section-title"
-                  type="button"
-                  aria-expanded={showItems}
-                  onClick={() => setSidebarGroups((current) => ({ ...current, [group.id]: !(current[group.id] ?? true) }))}
-                >
-                  <span>{group.id === "settlement" ? settlementNavigationLabel(settlementName) : group.label}</span>
-                  <ArrowDown size={12} aria-hidden="true" />
-                </button>
-                <div className="sidebar-section-items">
-                  {group.items.map(([id, label, Icon]) => {
-                    const restricted = !isPageAllowed(id);
-                    const accessibleLabel = restricted ? `${label} — restricted` : label;
-                    return (
-                      <a
-                        key={id}
-                        className={[`nav-destination`, active === id ? "active" : "", restricted ? "is-restricted" : ""].filter(Boolean).join(" ")}
-                        href={panelHref(id)}
-                        aria-current={active === id ? "page" : undefined}
-                        aria-label={restricted ? `${label} — restricted` : label}
-                        data-restricted={restricted || undefined}
-                        title={accessibleLabel}
-                        onMouseEnter={(event) => showCollapsedNavTooltip(event.currentTarget, accessibleLabel)}
-                        onMouseLeave={() => setCollapsedNavTooltip(null)}
-                        onFocus={(event) => showCollapsedNavTooltip(event.currentTarget, accessibleLabel)}
-                        onBlur={() => setCollapsedNavTooltip(null)}
-                        onClick={(event) => {
-                          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                          event.preventDefault();
-                          navigate(id);
-                          setMobileNavigationOpen(false);
-                        }}
-                      >
-                        <Icon size={16} /><span className="nav-label">{label}</span>
-                        <span className="collapsed-nav-label" aria-hidden="true">{label}</span>
-                        {restricted ? <LockKeyhole className="nav-access-lock" size={13} aria-hidden="true" /> : null}
-                      </a>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-        </nav>
-        <RefreshStatus
-          loading={visibleRefreshProgress && state.loading && Boolean(state.data)}
-          lastUpdated={lastUpdated}
-          collectorStatus={data.raw?.collectorStatus}
-          intervalSeconds={appSettings.refreshSeconds}
-          warnings={apiWarnings}
-          diagnostics={apiDiagnostics}
-        />
-      </aside>
-        {collapsedNavTooltip ? <span className="collapsed-nav-tooltip" aria-hidden="true" style={{ left: collapsedNavTooltip.left, top: collapsedNavTooltip.top }}>{collapsedNavTooltip.label}</span> : null}
-      </>) : null}
-      <main ref={mainRef} tabIndex={-1}>
-        <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{routeStatus}</p>
-        <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{manualRefreshStatusText}</p>
-        {!dedicatedMapView ? <AppUtilityBar
-          pageLabel={activePageLabel}
-          adminHref={panelHref("admin")}
-          adminActive={active === "admin"}
-          adminVisible={Boolean(adminAuth.authenticated)}
-          unreadCount={notificationLog.filter((notice) => !notice.read).length}
-          refreshing={manualRefreshIsRefreshing}
-          coolingDownSeconds={manualRefreshCooldownSeconds}
-          refreshDisabled={manualRefreshButtonDisabled}
-          refreshLabel={manualRefreshButtonLabel}
-          onAdminNavigate={(event) => {
+  const brandModel: AppBrand = {
+    logoUrl: appSettings.branding.logo
+      ? `${appSettings.branding.logo.url}?v=${encodeURIComponent(appSettings.branding.logo.updatedAt)}`
+      : DEFAULT_APP_LOGO_URL,
+    fallbackLogoUrl: DEFAULT_APP_LOGO_URL,
+    title: settlementNavigationLabel(settlementName),
+    subtitle: "Claim Monitor",
+    titleAttribute: settlementNavigationLabel(settlementName),
+  };
+  const chromeNavigationGroups: AppNavigationGroup[] = NAV_GROUPS.map((group) => {
+    const hasActivePage = group.items.some(([id]) => active === id);
+    const expanded = (sidebarGroups[group.id] ?? true) || hasActivePage;
+    return {
+      id: group.id,
+      label: group.id === "settlement" ? settlementNavigationLabel(settlementName) : group.label,
+      expanded,
+      onExpandedChange: (next) => setSidebarGroups((current) => ({ ...current, [group.id]: next })),
+      items: group.items.map(([id, label, Icon]) => {
+        const restricted = !isPageAllowed(id);
+        return {
+          id,
+          label,
+          icon: Icon,
+          href: panelHref(id),
+          active: active === id,
+          restricted,
+          onActivate: (event) => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault();
-            navigate("admin");
-          }}
-          onOpenCommand={() => setCommandOpen(true)}
-          onRefresh={requestManualRefresh}
-          onOpenSettings={() => setUserSettingsOpen(true)}
-          onOpenNotifications={() => { setNoticeOpen(true); markNotificationLogRead(); }}
-          onOpenHelp={() => setHelpOpen(true)}
-        /> : null}
-        <div className={`page-refresh-line ${visibleRefreshProgress ? "is-visible" : ""}`} aria-hidden="true" />
+            navigate(id);
+          },
+        };
+      }),
+    };
+  });
+  const commandModel: AppUtilityCommand = {
+    label: "Search commands",
+    ariaLabel: "Search commands",
+    shortcut: "Ctrl K",
+    icon: Search,
+    onActivate: () => setCommandOpen(true),
+  };
+  const utilityActions: AppUtilityAction[] = [];
+  if (adminAuth.authenticated) {
+    utilityActions.push({
+      id: "admin",
+      label: "Admin console",
+      icon: KeyRound,
+      href: panelHref("admin"),
+      active: active === "admin",
+      onActivate: (event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        navigate("admin");
+      },
+    });
+  }
+  utilityActions.push(
+    {
+      id: "refresh",
+      label: manualRefreshButtonLabel,
+      icon: RefreshCw,
+      disabled: manualRefreshButtonDisabled,
+      busy: manualRefreshIsRefreshing,
+      className: `app-utility-refresh ${manualRefreshIsRefreshing ? "is-refreshing" : manualRefreshCooldownSeconds > 0 ? "is-cooldown" : ""}`,
+      content: manualRefreshCooldownSeconds > 0 && !manualRefreshIsRefreshing ? `${manualRefreshCooldownSeconds}s` : undefined,
+      onActivate: () => requestManualRefresh(),
+    },
+    { id: "settings", label: "Browser settings", icon: Settings, onActivate: () => setUserSettingsOpen(true) },
+    {
+      id: "notifications",
+      label: "Updates",
+      icon: Bell,
+      className: "notification-button",
+      badge: notificationLog.filter((notice) => !notice.read).length,
+      onActivate: () => { setNoticeOpen(true); markNotificationLogRead(); },
+    },
+    { id: "help", label: "Help and application information", icon: CircleHelp, onActivate: () => setHelpOpen(true) },
+  );
+  const accountNode = (
+    <section className={`sidebar-account-card ${userAuth.user ? "signed-in" : "signed-out"}`} aria-label="Account">
+      {userAuth.user ? (
+        <button type="button" className="sidebar-account-main" onClick={() => setUserSettingsOpen(true)} title="Open account settings">
+          <span className="sidebar-account-avatar">{userAuth.user.avatarUrl ? <img src={userAuth.user.avatarUrl} alt="" /> : sidebarAccountInitial}</span>
+          <span className="sidebar-account-copy"><strong>{sidebarAccountName}</strong><small>{sidebarAccountStatus}</small></span>
+        </button>
+      ) : (
+        <>
+          <div className="sidebar-account-main">
+            <span className="sidebar-account-avatar"><MessageCircle size={16} /></span>
+            <span className="sidebar-account-copy"><strong>Not signed in</strong><small>Sign in to save settings and verify your character.</small></span>
+          </div>
+          {userAuth.discordLoginEnabled ? <button className="sidebar-account-action" onClick={() => discordLogin()}><MessageCircle size={14} /> Sign in with Discord</button> : <span className="sidebar-account-disabled">Discord login unavailable</span>}
+        </>
+      )}
+    </section>
+  );
+  const discordNode = <a className="discord-cta" href={DISCORD_URL} target="_blank" rel="noreferrer"><DiscordIcon size={18} /><span>Join Discord Server</span><ExternalLink size={13} /></a>;
+  const refreshStatusNode = (
+    <RefreshStatus
+      loading={visibleRefreshProgress && state.loading && Boolean(state.data)}
+      lastUpdated={lastUpdated}
+      collectorStatus={data.raw?.collectorStatus}
+      intervalSeconds={appSettings.refreshSeconds}
+      warnings={apiWarnings}
+      diagnostics={apiDiagnostics}
+    />
+  );
+  const footerPrimary = (
+    <>
+      <span className="footer-copy">&copy; {new Date().getFullYear()} Timbersteel Claim Monitor - unofficial fan-made tool.</span>
+      <span className="footer-build" title={appBuildId ? `Version ${APP_VERSION}, commit ${appBuildId}` : `Version ${APP_VERSION}`}>{appBuildLabel}</span>
+      <a href="https://relay.bitcraftsync.app/" target="_blank" rel="noreferrer">Data: BitCraft Relay</a>
+    </>
+  );
+  const footerSecondary = (
+    <>
+      <a href={GITHUB_REPOSITORY} target="_blank" rel="noreferrer"><ExternalLink size={13} /> GitHub</a>
+      <a href={`${GITHUB_REPOSITORY}/issues`} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Feature Requests</a>
+      <BuyMeCoffeeButton />
+      <button className="footer-link" onClick={() => setPrivacyOpen(true)}><Shield size={13} /> Privacy & Analytics</button>
+      <button className="footer-link" onClick={() => setTermsOpen(true)}><FileText size={13} /> Terms & Bot Use</button>
+    </>
+  );
+  const overlayNodes = (
+    <>
+      {!dedicatedMapView ? (
+        <>
+          {releaseUpdateBuildId ? (
+            <div className="release-update-banner" role="status" aria-live="polite">
+              <div><strong>Update available</strong><span>A newer version is ready. Refresh to use the latest app.</span></div>
+              <button className="toolbar-button primary" onClick={() => window.location.reload()}><RefreshCw size={14} /> Refresh now</button>
+            </div>
+          ) : releaseUpdatedNotice ? (
+            <div className="release-update-banner is-updated" role="status" aria-live="polite">
+              <CheckCircle2 size={20} aria-hidden="true" />
+              <div><strong>App updated</strong><span>You're now using the latest version. <a href={CHANGELOG_URL} target="_blank" rel="noreferrer">View changelog</a></span></div>
+            </div>
+          ) : null}
+          {!tourVisible ? <ToastStack notices={toasts} onDismiss={dismissToast} /> : null}
+          {noticeOpen ? <NotificationDrawer notices={notificationLog} onClose={() => setNoticeOpen(false)} onOpenNotice={(notice) => { setNoticeOpen(false); navigate(notice.destination ?? "activity"); }} /> : null}
+          {commandOpen ? <CommandPalette adminAuthenticated={Boolean(adminAuth.authenticated)} access={effectiveAccess} members={data.members} onClose={() => setCommandOpen(false)} onNavigate={(panel, tab) => navigate(panel, tab)} onSelectMember={setSelectedMemberId} /> : null}
+          {active !== "admin" && consent != null && !discordPromptDismissed && userAuth.discordLoginEnabled && !userAuth.user ? <DiscordSignInPrompt onDiscordLogin={() => discordLogin()} onClose={() => setDiscordPromptDismissed(true)} onSettings={() => { setDiscordPromptDismissed(true); setUserSettingsOpen(true); }} /> : null}
+        </>
+      ) : null}
+      {userSettingsOpen ? <UserSettingsDialog density={density} onDensityChange={setDensity} toastSettings={normalizedUserToastSettings} appToastSettings={appSettings.toastSettings} onToastSettingsChange={(settings) => setUserToastSettings(normalizeUserToastSettings(settings))} theme={{ ...DEFAULT_THEME, ...browserTheme }} onThemeChange={setBrowserTheme} auth={userAuth} claimId={claimId} members={data.members} onDiscordLogin={() => discordLogin()} onDiscordLogout={discordLogout} onLinkCharacter={linkDiscordCharacter} onDiscordMarketSaleDmChange={setDiscordMarketSaleDm} showAdminTools={Boolean(adminAuth.authenticated)} onOpenAdmin={() => { setUserSettingsOpen(false); navigate("admin"); }} onPrivacyUserChanged={handlePrivacyUserChanged} onAnalyticsCleared={handleAnalyticsCleared} onDeleteAccount={() => setAccountDeletionOpen(true)} onResetSettings={() => { clearBrowserLocalSettings(); window.location.reload(); }} modal onClose={() => setUserSettingsOpen(false)} /> : null}
+      {!dedicatedMapView ? (
+        <>
+          {helpOpen ? <HelpCenter activePage={active} version={APP_VERSION} onClose={() => setHelpOpen(false)} onPrivacy={() => setPrivacyOpen(true)} onTerms={() => setTermsOpen(true)} onStartTour={() => { setHelpOpen(false); setTourReplayToken((current) => current + 1); }} /> : null}
+          {active !== "admin" && consent == null && !privacyOpen ? <CookieBanner onConsent={(choice) => { setAnalyticsPreference(choice); setConsent(choice); }} onPrivacy={() => setPrivacyOpen(true)} /> : null}
+          {privacyOpen ? <PrivacyDialog consent={consent} onConsent={(choice) => { setAnalyticsPreference(choice); setConsent(choice); setPrivacyOpen(false); }} onClose={() => setPrivacyOpen(false)} /> : null}
+          {termsOpen ? <TermsDialog onClose={() => setTermsOpen(false)} onPrivacy={() => setPrivacyOpen(true)} /> : null}
+        </>
+      ) : null}
+      {publicLegalPolicy && !accountDeletionOpen && (legalAcceptanceOpen || Boolean(userAuth.user && userAuth.legal.requiresAcceptance)) ? (
+        <LegalAcceptanceDialog
+          mode={userAuth.user && userAuth.legal.requiresAcceptance ? "existing-session" : "login"}
+          policy={publicLegalPolicy}
+          onContinue={userAuth.user && userAuth.legal.requiresAcceptance ? acceptCurrentLegalPolicy : startDiscordLogin}
+          onClose={() => setLegalAcceptanceOpen(false)}
+          onLogout={userAuth.user && userAuth.legal.requiresAcceptance ? discordLogout : undefined}
+          onDeleteAccount={userAuth.user && userAuth.legal.requiresAcceptance ? () => setAccountDeletionOpen(true) : undefined}
+        />
+      ) : null}
+      {accountDeletionOpen ? <AccountDeletionDialog auth={userAuth} onDeleted={handleAccountDeleted} onClose={() => setAccountDeletionOpen(false)} /> : null}
+      {!dedicatedMapView ? (
+        <>
+          <FirstRunTourManager activePage={active} enabled={active !== "admin" && consent != null && !userSettingsOpen && !helpOpen && !privacyOpen && !termsOpen && !commandOpen && !noticeOpen && !(!discordPromptDismissed && userAuth.discordLoginEnabled && !userAuth.user)} showAccountStep={userAuth.discordLoginEnabled} replayToken={tourReplayToken} onNavigate={(panel) => navigate(panel)} onVisibilityChange={setTourVisible} />
+          <AppPopupManager activePage={active} enabled={active !== "admin" && !tourVisible && !userSettingsOpen && !helpOpen && !privacyOpen && !termsOpen && !commandOpen && !noticeOpen} />
+        </>
+      ) : null}
+    </>
+  );
+  return (
+    <AppFrame
+      shellClassName={`app-shell density-${density} surface-mode-${surfaceMode} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${dedicatedMapView ? "map-dedicated-shell" : ""} ${active === "admin" ? "admin-focused-shell" : ""}`}
+      pageLabel={activePageLabel}
+      routeKey={active}
+      mainRef={mainRef}
+      sidebar={dedicatedMapView ? null : ({ mobileOpen, onRequestClose }) => (
+        <AppSidebar brand={brandModel} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} groups={chromeNavigationGroups} account={accountNode} secondaryAction={discordNode} status={refreshStatusNode} mobileOpen={mobileOpen} onRequestClose={onRequestClose} />
+      )}
+      utilityBar={dedicatedMapView ? null : <AppUtilityBar contextLabel="Workspace" pageLabel={activePageLabel} command={commandModel} actions={utilityActions} />}
+      footer={!dedicatedMapView && active !== "admin" ? <AppFooter primary={footerPrimary} secondary={footerSecondary} /> : null}
+      refreshLineVisible={dedicatedMapView ? null : visibleRefreshProgress}
+      overlays={overlayNodes}
+    >
+        <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{routeStatus}</p>
+        <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{manualRefreshStatusText}</p>
         <GameDataQualityNotice
           activePanel={active}
           domainStatus={state.domainStatus ?? {}}
@@ -1166,78 +1181,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
             </div>
           </>
         )}
-      {!dedicatedMapView && active !== "admin" ? <footer className="app-footer">
-          <div className="footer-links">
-            <div className="footer-primary">
-              <span className="footer-copy">
-                &copy; {new Date().getFullYear()} Timbersteel Claim Monitor - unofficial fan-made tool.
-              </span>
-              <span className="footer-build" title={appBuildId ? `Version ${APP_VERSION}, commit ${appBuildId}` : `Version ${APP_VERSION}`}>
-                {appBuildLabel}
-              </span>
-              <a href="https://relay.bitcraftsync.app/" target="_blank" rel="noreferrer">Data: BitCraft Relay</a>
-            </div>
-            <div className="footer-secondary">
-              <a href={GITHUB_REPOSITORY} target="_blank" rel="noreferrer"><ExternalLink size={13} /> GitHub</a>
-              <a href={`${GITHUB_REPOSITORY}/issues`} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Feature Requests</a>
-              <BuyMeCoffeeButton />
-              <button className="footer-link" onClick={() => setPrivacyOpen(true)}><Shield size={13} /> Privacy & Analytics</button>
-              <button className="footer-link" onClick={() => setTermsOpen(true)}><FileText size={13} /> Terms & Bot Use</button>
-            </div>
-          </div>
-        </footer> : null}
-      </main>
-      {!dedicatedMapView ? (<>
-        {releaseUpdateBuildId ? (
-        <div className="release-update-banner" role="status" aria-live="polite">
-          <div>
-            <strong>Update available</strong>
-            <span>A newer version is ready. Refresh to use the latest app.</span>
-          </div>
-          <button className="toolbar-button primary" onClick={() => window.location.reload()}>
-            <RefreshCw size={14} /> Refresh now
-          </button>
-        </div>
-      ) : releaseUpdatedNotice ? (
-        <div className="release-update-banner is-updated" role="status" aria-live="polite">
-          <CheckCircle2 size={20} aria-hidden="true" />
-          <div>
-            <strong>App updated</strong>
-            <span>
-              You're now using the latest version.{" "}
-              <a href={CHANGELOG_URL} target="_blank" rel="noreferrer">View changelog</a>
-            </span>
-          </div>
-        </div>
-      ) : null}
-      {!tourVisible ? <ToastStack notices={toasts} onDismiss={dismissToast} /> : null}
-      {noticeOpen ? <NotificationDrawer notices={notificationLog} onClose={() => setNoticeOpen(false)} onOpenNotice={(notice) => { setNoticeOpen(false); navigate(notice.destination ?? "activity"); }} /> : null}
-      {commandOpen ? <CommandPalette adminAuthenticated={Boolean(adminAuth.authenticated)} access={effectiveAccess} members={data.members} onClose={() => setCommandOpen(false)} onNavigate={(panel, tab) => navigate(panel, tab)} onSelectMember={setSelectedMemberId} /> : null}
-        {active !== "admin" && consent != null && !discordPromptDismissed && userAuth.discordLoginEnabled && !userAuth.user ? <DiscordSignInPrompt onDiscordLogin={() => discordLogin()} onClose={() => setDiscordPromptDismissed(true)} onSettings={() => { setDiscordPromptDismissed(true); setUserSettingsOpen(true); }} /> : null}
-      </>) : null}
-      {userSettingsOpen ? <UserSettingsDialog density={density} onDensityChange={setDensity} toastSettings={normalizedUserToastSettings} appToastSettings={appSettings.toastSettings} onToastSettingsChange={(settings) => setUserToastSettings(normalizeUserToastSettings(settings))} theme={{ ...DEFAULT_THEME, ...browserTheme }} onThemeChange={setBrowserTheme} auth={userAuth} claimId={claimId} members={data.members} onDiscordLogin={() => discordLogin()} onDiscordLogout={discordLogout} onLinkCharacter={linkDiscordCharacter} onDiscordMarketSaleDmChange={setDiscordMarketSaleDm} showAdminTools={Boolean(adminAuth.authenticated)} onOpenAdmin={() => { setUserSettingsOpen(false); navigate("admin"); }} onPrivacyUserChanged={handlePrivacyUserChanged} onAnalyticsCleared={handleAnalyticsCleared} onDeleteAccount={() => setAccountDeletionOpen(true)} onResetSettings={() => { clearBrowserLocalSettings(); window.location.reload(); }} modal onClose={() => setUserSettingsOpen(false)} /> : null}
-      {!dedicatedMapView ? (<>
-        {helpOpen ? <HelpCenter activePage={active} version={APP_VERSION} onClose={() => setHelpOpen(false)} onPrivacy={() => setPrivacyOpen(true)} onTerms={() => setTermsOpen(true)} onStartTour={() => { setHelpOpen(false); setTourReplayToken((current) => current + 1); }} /> : null}
-        {active !== "admin" && consent == null && !privacyOpen ? <CookieBanner onConsent={(choice) => { setAnalyticsPreference(choice); setConsent(choice); }} onPrivacy={() => setPrivacyOpen(true)} /> : null}
-        {privacyOpen ? <PrivacyDialog consent={consent} onConsent={(choice) => { setAnalyticsPreference(choice); setConsent(choice); setPrivacyOpen(false); }} onClose={() => setPrivacyOpen(false)} /> : null}
-        {termsOpen ? <TermsDialog onClose={() => setTermsOpen(false)} onPrivacy={() => setPrivacyOpen(true)} /> : null}
-      </>) : null}
-      {publicLegalPolicy && !accountDeletionOpen && (legalAcceptanceOpen || Boolean(userAuth.user && userAuth.legal.requiresAcceptance)) ? (
-        <LegalAcceptanceDialog
-          mode={userAuth.user && userAuth.legal.requiresAcceptance ? "existing-session" : "login"}
-          policy={publicLegalPolicy}
-          onContinue={userAuth.user && userAuth.legal.requiresAcceptance ? acceptCurrentLegalPolicy : startDiscordLogin}
-          onClose={() => setLegalAcceptanceOpen(false)}
-          onLogout={userAuth.user && userAuth.legal.requiresAcceptance ? discordLogout : undefined}
-          onDeleteAccount={userAuth.user && userAuth.legal.requiresAcceptance ? () => setAccountDeletionOpen(true) : undefined}
-        />
-      ) : null}
-      {accountDeletionOpen ? <AccountDeletionDialog auth={userAuth} onDeleted={handleAccountDeleted} onClose={() => setAccountDeletionOpen(false)} /> : null}
-      {!dedicatedMapView ? (<>
-        <FirstRunTourManager activePage={active} enabled={active !== "admin" && consent != null && !userSettingsOpen && !helpOpen && !privacyOpen && !termsOpen && !commandOpen && !noticeOpen && !(!discordPromptDismissed && userAuth.discordLoginEnabled && !userAuth.user)} showAccountStep={userAuth.discordLoginEnabled} replayToken={tourReplayToken} onNavigate={(panel) => navigate(panel)} onVisibilityChange={setTourVisible} />
-        <AppPopupManager activePage={active} enabled={active !== "admin" && !tourVisible && !userSettingsOpen && !helpOpen && !privacyOpen && !termsOpen && !commandOpen && !noticeOpen} />
-      </>) : null}
-    </div>
+    </AppFrame>
   );
 }
 

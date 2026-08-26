@@ -21,7 +21,7 @@ function BasicPlanState({ plan, prefix }: { plan: BasicPlan; prefix: string }) {
   return <section className="public-panel public-placeholder">
     <p className="public-eyebrow">{prefix}</p>
     <h1>{plan.title}</h1>
-    <p>Settlement #{plan.claimId}</p>
+    <p>Claim #{plan.claimId}</p>
     <p>{targetCount} {targetCount === 1 ? "target" : "targets"}</p>
   </section>;
 }
@@ -49,7 +49,7 @@ function SharedPlan({ planId }: { planId: string }) {
       <BasicPlanState plan={plan} prefix="Shared plan" />
       <section className="public-panel">
         <h2>Current progress</h2>
-        {!available ? <p role="status">Current settlement data could not be loaded.</p> : materials.length ? materials.map((material, index) => {
+        {!available ? <p role="status">Current claim data could not be loaded.</p> : materials.length ? materials.map((material, index) => {
           const name = typeof material.name === "string" && material.name.trim() ? material.name : `Requirement ${index + 1}`;
           const required = Number(material.required);
           const stock = Number(material.available);

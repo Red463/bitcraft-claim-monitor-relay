@@ -2,8 +2,8 @@ import { sendJson } from "../httpResponses.mjs";
 
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const PUBLIC_WARNING_MESSAGES = Object.freeze({
-  relay_search_stale: "Settlement search results are stale while Relay recovers.",
-  relay_snapshot_stale: "Settlement snapshot data is stale while Relay recovers.",
+  relay_search_stale: "Claim search results are stale while Relay recovers.",
+  relay_snapshot_stale: "Claim snapshot data is stale while Relay recovers.",
   relay_roster_malformed: "Roster data is unavailable because Relay returned malformed data.",
   relay_roster_unavailable: "Roster data is temporarily unavailable.",
   relay_inventories_malformed: "Inventory data is unavailable because Relay returned malformed data.",
@@ -53,7 +53,7 @@ export function normalizePublicSearchQuery(value) {
   }
   const length = [...normalized].length;
   if (length < 3 || length > 64 || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(normalized)) {
-    throw new PublicDataError("Settlement search requires 3-64 visible Unicode characters.", 400);
+    throw new PublicDataError("Claim search requires 3-64 visible Unicode characters.", 400);
   }
   return { kind: "name", value: normalized };
 }
@@ -351,7 +351,7 @@ export function createPublicDataService({ http, normalizers, topologyFromPayload
           return { query: query.value, hints: [exactClaimHint(wire, query.value, normalizers)] };
         } catch (error) {
           if (error instanceof PublicDataError) throw error;
-          if (relayStatus(error) === 404) throw new PublicDataError("Settlement was not found.", 404, { cause: error });
+          if (relayStatus(error) === 404) throw new PublicDataError("Claim was not found.", 404, { cause: error });
           if (isMalformedRelayError(error)) {
             throw new PublicDataError("Relay claim response is malformed.", 502, { cause: error });
           }
@@ -416,7 +416,7 @@ export function createPublicDataService({ http, normalizers, topologyFromPayload
       ]);
     } catch (error) {
       if (error instanceof PublicDataError) throw error;
-      if (relayStatus(error) === 404) throw new PublicDataError("Settlement was not found.", 404, { cause: error });
+      if (relayStatus(error) === 404) throw new PublicDataError("Claim was not found.", 404, { cause: error });
       if (isMalformedRelayError(error)) {
         throw new PublicDataError("Relay required snapshot data is malformed.", 502, { cause: error });
       }

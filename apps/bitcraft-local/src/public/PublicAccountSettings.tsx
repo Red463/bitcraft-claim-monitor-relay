@@ -103,7 +103,7 @@ export function PublicAccountSettings({ page }: { page: "account" | "settings" }
         {deletionReview ? <div className="public-deletion-review">
           <h3>Owned plan dispositions</h3>
           {ownedPlans.length ? ownedPlans.map((plan) => <label key={plan.id}>
-            <span><strong>{plan.title}</strong> · settlement #{plan.claimId}</span>
+            <span><strong>{plan.title}</strong> · Claim #{plan.claimId}</span>
             <select aria-label={`Disposition for ${plan.title}`} value={dispositions[plan.id] ?? ""} onChange={(event) => setDispositions((current) => ({ ...current, [plan.id]: event.target.value }))}>
               <option value="">Choose an action</option>
               <option value="delete">Permanently delete plan</option>

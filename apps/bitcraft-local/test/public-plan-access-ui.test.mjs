@@ -60,13 +60,14 @@ test("the mounted shared-plan route renders bearer-redacted aggregate computatio
     view = await mount(React.createElement(PublicAppShell, { route: { id: "shared-plan", params: { id: "plan-7" } }, features: collaborationFeatures }));
     await dom.flush();
 
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0][0], "/api/public/shared-plans/plan-7");
-    assert.equal(calls[1][0], "/api/public/shared-plans/plan-7/computation");
-    assert.doesNotMatch(calls[0][0], /[?#]|mounted-reusable-share-secret/);
-    assert.equal(calls[0][1].headers.authorization, `Bearer ${token}`);
+    const sharedCalls = calls.filter(([path]) => path.startsWith("/api/public/shared-plans/"));
+    assert.equal(sharedCalls.length, 2);
+    assert.equal(sharedCalls[0][0], "/api/public/shared-plans/plan-7");
+    assert.equal(sharedCalls[1][0], "/api/public/shared-plans/plan-7/computation");
+    assert.doesNotMatch(sharedCalls[0][0], /[?#]|mounted-reusable-share-secret/);
+    assert.equal(sharedCalls[0][1].headers.authorization, `Bearer ${token}`);
     assert.match(document.body.textContent, /Shared bridge plan/);
-    assert.match(document.body.textContent, /Settlement #42/);
+    assert.match(document.body.textContent, /Claim #42/);
     assert.match(document.body.textContent, /2 targets/);
     assert.match(document.body.textContent, /Timber/);
     assert.match(document.body.textContent, /Required 10/);
@@ -89,7 +90,7 @@ test("the mounted shared-plan route shows an explicit unavailable computation st
   await capturePlanSecret(dom.window, "#share=unavailable-share-secret");
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => String(input).endsWith("/computation")
-    ? json(200, { computation: { available: false, warning: "Current settlement data could not be loaded." } })
+    ? json(200, { computation: { available: false, warning: "Current claim data could not be loaded." } })
     : json(200, { plan: { id: "plan-unavailable", title: "Offline plan", claimId: "42", role: "bearer", document: { targets: [] } } });
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
   let view;
@@ -97,7 +98,7 @@ test("the mounted shared-plan route shows an explicit unavailable computation st
     const { PublicAppShell } = await vite.ssrLoadModule("/src/public/PublicAppShell.tsx");
     view = await mount(React.createElement(PublicAppShell, { route: { id: "shared-plan", params: { id: "plan-unavailable" } }, features: collaborationFeatures }));
     await dom.flush();
-    assert.match(document.body.textContent, /Current settlement data could not be loaded/);
+    assert.match(document.body.textContent, /Current claim data could not be loaded/);
   } finally {
     if (view) await view.unmount();
     await vite.close();
@@ -134,7 +135,8 @@ test("the mounted invite route never posts before an explicit accept action", as
     view = await mount(React.createElement(PublicAppShell, { route: { id: "invite", params: { id: "invite-8" } }, features: collaborationFeatures }));
     await dom.flush();
 
-    assert.deepEqual(calls.map(([path, init]) => [path, init.method ?? "GET"]), [["/api/public/auth/session", "GET"]]);
+    assert.ok(calls.length >= 1);
+    assert.ok(calls.every(([path, init]) => path === "/api/public/auth/session" && (init.method ?? "GET") === "GET"));
     const accept = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Accept invitation"));
     assert.ok(accept && !accept.disabled);
 

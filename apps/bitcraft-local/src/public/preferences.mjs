@@ -54,3 +54,7 @@ export function addRecentSettlement(storage, settlement) {
   }
   return next;
 }
+
+export const readRecentClaims = readRecentSettlements;
+export const addRecentClaim = addRecentSettlement;
+export const claimPreferenceKey = settlementPreferenceKey;

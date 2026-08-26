@@ -38,13 +38,14 @@ test("Obsidian Ledger uses sharp shared geometry and excludes legacy blue-steel 
 });
 
 test("application tools live in an anchored utility component", () => {
-  const utility = readFileSync(new URL("../src/components/main/AppUtilityBar.tsx", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+  const utility = readFileSync(new URL("../src/components/app-chrome/AppUtilityBar.tsx", import.meta.url), "utf8");
   assert.match(utility, /aria-label="Application tools"/);
   for (const label of ["Search commands", "Admin console", "Updates", "Browser settings", "Help and application information"]) {
-    assert.match(utility, new RegExp(label));
+    assert.match(shell, new RegExp(label));
   }
-  assert.match(utility, /aria-busy=\{refreshing\}/);
-  assert.match(utility, /disabled=\{refreshDisabled\}/);
+  assert.match(utility, /aria-busy=\{action\.busy/);
+  assert.match(utility, /disabled=\{action\.disabled\}/);
 });
 
 test("the utility route label replaces duplicated visible page-title heroes", () => {

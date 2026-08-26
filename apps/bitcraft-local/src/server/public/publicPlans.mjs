@@ -687,7 +687,7 @@ function safePlannerInteger(value) {
   return integer <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(integer) : null;
 }
 
-function computationUnavailable(document, message = "Public plan computation is unavailable until current settlement and catalog data can be read safely.") {
+function computationUnavailable(document, message = "Public plan computation is unavailable until current claim and catalog data can be read safely.") {
   return {
     available: false,
     document,
@@ -727,7 +727,7 @@ function publicStorageSources(snapshot) {
     }
     sources.push({
       sourceId: String(building?.entityId ?? "settlement-storage"),
-      label: String(building?.nickname ?? building?.name ?? "Settlement storage"),
+      label: String(building?.nickname ?? building?.name ?? "Claim storage"),
       items,
     });
   }
@@ -760,7 +760,7 @@ function publicCraftSources(snapshot) {
         craftId: String(craft?.entityId ?? ""),
         completed: craft?.completed === true,
         status: craft?.completed === true ? "Ready to collect" : "In progress",
-        sourceType: craft?.completed === true ? "Completed settlement craft" : "Current settlement craft",
+        sourceType: craft?.completed === true ? "Completed claim craft" : "Current claim craft",
       });
     }
   }

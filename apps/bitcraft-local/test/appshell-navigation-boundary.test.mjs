@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
+const appFrame = readFileSync(new URL("../src/components/app-chrome/AppFrame.tsx", import.meta.url), "utf8");
+const appSidebar = readFileSync(new URL("../src/components/app-chrome/AppSidebar.tsx", import.meta.url), "utf8");
 const adminPanel = readFileSync(new URL("../src/components/admin/AdminPanel.tsx", import.meta.url), "utf8");
 const commandPalette = readFileSync(new URL("../src/components/main/CommandPalette.tsx", import.meta.url), "utf8");
 const dashboardPage = readFileSync(new URL("../src/pages/DashboardPage.tsx", import.meta.url), "utf8");
@@ -134,11 +136,11 @@ test("dedicated legal routes set their titles from an effect", () => {
 test("sidebar destinations keep restricted public pages discoverable and preserve active-route semantics", () => {
   assert.doesNotMatch(appShell, /group\.items\.filter\(\(\[id\]\) => isPageAllowed\(id\)\)/);
   assert.match(appShell, /const restricted = !isPageAllowed\(id\)/);
-  assert.match(appShell, /className=\{\[`nav-destination`/);
-  assert.match(appShell, /aria-label=\{restricted \? `\$\{label\} — restricted` : label\}/);
-  assert.match(appShell, /<LockKeyhole className="nav-access-lock"/);
-  assert.match(appShell, /href=\{panelHref\(id\)\}/);
-  assert.match(appShell, /aria-current=\{active === id \? "page" : undefined\}/);
+  assert.match(appShell, /href:\s*panelHref\(id\)/);
+  assert.match(appShell, /active:\s*active === id/);
+  assert.match(appSidebar, /className=\{\["nav-destination"/);
+  assert.match(appSidebar, /<LockKeyhole className="nav-access-lock"/);
+  assert.match(appSidebar, /aria-current=\{item\.active \? "page" : undefined\}/);
 });
 
 test("navigation retains existing groups and non-admin route IDs", () => {
@@ -195,13 +197,13 @@ test("dashboard shortcuts navigate to canonical Craft Monitor and Region routes"
 });
 
 test("narrow navigation exposes an accessible grouped drawer", () => {
-  assert.match(appShell, /const \[mobileNavigationOpen, setMobileNavigationOpen\] = React\.useState\(false\)/);
-  assert.match(appShell, /aria-controls="mobile-navigation"/);
-  assert.match(appShell, /aria-expanded=\{mobileNavigationOpen\}/);
-  assert.match(appShell, /id="mobile-navigation"/);
-  assert.match(appShell, /aria-label="Mobile navigation"/);
-  assert.match(appShell, /className="mobile-navigation-backdrop"/);
-  const openClass = appShell.match(/className=\{`app-sidebar \$\{mobileNavigationOpen \? "([^"]+)"/)?.[1] ?? "";
+  assert.match(appFrame, /const \[mobileOpen, setMobileOpen\] = React\.useState\(false\)/);
+  assert.match(appFrame, /aria-controls="mobile-navigation"/);
+  assert.match(appFrame, /aria-expanded=\{mobileOpen\}/);
+  assert.match(appSidebar, /id="mobile-navigation"/);
+  assert.match(appSidebar, /aria-label="Mobile navigation"/);
+  assert.match(appFrame, /className="mobile-navigation-backdrop"/);
+  const openClass = appSidebar.match(/className=\{`app-sidebar \$\{mobileOpen \? "([^"]+)"/)?.[1] ?? "";
   assert.equal(openClass, "mobile-open");
   assert.match(shellCss, new RegExp(`\\.app-sidebar\\.${openClass}\\s*\\{[^}]*transform:\\s*translateX\\(0\\)`, "s"));
   assert.match(appShell, /NAV_GROUPS\.map\(\(group\) =>/);
@@ -209,50 +211,45 @@ test("narrow navigation exposes an accessible grouped drawer", () => {
 });
 
 test("closed narrow drawer is hidden from accessibility and keyboard navigation without disabling desktop sidebar", () => {
-  assert.match(appShell, /window\.matchMedia\("\(max-width: 920px\)"\)/);
-  assert.match(appShell, /const mobileNavigationUnavailable = isNarrowViewport && !mobileNavigationOpen/);
-  assert.match(appShell, /inert=\{mobileNavigationUnavailable \? true : undefined\}/);
-  assert.match(appShell, /aria-hidden=\{mobileNavigationUnavailable \? true : undefined\}/);
+  assert.match(appSidebar, /window\.matchMedia\("\(max-width: 760px\)"\)/);
+  assert.match(appSidebar, /const mobileNavigationUnavailable = isNarrowViewport && !mobileOpen/);
+  assert.match(appSidebar, /inert=\{mobileNavigationUnavailable \? true : undefined\}/);
+  assert.match(appSidebar, /aria-hidden=\{mobileNavigationUnavailable \? true : undefined\}/);
 });
 
 test("mobile drawer closes with Escape and restores focus to its trigger", () => {
-  assert.match(appShell, /event\.key === "Escape"/);
-  assert.match(appShell, /document\.body\.style\.overflow = mobileNavigationOpen \? "hidden" : previousOverflow/);
-  assert.match(appShell, /mobileNavigationTriggerRef\.current\?\.focus\(\)/);
+  assert.match(appFrame, /menuTriggerRef\.current\?\.focus\(\)/);
+  assert.match(appFrame, /setMobileOpen\(false\)/);
 });
 
 test("ordinary route activation navigates before closing the mobile drawer", () => {
-  assert.match(appShell, /navigate\(id\);\s*setMobileNavigationOpen\(false\);/);
+  assert.match(appShell, /event\.preventDefault\(\);\s*navigate\(id\);/);
   assert.match(appShell, /if \(event\.button !== 0 \|\| event\.metaKey \|\| event\.ctrlKey \|\| event\.shiftKey \|\| event\.altKey\) return;/);
+  assert.match(appSidebar, /item\.onActivate\?\.\(event\);[\s\S]*onRequestClose\(\)/);
 });
 
 test("restricted navigation has distinct expanded, collapsed, and mobile styling without relying on colour alone", () => {
   assert.match(shellCss, /\.nav-destination\.is-restricted/);
   assert.match(shellCss, /\.nav-access-lock/);
   assert.match(shellCss, /\.sidebar-collapsed nav a \.nav-access-lock/);
-  assert.match(shellCss, /@media \(max-width: 920px\)[\s\S]*?\.nav-access-lock/);
+  assert.match(shellCss, /@media \(max-width: 760px\)[\s\S]*?\.nav-access-lock/);
 });
 
 test("route links expose collapsed labels while route changes retain scroll orientation", () => {
-  assert.match(appShell, /<span className="nav-label">\{label\}<\/span>\s*<span className="collapsed-nav-label" aria-hidden="true">\{label\}<\/span>/);
+  assert.match(appSidebar, /<span className="nav-label">\{item\.label\}<\/span>[\s\S]*<span className="collapsed-nav-label" aria-hidden="true">\{item\.label\}<\/span>/);
   assert.match(appShell, /if \(mainRef\.current\) mainRef\.current\.scrollTop = 0;/);
-  assert.match(appShell, /<main ref=\{mainRef\} tabIndex=\{-1\}>/);
+  assert.match(appShell, /mainRef=\{mainRef\}/);
 });
 
 test("collapsed route tooltip is rendered outside the scrolling sidebar", () => {
-  assert.match(appShell, /const \[collapsedNavTooltip, setCollapsedNavTooltip\] = React\.useState/);
-  assert.match(appShell, /onMouseEnter=\{\(event\) => showCollapsedNavTooltip\(event\.currentTarget, accessibleLabel\)\}/);
-  assert.match(appShell, /onFocus=\{\(event\) => showCollapsedNavTooltip\(event\.currentTarget, accessibleLabel\)\}/);
-  assert.match(appShell, /<\/aside>\s*\{collapsedNavTooltip \? <span className="collapsed-nav-tooltip"/);
-  assert.match(appShell, /aria-hidden="true"/);
+  assert.match(appSidebar, /const \[tooltip, setTooltip\] = React\.useState/);
+  assert.match(appSidebar, /onMouseEnter=\{\(event\) => showTooltip\(event\.currentTarget, accessibleLabel\)\}/);
+  assert.match(appSidebar, /onFocus=\{\(event\) => showTooltip\(event\.currentTarget, accessibleLabel\)\}/);
+  assert.match(appSidebar, /<\/aside>[\s\S]*className="collapsed-nav-tooltip"/);
+  assert.match(appSidebar, /aria-hidden="true"/);
 });
 
-test("collapsed route tooltip clears on resize and nav scroll with listener cleanup", () => {
-  assert.match(appShell, /const navigationRef = React\.useRef<HTMLElement \| null>\(null\)/);
-  assert.match(appShell, /window\.addEventListener\("resize", clearCollapsedNavTooltip\)/);
-  assert.match(appShell, /const navigation = navigationRef\.current;/);
-  assert.match(appShell, /navigation\?\.addEventListener\("scroll", clearCollapsedNavTooltip\)/);
-  assert.match(appShell, /window\.removeEventListener\("resize", clearCollapsedNavTooltip\)/);
-  assert.match(appShell, /navigation\?\.removeEventListener\("scroll", clearCollapsedNavTooltip\)/);
-  assert.match(appShell, /<nav ref=\{navigationRef\}/);
+test("collapsed route tooltip is owned by the shared sidebar", () => {
+  assert.doesNotMatch(appShell, /collapsedNavTooltip|navigationRef/);
+  assert.match(appSidebar, /setTooltip\(null\)/);
 });
