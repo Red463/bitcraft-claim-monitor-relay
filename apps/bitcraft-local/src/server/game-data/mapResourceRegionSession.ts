@@ -40,6 +40,7 @@ export type RegionalBindingModule = { DbConnection: { builder(): ConnectionBuild
 
 const MAX_RESOURCE_IDS = 16;
 const DEFAULT_REBUILD_DELAY_MS = 300;
+const DEFAULT_SUBSCRIPTION_APPLY_TIMEOUT_MS = 60_000;
 
 export type RegionSessionConfig = {
   uri: string;
@@ -98,6 +99,7 @@ type ResourceSubscription = {
   resourceId: string;
   generation: number;
   handle: SubscriptionHandle | null;
+  applyTimer: unknown | null;
   applied: boolean;
 };
 
@@ -132,6 +134,7 @@ export class RelayMapResourceRegionSession {
   readonly #setTimer: (callback: () => void, delayMs: number) => unknown;
   readonly #clearTimer: (timer: unknown) => void;
   readonly #rebuildDelayMs: number;
+  readonly #subscriptionApplyTimeoutMs: number;
   #connection: BindingConnection | null = null;
   #pendingConnection: BindingConnection | null = null;
   #abortStart: (() => void) | null = null;
@@ -175,6 +178,7 @@ export class RelayMapResourceRegionSession {
     setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
     rebuildDelayMs = DEFAULT_REBUILD_DELAY_MS,
+    subscriptionApplyTimeoutMs = DEFAULT_SUBSCRIPTION_APPLY_TIMEOUT_MS,
   }: {
     loadBindings?: () => Promise<RegionalBindingModule>;
     onSnapshot: (snapshot: MapResourceSnapshot) => void | Promise<void>;
@@ -186,6 +190,7 @@ export class RelayMapResourceRegionSession {
     setTimer?: (callback: () => void, delayMs: number) => unknown;
     clearTimer?: (timer: unknown) => void;
     rebuildDelayMs?: number;
+    subscriptionApplyTimeoutMs?: number;
   }) {
     this.#loadBindings = loadBindings;
     this.#onSnapshot = onSnapshot;
@@ -197,6 +202,7 @@ export class RelayMapResourceRegionSession {
     this.#setTimer = setTimer;
     this.#clearTimer = clearTimer;
     this.#rebuildDelayMs = positiveInteger(rebuildDelayMs, "Relay map resource rebuild delay");
+    this.#subscriptionApplyTimeoutMs = positiveInteger(subscriptionApplyTimeoutMs, "Relay map resource subscription apply timeout");
   }
 
   async start(config: RegionSessionConfig): Promise<void> {
@@ -295,22 +301,44 @@ export class RelayMapResourceRegionSession {
       resourceId,
       generation: nextGeneration,
       handle: null,
+      applyTimer: null,
       applied: false,
     };
     this.#subscriptions.set(resourceId, subscription);
     this.#index?.select(resourceId);
+    subscription.applyTimer = this.#setTimer(() => {
+      if (this.#subscriptions.get(resourceId) !== subscription || subscription.applied) return;
+      subscription.applyTimer = null;
+      subscription.handle?.unsubscribe();
+      subscription.handle = null;
+      this.#subscriptions.delete(resourceId);
+      this.#index?.unselect(resourceId);
+      this.#dirtyResourceIds.delete(resourceId);
+      delete this.#health.rowsPerType[resourceId];
+      this.#refreshAppliedResourceIds();
+      this.#recordError(new Error(
+        `Relay map resource ${resourceId} subscription did not apply within ${this.#subscriptionApplyTimeoutMs}ms`,
+      ));
+    }, this.#subscriptionApplyTimeoutMs);
     try {
       subscription.handle = connection.subscriptionBuilder()
       .onApplied(() => {
         if (this.#subscriptions.get(resourceId) !== subscription) return;
+        if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
+        subscription.applyTimer = null;
         subscription.applied = true;
         this.#refreshAppliedResourceIds();
         this.#needsReseed = true;
         this.#queueRebuild([resourceId]);
       })
-      .onError((_context, error) => this.#recordError(error))
+      .onError((_context, error) => {
+        if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
+        subscription.applyTimer = null;
+        this.#recordError(error);
+      })
       .subscribe(mapResourceQueries(resourceId));
     } catch (error) {
+      if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
       this.#subscriptions.delete(resourceId);
       this.#index?.unselect(resourceId);
       throw error;
@@ -322,6 +350,8 @@ export class RelayMapResourceRegionSession {
     const resourceId = decimal(rawResourceId, "Relay map resource id");
     const subscription = this.#subscriptions.get(resourceId);
     if (!subscription) return;
+    if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
+    subscription.applyTimer = null;
     subscription.handle?.unsubscribe();
     this.#subscriptions.delete(resourceId);
     this.#index?.unselect(resourceId);
@@ -601,7 +631,11 @@ export class RelayMapResourceRegionSession {
     if (this.#rebuildTimer !== null) this.#clearTimer(this.#rebuildTimer);
     this.#rebuildTimer = null;
     this.#removeListeners();
-    for (const subscription of this.#subscriptions.values()) subscription.handle?.unsubscribe();
+    for (const subscription of this.#subscriptions.values()) {
+      if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
+      subscription.applyTimer = null;
+      subscription.handle?.unsubscribe();
+    }
     this.#subscriptions.clear();
     this.#dirtyResourceIds.clear();
     this.#needsReseed = false;

@@ -268,6 +268,78 @@ test("resource session maintains independent applied subscriptions on one region
   await session.stop();
 });
 
+test("resource session fails and removes a subscription that never applies", async () => {
+  const relay = fixture();
+  const timers = fakeTimers();
+  const failures = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot() {},
+    onFailure: (warning) => failures.push(warning),
+    subscriptionApplyTimeoutMs: 1_000,
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("28", 7);
+
+  timers.run(1_000);
+
+  assert.deepEqual(failures, ["Relay map resource 28 subscription did not apply within 1000ms"]);
+  assert.equal(relay.handles[0].unsubscribeCount, 1);
+  assert.equal(session.health().stage, "error");
+  assert.equal(session.health().appliedResourceIds.includes("28"), false);
+  await session.stop();
+});
+
+test("resource session clears the apply watchdog after application or unsubscribe", async () => {
+  const relay = fixture();
+  const timers = fakeTimers();
+  const failures = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot() {},
+    onFailure: (warning) => failures.push(warning),
+    subscriptionApplyTimeoutMs: 1_000,
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("28", 7);
+  await session.subscribe("54", 8);
+  assert.equal(timers.size(), 2, "each unapplied subscription must own an apply watchdog");
+
+  relay.subscriptions[0].apply();
+  session.unsubscribe("54");
+  timers.run(1_000);
+
+  assert.deepEqual(failures, []);
+  assert.equal(relay.handles[1].unsubscribeCount, 1);
+  await session.stop();
+});
+
+test("resource session clears apply watchdogs after subscription error and shutdown", async () => {
+  const relay = fixture();
+  const timers = fakeTimers();
+  const failures = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot() {},
+    onFailure: (warning) => failures.push(warning),
+    subscriptionApplyTimeoutMs: 1_000,
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("28", 7);
+  await session.subscribe("54", 8);
+  assert.equal(timers.size(), 2);
+
+  relay.subscriptions[0].fail(undefined, new Error("Relay subscription rejected"));
+  assert.equal(timers.size(), 1);
+  await session.stop();
+
+  assert.equal(timers.size(), 0);
+  assert.deepEqual(failures, ["Relay subscription rejected"]);
+});
+
 test("resource session coalesces simultaneous initial applications into one regional cache scan", async () => {
   const relay = fixture({
     resourceRows: [

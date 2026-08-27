@@ -47,6 +47,22 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function fakeTimers() {
+  const pending = new Map();
+  let nextId = 1;
+  return {
+    setTimer(callback, delayMs) { const id = nextId++; pending.set(id, { callback, delayMs }); return id; },
+    clearTimer(id) { pending.delete(id); },
+    run(delayMs) {
+      for (const [id, timer] of [...pending]) if (timer.delayMs === delayMs) {
+        pending.delete(id);
+        timer.callback();
+      }
+    },
+    size() { return pending.size; },
+  };
+}
+
 function ready(entry, generation, url = `/${entry.resourceId}/${generation}`) {
   return { type: "partition-ready", key: entry.key, generation: String(generation), freshness: "live", url };
 }
@@ -253,6 +269,80 @@ test("fetches independent ready partitions concurrently and coalesces duplicate 
   assert.equal(state.get(bush.key).generation, "7");
   assert.equal(state.get(ferns.key).generation, "8");
   assert.deepEqual([...state.get(bush.key).committed], [packResourceCoordinate(2, 1)]);
+  loader.stop();
+});
+
+test("times out one stalled partition without blocking another selected resource", async () => {
+  const events = connections();
+  const timers = fakeTimers();
+  const errors = [];
+  let stalledSignal = null;
+  const loader = createMapResourceBinaryLoader({
+    loadTimeoutMs: 1_000,
+    ...timers,
+    fetchBinary: async (url, signal) => {
+      if (url === "/bush-stalled") {
+        stalledSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      }
+      if (url === "/bush-retry") return bytes(bush, "7", packResourceCoordinate(2, 7));
+      return bytes(ferns, "8", packResourceCoordinate(125, 8));
+    },
+    connectEvents: events.connectEvents,
+    onError: (message) => errors.push(message),
+  });
+  loader.setScope([bush, ferns], "/events?scope=timeout");
+  events.opened[0].onEvent(ready(bush, "7", "/bush-stalled"));
+  events.opened[0].onEvent(ready(ferns, "8", "/ferns-ready"));
+  await drain();
+
+  assert.equal(loader.state().get(ferns.key).generation, "8");
+  assert.equal(loader.state().get(bush.key).status, "loading");
+  assert.equal(timers.size(), 1, "only the stalled partition should retain a load deadline");
+
+  timers.run(1_000);
+  await drain();
+
+  assert.equal(stalledSignal.aborted, true);
+  assert.equal(loader.state().get(bush.key).status, "unavailable");
+  assert.equal(loader.state().get(ferns.key).generation, "8");
+  assert.deepEqual(errors, ["Resource partition could not be loaded"]);
+
+  events.opened[0].onEvent(ready(bush, "7", "/bush-retry"));
+  await drain();
+  assert.equal(loader.state().get(bush.key).generation, "7");
+  assert.equal(loader.state().get(bush.key).status, "live");
+  loader.stop();
+});
+
+test("keeps the partition deadline active while a Response-style body stalls", async () => {
+  const events = connections();
+  const timers = fakeTimers();
+  const errors = [];
+  const loader = createMapResourceBinaryLoader({
+    loadTimeoutMs: 1_000,
+    ...timers,
+    fetchBinary: async (_url, signal) => ({
+      status: 200,
+      arrayBuffer: () => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }),
+    }),
+    connectEvents: events.connectEvents,
+    onError: (message) => errors.push(message),
+  });
+  loader.setScope([bush], "/events?scope=body-timeout");
+  events.opened[0].onEvent(ready(bush, "7", "/body-stalled"));
+  await drain();
+
+  assert.equal(timers.size(), 1, "the deadline must remain active through body consumption");
+  timers.run(1_000);
+  await drain();
+
+  assert.equal(loader.state().get(bush.key).status, "unavailable");
+  assert.deepEqual(errors, ["Resource partition could not be loaded"]);
   loader.stop();
 });
 
