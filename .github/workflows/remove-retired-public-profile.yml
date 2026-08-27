@@ -78,11 +78,24 @@ jobs:
           path: ${{ runner.temp }}/retired-public-inspection.json
           retention-days: 7
 
-  remove:
+  approve:
     needs: inspect
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     environment: relay-cutover
+    steps:
+      - name: Confirm protected removal gate
+        env:
+          REMOVAL_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$REMOVAL_CONFIRMATION" = "remove-claim-monitor.com"
+
+  remove:
+    needs: approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: relay-preview
     steps:
       - name: Configure pinned SSH identity
         env:

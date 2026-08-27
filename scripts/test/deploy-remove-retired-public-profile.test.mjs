@@ -159,7 +159,8 @@ test("protected workflow requires main, tests first, sanitised inspection, and r
   assert.match(workflow, /corepack pnpm --filter @workspace\/bitcraft-local run build/);
   assert.match(workflow, /corepack pnpm --filter @workspace\/bitcraft-local test/);
   assert.match(workflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --inspect-retired-public-profile[\s\S]*upload-artifact@v4/);
-  assert.match(workflow, /environment: relay-cutover[\s\S]*update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --remove-retired-public-profile[\s\S]*--confirmation 'remove-claim-monitor\.com'/);
+  assert.match(workflow, /approve:[\s\S]*needs: inspect[\s\S]*environment: relay-cutover/);
+  assert.match(workflow, /remove:[\s\S]*needs: approve[\s\S]*environment: relay-preview[\s\S]*update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --remove-retired-public-profile[\s\S]*--confirmation 'remove-claim-monitor\.com'/);
   assert.doesNotMatch(workflow, /sudo (?:env[^\n]+ )?node /);
   assert.match(updater, /retired-public-profile-removal-v1/);
   assert.match(updater, /delegate_retired_public_profile_mode/);
