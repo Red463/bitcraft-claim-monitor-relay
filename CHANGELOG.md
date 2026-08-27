@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.64.1-beta.1] - 2026-08-28
+
+### Fixed
+
+- Fixed Map resource selections remaining stuck on loading when a Relay subscription apply or browser resource request stalls.
+- Fixed page navigation retaining query parameters owned by another page, keeping shared URLs focused on the destination page.
+
 ## [0.64.0-beta.2] - 2026-08-27
 
 ### Changed
