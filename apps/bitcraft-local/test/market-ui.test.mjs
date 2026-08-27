@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   availabilityFlags,
   marketChartPoints,
+  marketDetailLoadingState,
+  marketDetailRequestPlan,
   marketPriceClass,
+  marketRequestCanCommit,
   marketSuggestionResults,
   nextOptionIndex,
   nextTabIndex,
@@ -40,6 +43,39 @@ test("regional quotes preserve exact values and sort by best ask", () => {
   assert.deepEqual(quotes[0], { regionKey: "19", regionId: "19", regionName: "Shardvale", bestSell: "340", bestBuy: "320", sellQuantity: "7", buyQuantity: "12", sellOrders: 2, buyOrders: 1, lastSeen: "2026-08-24T20:02:00Z" });
   assert.equal(quotes[1].bestSell, "90071992547409931");
   assert.equal(quotes[1].regionName, "R22");
+});
+
+test("market detail selection clears previous order and history responses before loading", () => {
+  assert.deepEqual(marketDetailLoadingState(), {
+    loading: true,
+    error: "",
+    historyLoading: false,
+    historyRequestKey: "",
+    historyError: "",
+    detail: null,
+    history: null,
+  });
+  assert.deepEqual(marketDetailLoadingState(false), {
+    loading: false,
+    error: "",
+    historyLoading: false,
+    historyRequestKey: "",
+    historyError: "",
+    detail: null,
+    history: null,
+  });
+});
+
+test("market price history waits for the Stats detail tab", () => {
+  assert.deepEqual(marketDetailRequestPlan(false, "orders"), { orderBook: false, priceHistory: false });
+  assert.deepEqual(marketDetailRequestPlan(true, "orders"), { orderBook: true, priceHistory: false });
+  assert.deepEqual(marketDetailRequestPlan(true, "stats"), { orderBook: true, priceHistory: true });
+});
+
+test("market requests cannot commit after their scope changes or they are aborted", () => {
+  assert.equal(marketRequestCanCommit("item:30|19", "item:30|19", false), true);
+  assert.equal(marketRequestCanCommit("item:30|19", "item:31|19", false), false);
+  assert.equal(marketRequestCanCommit("item:30|19", "item:30|19", true), false);
 });
 
 test("market availability modes map to the existing catalog contract", () => {

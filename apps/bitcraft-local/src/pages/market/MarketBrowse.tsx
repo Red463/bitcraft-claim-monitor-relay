@@ -19,7 +19,7 @@ import {
   marketItemType,
   normalizeMarketOrders,
 } from "./globalMarket";
-import { availabilityFlags, exactMarketInteger, marketPriceClass, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
+import { availabilityFlags, exactMarketInteger, marketDetailLoadingState, marketDetailRequestPlan, marketPriceClass, marketRequestCanCommit, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
 import { MarketPriceChart } from "./MarketPriceChart";
 
 type Props = MarketRefreshProps & {
@@ -66,7 +66,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
     return id && name ? { id, name, itemType: toNumber(type) } : null;
   });
   const [catalogState, setCatalogState] = React.useState<{ loading: boolean; error: string; categories: string[] }>({ loading: false, error: "", categories: [] });
-  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyError: "", detail: null, history: null });
+  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyLoading: boolean; historyRequestKey: string; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyLoading: false, historyRequestKey: "", historyError: "", detail: null, history: null });
   const [category, setCategory] = React.useState(params.get("category") ?? "");
   const [availability, setAvailability] = React.useState<MarketAvailability>(() => {
     if (mode === "buy") return "buy";
@@ -90,6 +90,19 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const suggestionsOpenRef = React.useRef(false);
   const generationSequence = useGameDataGeneration(claimId, ["catalogs", "regional-market"]);
   const availabilityFilter = availabilityFlags(availability);
+  const detailRequestPlan = marketDetailRequestPlan(Boolean(selectedItem), detailTab);
+  const selectedRequestIdentity = selectedItem
+    ? `${marketItemType(selectedItem.itemType)}:${String(selectedItem.id)}`
+    : "";
+  const catalogRequestKey = JSON.stringify([claimId, regionId, query, category, availability, catalogSort, generationSequence, refreshSequence]);
+  const orderBookRequestKey = JSON.stringify([claimId, regionId, selectedRequestIdentity, generationSequence, refreshSequence]);
+  const priceHistoryRequestKey = JSON.stringify([claimId, regionId, selectedRequestIdentity, range, detailTab, refreshSequence]);
+  const catalogRequestKeyRef = React.useRef(catalogRequestKey);
+  const orderBookRequestKeyRef = React.useRef(orderBookRequestKey);
+  const priceHistoryRequestKeyRef = React.useRef(priceHistoryRequestKey);
+  catalogRequestKeyRef.current = catalogRequestKey;
+  orderBookRequestKeyRef.current = orderBookRequestKey;
+  priceHistoryRequestKeyRef.current = priceHistoryRequestKey;
 
   React.useEffect(() => {
     if (mode === "buy" && query.trim().length < 2) {
@@ -111,6 +124,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
     }, 220);
     trackRefresh("global-market-catalog", refresh.promise)
       .then((payload) => {
+        if (!marketRequestCanCommit(catalogRequestKey, catalogRequestKeyRef.current, controller.signal.aborted)) return;
         const items = Array.isArray(payload.items) ? payload.items : [];
         const categories = Array.isArray(payload.categories) ? payload.categories.map(String) : [];
         setCatalogItems(items);
@@ -119,13 +133,15 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
         setCatalogState({ loading: false, error: "", categories });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setCatalogState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        if (marketRequestCanCommit(catalogRequestKey, catalogRequestKeyRef.current, controller.signal.aborted)) {
+          setCatalogState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        }
       });
     return () => {
       refresh.cancel();
       controller.abort();
     };
-  }, [availability, catalogSort, category, generationSequence, query, refreshSequence, regionId]);
+  }, [availability, catalogRequestKey, catalogSort, category, generationSequence, query, refreshSequence, regionId]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -161,16 +177,26 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       "global-market-item-detail",
       fetch(urls.orderBook, { headers: refreshHeaders, signal: controller.signal })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`order book HTTP ${response.status}`))),
-    ).then((detail) => setDetailState((current) => ({ ...current, loading: false, error: "", detail })))
+    ).then((detail) => {
+      if (marketRequestCanCommit(orderBookRequestKey, orderBookRequestKeyRef.current, controller.signal.aborted)) {
+        setDetailState((current) => ({ ...current, loading: false, error: "", detail }));
+      }
+    })
       .catch((error) => {
-        if (!controller.signal.aborted) setDetailState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        if (marketRequestCanCommit(orderBookRequestKey, orderBookRequestKeyRef.current, controller.signal.aborted)) {
+          setDetailState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        }
       });
     return () => controller.abort();
-  }, [generationSequence, refreshSequence, regionId, selectedItem]);
+  }, [generationSequence, orderBookRequestKey, refreshSequence, regionId, selectedItem, detailRequestPlan.orderBook]);
 
   React.useEffect(() => {
     if (!selectedItem) {
-      setDetailState((current) => ({ ...current, historyError: "", history: null }));
+      setDetailState((current) => ({ ...current, historyLoading: false, historyRequestKey: "", historyError: "", history: null }));
+      return;
+    }
+    if (!detailRequestPlan.priceHistory) {
+      setDetailState((current) => current.historyLoading ? { ...current, historyLoading: false } : current);
       return;
     }
     const controller = new AbortController();
@@ -180,23 +206,34 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       regionId: regionId || "all",
       range,
     });
+    setDetailState((current) => ({ ...current, historyLoading: true, historyError: "" }));
     trackRefresh(
       "global-market-item-history",
       fetch(urls.priceHistory, { headers: refreshHeaders, signal: controller.signal })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`price history HTTP ${response.status}`))),
-    ).then((history) => setDetailState((current) => ({ ...current, historyError: "", history })))
+    ).then((history) => {
+      if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
+        setDetailState((current) => ({ ...current, historyLoading: false, historyRequestKey: priceHistoryRequestKey, historyError: "", history }));
+      }
+    })
       .catch((error) => {
-        if (!controller.signal.aborted) setDetailState((current) => ({
-          ...current,
-          historyError: error instanceof Error ? error.message : String(error),
-        }));
+        if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
+          setDetailState((current) => ({
+            ...current,
+            historyLoading: false,
+            historyRequestKey: priceHistoryRequestKey,
+            historyError: error instanceof Error ? error.message : String(error),
+            history: null,
+          }));
+        }
       });
     return () => controller.abort();
-  }, [range, refreshSequence, regionId, selectedItem]);
+  }, [detailRequestPlan.priceHistory, priceHistoryRequestKey, range, refreshSequence, regionId, selectedItem]);
 
   function chooseItem(item: AnyRecord) {
     catalogScrollRef.current = window.scrollY;
     suggestionsOpenRef.current = false;
+    setDetailState(marketDetailLoadingState());
     setSelectedItem(item);
     setSuggestions([]);
     setPage(1);
@@ -218,7 +255,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   function showResults() {
     suggestionsOpenRef.current = false;
     setSelectedItem(null);
-    setDetailState((current) => ({ ...current, detail: null, history: null, error: "", historyError: "" }));
+    setDetailState(marketDetailLoadingState(false));
     setSuggestions([]);
     updateQueryState(mode === "browse" ? { item: null, itemName: null, itemType: null } : { buyItem: null, buyItemName: null, buyItemType: null }, "replace");
     onQueryStateChange();
@@ -287,6 +324,8 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const stats = detailState.history?.priceStats ?? {};
   const priceData: AnyRecord[] = Array.isArray(detailState.history?.priceData) ? detailState.history.priceData : [];
   const recentTrades: AnyRecord[] = Array.isArray(detailState.history?.recentTrades) ? detailState.history.recentTrades : [];
+  const historyPending = detailRequestPlan.priceHistory
+    && (detailState.historyLoading || detailState.historyRequestKey !== priceHistoryRequestKey);
   const hasCatalogFilters = Boolean(query || category || availability !== (mode === "buy" ? "buy" : "any") || catalogSort !== "name");
 
   return (
@@ -298,7 +337,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
           <span>{mode === "buy" ? "Find an item with buy orders" : "Search global catalog"}</span>
           <div className="suggestion-anchor">
             <Search size={16} />
-            <input value={query} onFocus={() => { suggestionsOpenRef.current = true; setSuggestions(marketSuggestionResults(catalogItems, query, true)); }} onChange={(event) => { suggestionsOpenRef.current = true; setQuery(event.target.value); setSelectedItem(null); setActiveSuggestion(-1); }} onKeyDown={onSuggestionKeyDown} placeholder="Item or cargo name" role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`${mode}-market-suggestions`} aria-activedescendant={activeSuggestion >= 0 ? `${mode}-market-option-${activeSuggestion}` : undefined} />
+            <input value={query} onFocus={() => { suggestionsOpenRef.current = true; setSuggestions(marketSuggestionResults(catalogItems, query, true)); }} onChange={(event) => { suggestionsOpenRef.current = true; setQuery(event.target.value); setSelectedItem(null); setDetailState(marketDetailLoadingState(false)); setActiveSuggestion(-1); }} onKeyDown={onSuggestionKeyDown} placeholder="Item or cargo name" role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`${mode}-market-suggestions`} aria-activedescendant={activeSuggestion >= 0 ? `${mode}-market-option-${activeSuggestion}` : undefined} />
             {suggestions.length ? <div className="suggestion-menu" id={`${mode}-market-suggestions`} role="listbox">{suggestions.map((item, index) => (
               <button id={`${mode}-market-option-${index}`} role="option" aria-selected={activeSuggestion === index} key={`${item.itemType}-${item.id}`} type="button" onMouseEnter={() => setActiveSuggestion(index)} onClick={() => chooseItem(item)}>
                 <ItemIcon item={item} /><strong>{item.name}</strong>{item.tier ? <TierBadge tier={item.tier} /> : null}<small>{item.rarityStr ? <RarityBadge rarity={item.rarityStr} /> : null}{item.tag ?? ""}</small>
@@ -354,7 +393,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
           </header>
           {detailState.error ? <div className="error">Unable to load this market: {detailState.error}</div> : null}
           {freshnessNotice ? <div className="info">{freshnessNotice}</div> : null}
-          {detailState.loading && !detailState.detail ? <div className="market-loading-strip">Loading live orders and locally observed history…</div> : null}
+          {detailState.loading && !detailState.detail ? <div className="market-loading-strip">Loading live orders…</div> : null}
           <div className="metric-grid market-order-summary">
             <MiniStat icon={<ArrowDownUp />} label="Lowest Sell Order" value={<span className={marketPriceClass(bestSell == null ? "neutral" : "ask")}>{bestSell == null ? "—" : `${formatNumber(bestSell)}g`}</span>} />
             <MiniStat icon={<ArrowDownUp />} label="Highest Buy Order" value={<span className={marketPriceClass(bestBuy == null ? "neutral" : "bid")}>{bestBuy == null ? "—" : `${formatNumber(bestBuy)}g`}</span>} />
@@ -402,13 +441,15 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
             <div className="pagination-row"><span>Page {Math.min(page, pageCount)} of {pageCount} · {formatNumber(filteredOrders.length)} orders</span><div><button className="toolbar-button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button><button className="toolbar-button" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Next</button></div></div>
           </> : (
             <div className="market-stats-workspace">
-              {detailState.historyError ? <div className="error">Price history unavailable: {detailState.historyError}</div> : null}
+              {!historyPending && detailState.historyError ? <div className="error">Price history unavailable: {detailState.historyError}</div> : null}
               <div className="market-range-tabs">{(["24h", "7d", "30d", "all"] as const).map((entry) => <button className={range === entry ? "active" : ""} key={entry} onClick={() => setRange(entry)}>{entry}</button>)}</div>
-              <div className="metric-grid"><MiniStat icon={<BarChart3 />} label="24h VWAP" value={stats.avg24h == null ? "—" : `${formatNumber(stats.avg24h)}g`} /><MiniStat icon={<BarChart3 />} label="7d VWAP" value={stats.avg7d == null ? "—" : `${formatNumber(stats.avg7d)}g`} /><MiniStat icon={<BarChart3 />} label="30d Average" value={stats.avg30d == null ? "—" : `${formatNumber(stats.avg30d)}g`} /><MiniStat icon={<BarChart3 />} label="High / Low" value={stats.allTimeHigh == null ? "—" : `${formatNumber(stats.allTimeHigh)} / ${formatNumber(stats.allTimeLow)}g`} /><MiniStat icon={<BarChart3 />} label="Volume" value={formatNumber(stats.totalVolume)} /><MiniStat icon={<BarChart3 />} label="24h Change" value={stats.priceChange24h == null ? "—" : `${toNumber(stats.priceChange24h) >= 0 ? "+" : ""}${formatNumber(stats.priceChange24h)}%`} /></div>
-              <MarketPriceChart rows={priceData} range={range} />
-              {detailState.history?.coverage === "collecting" ? <div className="info">Collecting confirmed local sales for this selection. Current buy and sell orders remain live.</div> : null}
-              {detailState.history?.coverage === "locally-observed" ? <div className="info">This chart contains confirmed sales observed by this app only.{detailState.history?.observedSince ? ` Local observation window began ${timeAgo(detailState.history.observedSince)}.` : ""}</div> : null}
-              <section className="market-recent-trades"><h3>Recent trades <small>Representative item history</small></h3>{recentTrades.length ? recentTrades.slice(0, 20).map((trade, index) => <div key={String(trade.id ?? `${trade.timestamp}-${index}`)}><ItemLabel item={{ ...selectedItem, itemName: selectedItem.name }} /><span>{formatNumber(trade.quantity)} @ {formatNumber(trade.unitPrice ?? trade.price)}g</span><small>{trade.regionName ?? trade.claimName ?? "Unknown market"} · {timeAgo(trade.createdAt ?? trade.timestamp)}</small></div>) : <div className="empty-state">No recent trades were returned.</div>}</section>
+              {historyPending ? <div className="market-loading-strip">Loading price history…</div> : <>
+                <div className="metric-grid"><MiniStat icon={<BarChart3 />} label="24h VWAP" value={stats.avg24h == null ? "—" : `${formatNumber(stats.avg24h)}g`} /><MiniStat icon={<BarChart3 />} label="7d VWAP" value={stats.avg7d == null ? "—" : `${formatNumber(stats.avg7d)}g`} /><MiniStat icon={<BarChart3 />} label="30d Average" value={stats.avg30d == null ? "—" : `${formatNumber(stats.avg30d)}g`} /><MiniStat icon={<BarChart3 />} label="High / Low" value={stats.allTimeHigh == null ? "—" : `${formatNumber(stats.allTimeHigh)} / ${formatNumber(stats.allTimeLow)}g`} /><MiniStat icon={<BarChart3 />} label="Volume" value={formatNumber(stats.totalVolume)} /><MiniStat icon={<BarChart3 />} label="24h Change" value={stats.priceChange24h == null ? "—" : `${toNumber(stats.priceChange24h) >= 0 ? "+" : ""}${formatNumber(stats.priceChange24h)}%`} /></div>
+                <MarketPriceChart rows={priceData} range={range} />
+                {detailState.history?.coverage === "collecting" ? <div className="info">Collecting confirmed local sales for this selection. Current buy and sell orders remain live.</div> : null}
+                {detailState.history?.coverage === "locally-observed" ? <div className="info">This chart contains confirmed sales observed by this app only.{detailState.history?.observedSince ? ` Local observation window began ${timeAgo(detailState.history.observedSince)}.` : ""}</div> : null}
+                <section className="market-recent-trades"><h3>Recent trades <small>Representative item history</small></h3>{recentTrades.length ? recentTrades.slice(0, 20).map((trade, index) => <div key={String(trade.id ?? `${trade.timestamp}-${index}`)}><ItemLabel item={{ ...selectedItem, itemName: selectedItem.name }} /><span>{formatNumber(trade.quantity)} @ {formatNumber(trade.unitPrice ?? trade.price)}g</span><small>{trade.regionName ?? trade.claimName ?? "Unknown market"} · {timeAgo(trade.createdAt ?? trade.timestamp)}</small></div>) : <div className="empty-state">No recent trades were returned.</div>}</section>
+              </>}
             </div>
           )}
         </div>
