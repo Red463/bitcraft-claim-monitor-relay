@@ -70,6 +70,7 @@ import AdminDeleteAllItemsOfTypeReducer from "./admin_delete_all_items_of_type_r
 import AdminDeleteChatMessageReducer from "./admin_delete_chat_message_reducer";
 import AdminDespawnOverworldEnemiesReducer from "./admin_despawn_overworld_enemies_reducer";
 import AdminDungeonUpdatePortalsReducer from "./admin_dungeon_update_portals_reducer";
+import AdminExpelPlayersReducer from "./admin_expel_players_reducer";
 import AdminFailQuestReducer from "./admin_fail_quest_reducer";
 import AdminFindAllPlayersWithItemReducer from "./admin_find_all_players_with_item_reducer";
 import AdminFindAllPlayersWithItemAboveQuantityReducer from "./admin_find_all_players_with_item_above_quantity_reducer";
@@ -484,6 +485,7 @@ import ImportSecondaryKnowledgeDescReducer from "./import_secondary_knowledge_de
 import ImportServerIdentityReducer from "./import_server_identity_reducer";
 import ImportSignedInPlayerStateReducer from "./import_signed_in_player_state_reducer";
 import ImportSkillDescReducer from "./import_skill_desc_reducer";
+import ImportSkillLevelKnowledgeDescReducer from "./import_skill_level_knowledge_desc_reducer";
 import ImportStageRewardsDescReducer from "./import_stage_rewards_desc_reducer";
 import ImportStaminaStateReducer from "./import_stamina_state_reducer";
 import ImportTargetStateReducer from "./import_target_state_reducer";
@@ -539,6 +541,7 @@ import MigrateGrantDefaultCollectiblesReducer from "./migrate_grant_default_coll
 import MigrateMissingEquipmentSlotTypesReducer from "./migrate_missing_equipment_slot_types_reducer";
 import MigrateOnboardingReducer from "./migrate_onboarding_reducer";
 import MigratePlayerSettingsReducer from "./migrate_player_settings_reducer";
+import MigrateSkillLevelKnowledgeReducer from "./migrate_skill_level_knowledge_reducer";
 import MigrationSetAchievementParamsReducer from "./migration_set_achievement_params_reducer";
 import MigrationSetBuildingDescParamsReducer from "./migration_set_building_desc_params_reducer";
 import NpcAiAgentLoopReducer from "./npc_ai_agent_loop_reducer";
@@ -746,6 +749,7 @@ import StageResourceGrowthRecipeDescReducer from "./stage_resource_growth_recipe
 import StageResourcePlacementRecipeDescReducer from "./stage_resource_placement_recipe_desc_reducer";
 import StageSecondaryKnowledgeDescReducer from "./stage_secondary_knowledge_desc_reducer";
 import StageSkillDescReducer from "./stage_skill_desc_reducer";
+import StageSkillLevelKnowledgeDescReducer from "./stage_skill_level_knowledge_desc_reducer";
 import StageStageRewardsDescReducer from "./stage_stage_rewards_desc_reducer";
 import StageTargetingMatrixDescReducer from "./stage_targeting_matrix_desc_reducer";
 import StageTeleportItemDescReducer from "./stage_teleport_item_desc_reducer";
@@ -1038,6 +1042,7 @@ import SecondaryKnowledgeDescRow from "./secondary_knowledge_desc_table";
 import SellOrderStateRow from "./sell_order_state_table";
 import SignedInPlayerStateRow from "./signed_in_player_state_table";
 import SkillDescRow from "./skill_desc_table";
+import SkillLevelKnowledgeDescRow from "./skill_level_knowledge_desc_table";
 import StageRewardsDescRow from "./stage_rewards_desc_table";
 import StaminaStateRow from "./stamina_state_table";
 import StorageLogStateRow from "./storage_log_state_table";
@@ -4217,6 +4222,24 @@ const tablesSchema = __schema({
       { name: 'skill_desc_skill_type_key', constraint: 'unique', columns: ['skillType'] },
     ],
   }, SkillDescRow),
+  skillLevelKnowledgeDesc: __table({
+    name: 'skill_level_knowledge_desc',
+    indexes: [
+      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'skill_id', name: 'skill_level_knowledge_desc_skill_id_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+      ] },
+      { accessor: 'skill_level', name: 'skill_level_knowledge_desc_skill_id_level_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+        'level',
+      ] },
+    ],
+    constraints: [
+      { name: 'skill_level_knowledge_desc_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SkillLevelKnowledgeDescRow),
   stageRewardsDesc: __table({
     name: 'stage_rewards_desc',
     indexes: [
@@ -4703,6 +4726,7 @@ const reducersSchema = __reducers(
   __reducerSchema("admin_delete_chat_message", AdminDeleteChatMessageReducer),
   __reducerSchema("admin_despawn_overworld_enemies", AdminDespawnOverworldEnemiesReducer),
   __reducerSchema("admin_dungeon_update_portals", AdminDungeonUpdatePortalsReducer),
+  __reducerSchema("admin_expel_players", AdminExpelPlayersReducer),
   __reducerSchema("admin_fail_quest", AdminFailQuestReducer),
   __reducerSchema("admin_find_all_players_with_item", AdminFindAllPlayersWithItemReducer),
   __reducerSchema("admin_find_all_players_with_item_above_quantity", AdminFindAllPlayersWithItemAboveQuantityReducer),
@@ -5117,6 +5141,7 @@ const reducersSchema = __reducers(
   __reducerSchema("import_server_identity", ImportServerIdentityReducer),
   __reducerSchema("import_signed_in_player_state", ImportSignedInPlayerStateReducer),
   __reducerSchema("import_skill_desc", ImportSkillDescReducer),
+  __reducerSchema("import_skill_level_knowledge_desc", ImportSkillLevelKnowledgeDescReducer),
   __reducerSchema("import_stage_rewards_desc", ImportStageRewardsDescReducer),
   __reducerSchema("import_stamina_state", ImportStaminaStateReducer),
   __reducerSchema("import_target_state", ImportTargetStateReducer),
@@ -5172,6 +5197,7 @@ const reducersSchema = __reducers(
   __reducerSchema("migrate_missing_equipment_slot_types", MigrateMissingEquipmentSlotTypesReducer),
   __reducerSchema("migrate_onboarding", MigrateOnboardingReducer),
   __reducerSchema("migrate_player_settings", MigratePlayerSettingsReducer),
+  __reducerSchema("migrate_skill_level_knowledge", MigrateSkillLevelKnowledgeReducer),
   __reducerSchema("migration_set_achievement_params", MigrationSetAchievementParamsReducer),
   __reducerSchema("migration_set_building_desc_params", MigrationSetBuildingDescParamsReducer),
   __reducerSchema("npc_ai_agent_loop", NpcAiAgentLoopReducer),
@@ -5379,6 +5405,7 @@ const reducersSchema = __reducers(
   __reducerSchema("stage_resource_placement_recipe_desc", StageResourcePlacementRecipeDescReducer),
   __reducerSchema("stage_secondary_knowledge_desc", StageSecondaryKnowledgeDescReducer),
   __reducerSchema("stage_skill_desc", StageSkillDescReducer),
+  __reducerSchema("stage_skill_level_knowledge_desc", StageSkillLevelKnowledgeDescReducer),
   __reducerSchema("stage_stage_rewards_desc", StageStageRewardsDescReducer),
   __reducerSchema("stage_targeting_matrix_desc", StageTargetingMatrixDescReducer),
   __reducerSchema("stage_teleport_item_desc", StageTeleportItemDescReducer),
@@ -5911,6 +5938,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "signed_in_player_state": Omit<typeof tablesSchema.schemaType.tables["signedInPlayerState"], "accessorName"> & { readonly accessorName: "signed_in_player_state" };
     /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
     readonly "skill_desc": Omit<typeof tablesSchema.schemaType.tables["skillDesc"], "accessorName"> & { readonly accessorName: "skill_desc" };
+    /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+    readonly "skill_level_knowledge_desc": Omit<typeof tablesSchema.schemaType.tables["skillLevelKnowledgeDesc"], "accessorName"> & { readonly accessorName: "skill_level_knowledge_desc" };
     /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
     readonly "stage_rewards_desc": Omit<typeof tablesSchema.schemaType.tables["stageRewardsDesc"], "accessorName"> & { readonly accessorName: "stage_rewards_desc" };
     /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -6240,6 +6269,7 @@ const tableAccessorAliases = {
   "sell_order_state": "sellOrderState",
   "signed_in_player_state": "signedInPlayerState",
   "skill_desc": "skillDesc",
+  "skill_level_knowledge_desc": "skillLevelKnowledgeDesc",
   "stage_rewards_desc": "stageRewardsDesc",
   "stamina_state": "staminaState",
   "storage_log_state": "storageLogState",
@@ -6774,6 +6804,8 @@ export type DbView = __DbViewBase & {
   readonly "signed_in_player_state": __DbViewBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __DbViewBase["skillDesc"];
+  /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+  readonly "skill_level_knowledge_desc": __DbViewBase["skillLevelKnowledgeDesc"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __DbViewBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -7328,6 +7360,8 @@ export type Tables = __TablesBase & {
   readonly "signed_in_player_state": __TablesBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __TablesBase["skillDesc"];
+  /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+  readonly "skill_level_knowledge_desc": __TablesBase["skillLevelKnowledgeDesc"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __TablesBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */

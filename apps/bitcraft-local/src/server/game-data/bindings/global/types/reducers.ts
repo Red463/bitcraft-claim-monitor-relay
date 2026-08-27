@@ -393,6 +393,7 @@ import StageResourceGrowthRecipeDescReducer from "../stage_resource_growth_recip
 import StageResourcePlacementRecipeDescReducer from "../stage_resource_placement_recipe_desc_reducer";
 import StageSecondaryKnowledgeDescReducer from "../stage_secondary_knowledge_desc_reducer";
 import StageSkillDescReducer from "../stage_skill_desc_reducer";
+import StageSkillLevelKnowledgeDescReducer from "../stage_skill_level_knowledge_desc_reducer";
 import StageStageRewardsDescReducer from "../stage_stage_rewards_desc_reducer";
 import StageTargetingMatrixDescReducer from "../stage_targeting_matrix_desc_reducer";
 import StageTeleportItemDescReducer from "../stage_teleport_item_desc_reducer";
@@ -803,6 +804,7 @@ export type StageResourceGrowthRecipeDescParams = __Infer<typeof StageResourceGr
 export type StageResourcePlacementRecipeDescParams = __Infer<typeof StageResourcePlacementRecipeDescReducer>;
 export type StageSecondaryKnowledgeDescParams = __Infer<typeof StageSecondaryKnowledgeDescReducer>;
 export type StageSkillDescParams = __Infer<typeof StageSkillDescReducer>;
+export type StageSkillLevelKnowledgeDescParams = __Infer<typeof StageSkillLevelKnowledgeDescReducer>;
 export type StageStageRewardsDescParams = __Infer<typeof StageStageRewardsDescReducer>;
 export type StageTargetingMatrixDescParams = __Infer<typeof StageTargetingMatrixDescReducer>;
 export type StageTeleportItemDescParams = __Infer<typeof StageTeleportItemDescReducer>;

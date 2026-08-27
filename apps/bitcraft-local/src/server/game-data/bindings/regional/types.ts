@@ -1337,6 +1337,7 @@ export const ClothingMask = __t.enum("ClothingMask", {
   HairFront: __t.unit(),
   HairBottom: __t.unit(),
   HairFull: __t.unit(),
+  Bald: __t.unit(),
 });
 export type ClothingMask = __Infer<typeof ClothingMask>;
 
@@ -2732,6 +2733,9 @@ export const EquipmentDesc = __t.object("EquipmentDesc", {
   requiredAchievements: __t.array(__t.i32()),
   requiredKnowledges: __t.array(__t.i32()),
   showInProgression: __t.bool(),
+  equipmentBuffId: __t.i32(),
+  equipmentBuffChancePerHit: __t.f32(),
+  equipmentBuffSkillId: __t.i32(),
 });
 export type EquipmentDesc = __Infer<typeof EquipmentDesc>;
 
@@ -7133,6 +7137,14 @@ export const SkillDesc = __t.object("SkillDesc", {
   maxLevel: __t.i32(),
 });
 export type SkillDesc = __Infer<typeof SkillDesc>;
+
+export const SkillLevelKnowledgeDesc = __t.object("SkillLevelKnowledgeDesc", {
+  id: __t.i32(),
+  skillId: __t.i32(),
+  level: __t.i32(),
+  secondaryKnowledgeId: __t.i32(),
+});
+export type SkillLevelKnowledgeDesc = __Infer<typeof SkillLevelKnowledgeDesc>;
 
 // The tagged union or sum type for the algebraic type `SkillType`.
 export const SkillType = __t.enum("SkillType", {
