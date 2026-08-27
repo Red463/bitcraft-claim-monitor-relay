@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.63.1-beta.2] - 2026-08-27
+
+### Fixed
+
+- Made Relay outages clear to regular users while keeping detailed diagnostics available for operators.
+
 ## [0.63.1-beta.1] - 2026-08-27
 
 ### Added
