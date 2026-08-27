@@ -107,7 +107,7 @@ const EXPLICIT_PROTECTED_TABLES = Object.freeze([
 
 const APPROVED_TABLES = new Set([
   "user_accounts", "user_sessions", "user_legal_acceptances", "admin_users", "admin_sessions",
-  "app_settings", "app_secrets", "craft_plan_settings", "market_deal_watches", "scheduled_jobs",
+  "app_settings", "app_secrets", "craft_plan_settings", "craft_plans", "market_deal_watches", "scheduled_jobs",
   "admin_audit_log", "discord_youtube_channels", "discord_youtube_videos", "discord_craft_watches",
   "discord_mod_cases", "discord_warnings", "discord_mod_notes", "discord_custom_commands",
   "discord_component_votes", "discord_component_messages", "discord_temp_bans",
@@ -805,6 +805,13 @@ test("apply performs every approved merge while preserving Relay-only and explic
     { plan_key: "old-extra", config_json: '{"old":true}' },
     { plan_key: "relay-only", config_json: '{"relay":true}' },
   ]);
+  assert.deepEqual({ ...target.prepare("SELECT id, name, scope, is_primary, config_json FROM craft_plans").get() }, {
+    id: "legacy-primary",
+    name: "Settlement craft plan",
+    scope: "shared",
+    is_primary: 1,
+    config_json: '{"old":true}',
+  });
   assert.deepEqual(target.prepare("SELECT id, user_id, discord_id, region_id, item_id, item_type, item_name, threshold_percent, enabled, last_checked_at FROM market_deal_watches ORDER BY id").all().map((row) => ({ ...row })), [
     { id: 7, user_id: 1, discord_id: "111", region_id: "777", item_id: "42", item_type: "0", item_name: "Old Item", threshold_percent: 21, enabled: 1, last_checked_at: "source-check" },
     { id: 9, user_id: 2, discord_id: "999", region_id: "999", item_id: "99", item_type: "0", item_name: "Relay Only Item", threshold_percent: 30, enabled: 1, last_checked_at: null },

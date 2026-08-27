@@ -190,6 +190,7 @@ export function buildCraftPlanProgressSnapshot({
   return {
     schemaVersion: 1,
     claimId: text(claimId),
+    planId: text(metadata.planId || plan?.plan?.id || "legacy-primary"),
     capturedAt: text(metadata.capturedAt || new Date().toISOString()),
     baselineRevision,
     baselineInputs,
@@ -510,13 +511,14 @@ export function createCraftPlanProgressAuditRepository(db, {
 } = {}) {
   if (!db || !statements) throw new Error("Craft Plan progress audit requires a database and prepared statements.");
 
-  function stateFor(claimId) {
-    return statements.getCraftPlanProgressAuditState.get(text(claimId)) ?? null;
+  function stateFor(claimId, planId = "legacy-primary") {
+    return statements.getCraftPlanProgressAuditState.get(text(claimId), text(planId)) ?? null;
   }
 
-  function updateState(claimId, values) {
+  function updateState(claimId, planId, values) {
     statements.upsertCraftPlanProgressAuditState.run(
       text(claimId),
+      text(planId),
       values.lastFingerprint ?? null,
       values.lastPayloadGzip ?? null,
       values.lastSnapshotId ?? null,
@@ -528,15 +530,15 @@ export function createCraftPlanProgressAuditRepository(db, {
     );
   }
 
-  function latestSuccess(claimId) {
-    const state = stateFor(claimId);
+  function latestSuccess(claimId, planId = "legacy-primary") {
+    const state = stateFor(claimId, planId);
     try {
       const payload = gunzipJson(state?.last_payload_gzip);
       if (payload) return payload;
     } catch {
       // Fall through to durable historical checkpoints.
     }
-    for (const row of statements.listLatestCraftPlanProgressSnapshots.all(text(claimId), 25)) {
+    for (const row of statements.listLatestCraftPlanProgressSnapshots.all(text(claimId), text(planId), 25)) {
       try {
         const payload = gunzipJson(row.payload_gzip);
         if (payload) return payload;
@@ -547,9 +549,10 @@ export function createCraftPlanProgressAuditRepository(db, {
     return null;
   }
 
-  function insertEvent(claimId, capturedAt, baselineRevision, event) {
+  function insertEvent(claimId, planId, capturedAt, baselineRevision, event) {
     statements.insertCraftPlanProgressEvent.run(
       text(claimId),
+      text(planId),
       capturedAt,
       text(baselineRevision) || null,
       text(event.type),
@@ -572,10 +575,11 @@ export function createCraftPlanProgressAuditRepository(db, {
 
   function recordSuccess(snapshot) {
     const claimId = text(snapshot?.claimId);
+    const planId = text(snapshot?.planId || "legacy-primary");
     const capturedAt = text(snapshot?.capturedAt || now());
     if (!claimId) throw new Error("Craft Plan progress audit snapshot requires a claim ID.");
-    const state = stateFor(claimId);
-    const previous = latestSuccess(claimId);
+    const state = stateFor(claimId, planId);
+    const previous = latestSuccess(claimId, planId);
     const fingerprint = craftPlanProgressFingerprint(snapshot);
     const baselineChanged = Boolean(previous)
       && text(previous.baselineRevision) !== text(snapshot.baselineRevision);
@@ -588,7 +592,7 @@ export function createCraftPlanProgressAuditRepository(db, {
       : gzipJson(snapshot);
 
     if (duplicate && !fullSnapshot) {
-      updateState(claimId, {
+      updateState(claimId, planId, {
         lastFingerprint: fingerprint,
         lastPayloadGzip: payloadGzip,
         lastSnapshotId: state?.last_snapshot_id,
@@ -626,6 +630,7 @@ export function createCraftPlanProgressAuditRepository(db, {
       if (fullSnapshot) {
         const result = statements.insertCraftPlanProgressSnapshot.run(
           claimId,
+          planId,
           capturedAt,
           text(snapshot.baselineRevision),
           fingerprint,
@@ -637,8 +642,8 @@ export function createCraftPlanProgressAuditRepository(db, {
         lastSnapshotId = result.lastInsertRowid;
         lastFullSnapshotAt = capturedAt;
       }
-      for (const event of events) insertEvent(claimId, capturedAt, snapshot.baselineRevision, event);
-      updateState(claimId, {
+      for (const event of events) insertEvent(claimId, planId, capturedAt, snapshot.baselineRevision, event);
+      updateState(claimId, planId, {
         lastFingerprint: fingerprint,
         lastPayloadGzip: payloadGzip,
         lastSnapshotId,
@@ -664,21 +669,21 @@ export function createCraftPlanProgressAuditRepository(db, {
     };
   }
 
-  function recordFailure(claimId, failures, capturedAt = now()) {
+  function recordFailure(claimId, failures, capturedAt = now(), planId = "legacy-primary") {
     const normalized = normalizeFailures(failures);
     const failureFingerprint = hash(normalized);
-    const current = stateFor(claimId);
+    const current = stateFor(claimId, planId);
     const error = normalized.map((failure) => `${failure.label}: ${failure.error}`).join("; ").slice(0, 1000);
     const changed = text(current?.last_failure_fingerprint) !== failureFingerprint;
     db.exec("BEGIN IMMEDIATE");
     try {
       if (changed) {
-        insertEvent(claimId, capturedAt, current?.last_fingerprint ? latestSuccess(claimId)?.baselineRevision : "", {
+        insertEvent(claimId, planId, capturedAt, current?.last_fingerprint ? latestSuccess(claimId, planId)?.baselineRevision : "", {
           type: "source_failure",
           failures: normalized,
         });
       }
-      updateState(claimId, {
+      updateState(claimId, planId, {
         lastFingerprint: current?.last_fingerprint,
         lastPayloadGzip: current?.last_payload_gzip,
         lastSnapshotId: current?.last_snapshot_id,
@@ -700,20 +705,25 @@ export function createCraftPlanProgressAuditRepository(db, {
   function listEvents(claimId, {
     since = new Date(new Date(now()).getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString(),
     limit = 100,
+    planId = "legacy-primary",
   } = {}) {
     return statements.listCraftPlanProgressEvents
-      .all(text(claimId), text(since), Math.min(10_000, Math.max(1, Math.trunc(number(limit) || 100))))
+      .all(text(claimId), text(planId), text(since), Math.min(10_000, Math.max(1, Math.trunc(number(limit) || 100))))
       .map(parseEventRow);
   }
 
-  function status(claimId) {
-    const state = stateFor(claimId);
-    const latest = latestSuccess(claimId);
+  function status(claimId, planId = "legacy-primary") {
+    const state = stateFor(claimId, planId);
+    const latest = latestSuccess(claimId, planId);
     const counts = statements.craftPlanProgressAuditCounts.get(
       text(claimId),
+      text(planId),
       text(claimId),
+      text(planId),
       text(claimId),
+      text(planId),
       text(claimId),
+      text(planId),
     ) ?? {};
     return {
       claimId: text(claimId),
@@ -731,15 +741,15 @@ export function createCraftPlanProgressAuditRepository(db, {
     };
   }
 
-  function latestBaselineChange(claimId) {
-    const row = statements.latestCraftPlanBaselineChange.get(text(claimId));
+  function latestBaselineChange(claimId, planId = "legacy-primary") {
+    const row = statements.latestCraftPlanBaselineChange.get(text(claimId), text(planId));
     return row ? parseEventRow(row) : null;
   }
 
-  function exportRange(claimId, range) {
+  function exportRange(claimId, range, planId = "legacy-primary") {
     const warnings = [];
-    const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(range.since));
-    const rows = statements.listCraftPlanProgressSnapshotsSince.all(text(claimId), text(range.since));
+    const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(planId), text(range.since));
+    const rows = statements.listCraftPlanProgressSnapshotsSince.all(text(claimId), text(planId), text(range.since));
     const uniqueRows = new Map();
     if (checkpoint) uniqueRows.set(number(checkpoint.id), checkpoint);
     for (const row of rows) uniqueRows.set(number(row.id), row);
@@ -763,9 +773,10 @@ export function createCraftPlanProgressAuditRepository(db, {
       claimId: text(claimId),
       requestedRange: text(range.label),
       effectiveSince,
-      status: status(claimId),
+      planId: text(planId),
+      status: status(claimId, planId),
       snapshots,
-      events: listEvents(claimId, { since: effectiveSince, limit: 10_000 }),
+      events: listEvents(claimId, { since: effectiveSince, limit: 10_000, planId }),
       warnings,
     };
   }

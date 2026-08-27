@@ -17,7 +17,8 @@ test("Craft Plan saves persist structured toggle audit details", () => {
     'if (req.method === "PUT" && url.pathname === "/api/local/admin/craft-plan")',
     'if (req.method === "PUT" && url.pathname === "/api/local/admin/access-control")',
   );
-  assert.match(route, /const previousConfig = storedCraftPlanConfig\(\)/);
+  assert.match(route, /const planId = String\(url\.searchParams\.get\("planId"\) \?\? craftPlans\.primary\(\)\?\.id \?\? ""\)/);
+  assert.match(route, /const previousConfig = storedCraftPlanConfig\(planId\)/);
   assert.match(route, /craftPlanAuditDetails\(previousConfig, config, craftPlanAuditLabels\(response\.sources, response\.plan\?\.materials\)\)/);
   assert.match(route, /changes: auditDetails\.changes/);
   assert.match(route, /otherSettingsChanged: auditDetails\.otherSettingsChanged/);

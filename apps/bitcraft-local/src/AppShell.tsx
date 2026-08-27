@@ -895,7 +895,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
     members: <Members data={data} selectedMemberId={selectedMemberId} onSelectMember={setSelectedMemberId} onMemberDetailsOpened={() => trackAnalyticsEvent("member_details_opened")} />,
     skills: <Skills data={data} />,
     "craft-monitor": <Production data={data} refreshToken={pageRefreshCycle?.sequence ?? 0} selectedMemberId={selectedMemberId} onSelectMember={setSelectedMemberId} />,
-    planning: <CraftPlanningPage claimId={claimId} refreshToken={pageRefreshCycle?.sequence ?? 0} />,
+    planning: <CraftPlanningPage claimId={claimId} refreshToken={pageRefreshCycle?.sequence ?? 0} auth={userAuth} locationSearch={routeSearch} onQueryStateChange={syncRouteSearch} />,
     publiccrafts: <div className="panel public-craft-page"><PublicCraftFinder providerData={data.raw?.["public-crafts"]} providerLoading={state.loading} providerError={state.error} monitoredClaimId={claimId} monitoredRegionId={String(data.claim.regionId ?? "")} monitoredOwnerName={getTrackedOwnerName(data.claim)} defaultRegionId={appSettings.defaultRegion} activeRegionScopeKey={activeRegionScopeKey} onShowMap={(focus) => { setMapFocus(focus); navigate("map", undefined, focus); }} /></div>,
     craftcalc: <CraftCalculatorPage />,
     inventory: <Inventory data={data} />,

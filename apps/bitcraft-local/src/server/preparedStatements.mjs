@@ -40,57 +40,57 @@ export function createPreparedStatements(db) {
   `),
   insertCraftPlanProgressSnapshot: db.prepare(`
     INSERT INTO craft_plan_progress_audit_snapshots (
-      claim_id, captured_at, baseline_revision, fingerprint, full_snapshot,
+      claim_id, plan_id, captured_at, baseline_revision, fingerprint, full_snapshot,
       payload_gzip, app_version, build_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   latestCraftPlanProgressSnapshot: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
-    WHERE claim_id = ?
+    WHERE claim_id = ? AND plan_id = ?
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
   latestCraftPlanProgressSnapshotBefore: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
-    WHERE claim_id = ? AND captured_at <= ?
+    WHERE claim_id = ? AND plan_id = ? AND captured_at <= ?
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
   listLatestCraftPlanProgressSnapshots: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
-    WHERE claim_id = ?
+    WHERE claim_id = ? AND plan_id = ?
     ORDER BY captured_at DESC, id DESC
     LIMIT ?
   `),
   listCraftPlanProgressSnapshotsSince: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
-    WHERE claim_id = ? AND captured_at >= ?
+    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
     ORDER BY captured_at ASC, id ASC
   `),
   insertCraftPlanProgressEvent: db.prepare(`
     INSERT INTO craft_plan_progress_audit_events (
-      claim_id, captured_at, baseline_revision, event_type, summary, payload_json
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      claim_id, plan_id, captured_at, baseline_revision, event_type, summary, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
   listCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
-    WHERE claim_id = ? AND captured_at >= ?
+    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
     ORDER BY captured_at ASC, id ASC
     LIMIT ?
   `),
   latestCraftPlanBaselineChange: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
-    WHERE claim_id = ? AND event_type = 'baseline_change'
+    WHERE claim_id = ? AND plan_id = ? AND event_type = 'baseline_change'
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
   upsertCraftPlanProgressAuditState: db.prepare(`
     INSERT INTO craft_plan_progress_audit_state (
-      claim_id, last_fingerprint, last_payload_gzip, last_snapshot_id,
+      claim_id, plan_id, last_fingerprint, last_payload_gzip, last_snapshot_id,
       last_full_snapshot_at, last_success_at, last_failure_fingerprint,
       last_error, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(claim_id) DO UPDATE SET
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(claim_id, plan_id) DO UPDATE SET
       last_fingerprint = excluded.last_fingerprint,
       last_payload_gzip = excluded.last_payload_gzip,
       last_snapshot_id = excluded.last_snapshot_id,
@@ -101,14 +101,14 @@ export function createPreparedStatements(db) {
       updated_at = excluded.updated_at
   `),
   getCraftPlanProgressAuditState: db.prepare(`
-    SELECT * FROM craft_plan_progress_audit_state WHERE claim_id = ?
+    SELECT * FROM craft_plan_progress_audit_state WHERE claim_id = ? AND plan_id = ?
   `),
   craftPlanProgressAuditCounts: db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM craft_plan_progress_audit_snapshots WHERE claim_id = ?) AS snapshot_count,
-      (SELECT COUNT(*) FROM craft_plan_progress_audit_events WHERE claim_id = ?) AS event_count,
-      COALESCE((SELECT SUM(LENGTH(payload_gzip)) FROM craft_plan_progress_audit_snapshots WHERE claim_id = ?), 0)
-        + COALESCE((SELECT SUM(LENGTH(payload_json)) FROM craft_plan_progress_audit_events WHERE claim_id = ?), 0)
+      (SELECT COUNT(*) FROM craft_plan_progress_audit_snapshots WHERE claim_id = ? AND plan_id = ?) AS snapshot_count,
+      (SELECT COUNT(*) FROM craft_plan_progress_audit_events WHERE claim_id = ? AND plan_id = ?) AS event_count,
+      COALESCE((SELECT SUM(LENGTH(payload_gzip)) FROM craft_plan_progress_audit_snapshots WHERE claim_id = ? AND plan_id = ?), 0)
+        + COALESCE((SELECT SUM(LENGTH(payload_json)) FROM craft_plan_progress_audit_events WHERE claim_id = ? AND plan_id = ?), 0)
         AS stored_bytes
   `),
   pruneCraftPlanProgressSnapshots: db.prepare(`

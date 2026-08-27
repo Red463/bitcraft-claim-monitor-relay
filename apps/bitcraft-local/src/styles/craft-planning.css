@@ -857,3 +857,35 @@
 .craft-plan-section-override .modal-actions {
   padding-top: 2px;
 }
+.craft-plan-header-selector select {
+  min-height: 34px;
+  max-width: min(360px, 42vw);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(8, 13, 20, 0.86);
+  color: var(--text);
+  padding: 6px 30px 6px 10px;
+  font-weight: 700;
+}
+.craft-plan-selection-notice { margin: 0 0 12px; }
+.craft-plan-active-strip { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 3px 12px rgb(0 0 0 / 18%); backdrop-filter: blur(8px); }
+.craft-plan-active-strip strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.craft-plan-active-strip span { flex: 0 0 auto; color: var(--muted); font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.craft-plans-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: hidden; }
+.craft-plans-dialog-body { display: grid; gap: 14px; padding: 14px; overflow: auto; }
+.craft-plan-create { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) minmax(120px, .5fr) auto; gap: 10px; align-items: end; }
+.craft-plan-create h3 { grid-column: 1 / -1; margin: 0; }
+.craft-plan-library { display: grid; gap: 7px; }
+.craft-plan-library > h3 { margin: 0; }
+.craft-plan-library article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 1px solid rgba(139, 159, 184, .18); border-radius: 8px; background: rgba(8, 13, 20, .45); }
+.craft-plan-library article.is-selected { border-color: rgba(240, 198, 79, .65); background: rgba(240, 198, 79, .07); }
+.craft-plan-library-open { display: grid; flex: 1; gap: 2px; min-width: 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.craft-plan-library-open strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.craft-plan-library-open small { color: var(--muted); }
+@media (max-width: 760px) {
+  .craft-plan-header-selector, .craft-plan-header-selector select { width: 100%; max-width: none; }
+  .craft-plan-create { grid-template-columns: 1fr; }
+  .craft-plan-create h3 { grid-column: auto; }
+  .craft-plan-library article { align-items: stretch; flex-direction: column; }
+  .craft-plan-library article .toolbar { justify-content: flex-start; }
+}

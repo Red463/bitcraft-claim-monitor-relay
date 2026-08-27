@@ -64,10 +64,13 @@ test("Craft Planning makes the distinct-material shortage count explicit", () =>
   assert.doesNotMatch(page, /<span>\{quantity\(totals\.missingItems\)\} missing items<\/span>/);
 });
 
-test("Craft Planning page renders read-only plan sections with an admin-only manager entry", () => {
+test("Craft Planning page renders selectable plans with owner-aware management", () => {
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /\/craft-plan\?claimId=/);
+  assert.match(page, /\/craft-plans\/\$\{encodeURIComponent\(selectedPlanId\)\}\?claimId=/);
+  assert.match(page, /<optgroup label="Shared plans">/);
+  assert.match(page, /<optgroup label="My plans">/);
+  assert.match(page, /canEditSelectedPlan/);
   assert.match(page, /\/admin\/me/);
   assert.match(page, /Manage Plan/);
   assert.match(page, /className="dashboard-top-meta"/);
@@ -167,7 +170,7 @@ test("Craft Planning page renders read-only plan sections with an admin-only man
   assert.doesNotMatch(page, /<DataTable rows=\{materials\}/);
   assert.doesNotMatch(page, /<h3><Route size=\{17\} \/> Recipe Routes<\/h3>/);
   assert.match(page, /Catalog diagnostics/);
-  assert.match(page, /canManage && warnings\.length/);
+  assert.match(page, /canEditSelectedPlan && warnings\.length/);
   assert.match(page, /<details className="[^"]*craft-plan-catalog-diagnostics[^"]*"/);
   assert.match(page, /Unavailable stock sources/);
   assert.match(page, /CraftPlanManagerDialog/);
@@ -426,7 +429,7 @@ test("Craft Planning serves a compact live board and lazy item drilldowns", asyn
   assert.match(server, /craftPlanDetailResponse\(await computedCraftPlanResponse/);
   assert.match(server, /craftPlanResponseCache/);
   assert.match(server, /craftPlanResponseInflight/);
-  assert.match(page, /\/craft-plan\/detail\?claimId=/);
+  assert.match(page, /\/craft-plans\/\$\{encodeURIComponent\(selectedPlanId\)\}\/detail\?claimId=/);
   assert.match(page, /detailLoading/);
   assert.match(page, /groupNeedCellSourceRoutes\(selectedNeed, detailSteps\)/);
   assert.match(page, /item\.hasSourceRoutes/);
