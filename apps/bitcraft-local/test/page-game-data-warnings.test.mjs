@@ -9,7 +9,44 @@ const {
   groupDomainWarnings,
   pageGameDataWarnings,
   publicGameDataQualitySummaries,
+  relayOutageNotice,
 } = warningModule;
+
+test("Relay readiness failures produce a concise outage notice", () => {
+  const stale = (warnings) => ({
+    generation: 8,
+    freshness: "stale",
+    confidence: "authoritative",
+    ageMs: 10_800_000,
+    warnings,
+    provenance: null,
+    dependencies: {},
+  });
+
+  assert.deepEqual(relayOutageNotice("dashboard", {
+    claim: stale(["Relay HTTP 404 for /claim/1369094286777412590"]),
+    market: stale(["Relay HTTP 404 for /claim/1369094286777412590"]),
+    research: stale([]),
+    "region-claims": stale(["Relay region 19 source is not ready or has no schema fingerprint"]),
+  }), {
+    affectedAreas: ["Dashboard", "Local Market", "Research", "Region"],
+    lastLiveUpdateAge: "3h",
+  });
+});
+
+test("ordinary stale or partial data is not labeled as a Relay outage", () => {
+  assert.equal(relayOutageNotice("settlement-market", {
+    market: {
+      generation: 8,
+      freshness: "stale",
+      confidence: "partial",
+      ageMs: 240_000,
+      warnings: ["Market listing description unavailable."],
+      provenance: null,
+      dependencies: {},
+    },
+  }), null);
+});
 
 test("mixed local generations alone do not create a public warning", () => {
   const freshStatus = {

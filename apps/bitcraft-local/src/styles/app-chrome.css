@@ -250,6 +250,12 @@
 
 .game-data-quality { margin: 10px 14px 0; padding: 8px 10px; border: 1px solid rgba(241, 183, 71, .42); border-radius: var(--radius-panel); background: rgba(83, 57, 17, .18); color: var(--text); font-size: 12px; }
 .game-data-quality > strong { color: #f0c36a; }
+.game-data-quality-message { display: flex; align-items: flex-start; gap: 9px; }
+.game-data-quality-message > svg { flex: 0 0 auto; margin-top: 1px; color: #f0c36a; }
+.game-data-quality-message > div { min-width: 0; }
+.game-data-quality-message strong { display: block; color: #f0c36a; font-size: 13px; }
+.game-data-quality-message p { margin: 2px 0 3px; color: var(--text); line-height: 1.4; }
+.game-data-quality-message small { color: var(--muted); line-height: 1.4; }
 .game-data-quality details { margin-top: 4px; }
 .game-data-quality summary { width: fit-content; cursor: pointer; color: var(--muted); }
 .game-data-quality details > p { margin: 8px 0; color: var(--muted); line-height: 1.4; }

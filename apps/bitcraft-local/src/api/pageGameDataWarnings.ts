@@ -86,6 +86,31 @@ export function publicGameDataQualitySummaries(
   return summaries;
 }
 
+const RELAY_OUTAGE_WARNING = /^(?:Relay HTTP cache is not ready\.|Relay HTTP circuit is open\b|Relay (?:global|region \d+) source is not ready\b|Relay region \d+ is not ready\.)/;
+
+export function relayOutageNotice(
+  activePanel: ActivePanel,
+  domainStatus: DomainStatusMap,
+): { affectedAreas: string[]; lastLiveUpdateAge: string | null } | null {
+  const statuses = Object.entries(domainStatus) as Array<[DomainKey, DomainStatus]>;
+  if (!statuses.some(([, status]) => status.warnings.some((warning) => RELAY_OUTAGE_WARNING.test(String(warning))))) {
+    return null;
+  }
+
+  const affectedAreas = new Set<string>();
+  let oldestAgeMs: number | null = null;
+  for (const [domain, status] of statuses) {
+    if (status.freshness === "fresh" && status.confidence === "authoritative" && !status.warnings.length) continue;
+    affectedAreas.add(affectedPanelLabel(activePanel, domain));
+    if (status.ageMs != null) oldestAgeMs = Math.max(oldestAgeMs ?? 0, status.ageMs);
+  }
+
+  return {
+    affectedAreas: [...affectedAreas],
+    lastLiveUpdateAge: oldestAgeMs == null ? null : ageLabel(oldestAgeMs),
+  };
+}
+
 function stableWarningMessage(message: string): string {
   return message
     .replace(/\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b/g, "#")
