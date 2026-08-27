@@ -182,6 +182,43 @@ test("Craft Planning audit history uses a compact responsive timeline", () => {
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.craft-plan-audit-entry\s*\{[^}]*grid-template-columns:\s*1fr/);
 });
 
+test("Craft plans dialog uses a framed viewport panel with a fixed header and scrolling body", () => {
+  const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
+
+  const dialog = css.match(/\.craft-plans-dialog\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(dialog, /display:\s*grid/);
+  assert.match(dialog, /grid-template-rows:\s*auto minmax\(0,\s*1fr\)/);
+  assert.match(dialog, /max-height:\s*calc\(100dvh - 32px\)/);
+  assert.match(dialog, /border:/);
+  assert.match(dialog, /border-radius:/);
+  assert.match(dialog, /background:/);
+  assert.match(dialog, /box-shadow:/);
+  assert.match(dialog, /overflow:\s*hidden/);
+
+  const header = css.match(/\.craft-plans-dialog \.modal-header\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(header, /position:\s*relative/);
+  assert.match(header, /padding:\s*18px 58px 16px 18px/);
+  assert.match(header, /border-bottom:/);
+
+  const close = css.match(/\.craft-plans-dialog \.modal-header \.icon-button\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(close, /position:\s*absolute/);
+  assert.match(close, /top:\s*16px/);
+  assert.match(close, /right:\s*18px/);
+
+  const body = css.match(/\.craft-plans-dialog-body\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(body, /min-height:\s*0/);
+  assert.match(body, /overflow-y:\s*auto/);
+});
+
+test("Current craft plan remains visible below the sticky application toolbar", () => {
+  const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
+  const strip = css.match(/\.craft-plan-active-strip\s*\{([^}]+)\}/)?.[1] ?? "";
+
+  assert.match(strip, /position:\s*sticky/);
+  assert.match(strip, /top:\s*45px/);
+  assert.match(strip, /z-index:\s*24/);
+});
+
 test("Craft planning needs board row headings are allowed to wrap", () => {
   const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
   const rowHeader = css.match(/\.craft-plan-needs-table tbody th\s*\{([^}]+)\}/)?.[1] ?? "";

@@ -3,7 +3,7 @@ import path from "node:path";
 import { normalizeRoutePerformancePath } from "./routePerformance.mjs";
 
 export const SERVER_HEALTH_SCHEMA_VERSION = 1;
-export const SERVER_HEALTH_THRESHOLDS = Object.freeze({ staleMs: 180_000, diskWarning: 80, diskCritical: 90, memoryWarning: 80, memoryCritical: 90, eventLoopWarningMs: 100, eventLoopCriticalMs: 250, http5xxWarningRate: 0.02, http5xxCriticalRate: 0.1 });
+export const SERVER_HEALTH_THRESHOLDS = Object.freeze({ staleMs: 180_000, diskWarning: 80, diskCritical: 90, memoryWarning: 80, memoryCritical: 90, eventLoopWarningMs: 100, eventLoopCriticalMs: 250, eventLoopMaxWarningMs: 500, eventLoopMaxCriticalMs: 1_000, http5xxWarningRate: 0.02, http5xxCriticalRate: 0.1 });
 
 const SECRET_VALUE = /((?:token|secret|password|passwd|api[_-]?key|authorization|cookie|session|dsn)\s*[=:]\s*)([^\s,;]+)/gi;
 const BEARER = /\b(Bearer|Bot)\s+[A-Za-z0-9._~+\/-]+/gi;
@@ -45,20 +45,59 @@ export function normalizeServerHealthSnapshot(raw, { now = Date.now() } = {}) {
   };
 }
 
-export function serverHealthState(snapshot, application = {}) {
+export function serverHealthState(snapshot, application = {}, { includeHost = true } = {}) {
   const reasons = [];
   let state = "healthy";
   const raise = (next, reason) => { if (next === "critical" || state === "healthy") state = next; reasons.push(reason); };
-  if (!snapshot) raise("warning", "Host collector unavailable");
-  else {
-    if (snapshot.ageMs > SERVER_HEALTH_THRESHOLDS.staleMs) raise("critical", "Host collector is stale");
-    if (snapshot.host.diskPercent >= SERVER_HEALTH_THRESHOLDS.diskCritical) raise("critical", "Disk usage is critical"); else if (snapshot.host.diskPercent >= SERVER_HEALTH_THRESHOLDS.diskWarning) raise("warning", "Disk usage is high");
-    if (snapshot.host.memoryPercent >= SERVER_HEALTH_THRESHOLDS.memoryCritical) raise("critical", "Memory usage is critical"); else if (snapshot.host.memoryPercent >= SERVER_HEALTH_THRESHOLDS.memoryWarning) raise("warning", "Memory usage is high");
-    if (snapshot.services.some((service) => service.required !== false && !service.active)) raise("critical", "One or more monitored services are inactive");
+  if (includeHost) {
+    if (!snapshot) raise("warning", "Host collector unavailable");
+    else {
+      if (snapshot.ageMs > SERVER_HEALTH_THRESHOLDS.staleMs) raise("critical", "Host collector is stale");
+      if (snapshot.host.diskPercent >= SERVER_HEALTH_THRESHOLDS.diskCritical) raise("critical", "Disk usage is critical"); else if (snapshot.host.diskPercent >= SERVER_HEALTH_THRESHOLDS.diskWarning) raise("warning", "Disk usage is high");
+      if (snapshot.host.memoryPercent >= SERVER_HEALTH_THRESHOLDS.memoryCritical) raise("critical", "Memory usage is critical"); else if (snapshot.host.memoryPercent >= SERVER_HEALTH_THRESHOLDS.memoryWarning) raise("warning", "Memory usage is high");
+      if (snapshot.services.some((service) => service.required !== false && !service.active)) raise("critical", "One or more monitored services are inactive");
+    }
   }
-  if (number(application.eventLoopDelayMs) >= SERVER_HEALTH_THRESHOLDS.eventLoopCriticalMs) raise("critical", "Node event-loop delay is critical");
-  else if (number(application.eventLoopDelayMs) >= SERVER_HEALTH_THRESHOLDS.eventLoopWarningMs) raise("warning", "Node event-loop delay is elevated");
+  if (application.eventLoopMonitoringReady !== false) {
+    const intervalDelay = Math.max(number(application.eventLoopDelayMs), number(application.eventLoopDelayP99Ms));
+    const intervalMax = number(application.eventLoopDelayMaxMs);
+    if (intervalDelay >= SERVER_HEALTH_THRESHOLDS.eventLoopCriticalMs || intervalMax >= SERVER_HEALTH_THRESHOLDS.eventLoopMaxCriticalMs) raise("critical", "Node event-loop delay is critical");
+    else if (intervalDelay >= SERVER_HEALTH_THRESHOLDS.eventLoopWarningMs || intervalMax >= SERVER_HEALTH_THRESHOLDS.eventLoopMaxWarningMs) raise("warning", "Node event-loop delay is elevated");
+  }
   return { state, reasons: [...new Set(reasons)] };
+}
+
+function normalizedIncidentKey(reason) {
+  return String(reason).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 80);
+}
+
+export function serverHealthIncidentIdentity(reason, { processRole = "unknown" } = {}) {
+  const key = normalizedIncidentKey(reason);
+  return key.startsWith("node_event_loop_delay_") ? `${normalizedIncidentKey(processRole)}_${key}` : key;
+}
+
+export function serverHealthIncidentOwnedByEvaluator(key, { processRole = "unknown", includeHost = true, eventLoopMonitoringReady = true } = {}) {
+  const normalizedKey = normalizedIncidentKey(key);
+  if (normalizedKey.startsWith("node_event_loop_delay_")) return includeHost && eventLoopMonitoringReady !== false;
+  const eventLoopMatch = normalizedKey.match(/^([^_]+)_node_event_loop_delay_/);
+  if (eventLoopMatch) return eventLoopMonitoringReady !== false && eventLoopMatch[1] === normalizedIncidentKey(processRole);
+  return includeHost;
+}
+
+export function serverHealthIncidentFields({ hostname = "Claim Monitor VPS", processRole = "unknown", at = new Date().toISOString(), application = {} } = {}) {
+  const fields = [
+    { name: "Server", value: String(hostname), inline: true },
+    { name: "Role", value: String(processRole), inline: true },
+    { name: "Time", value: String(at), inline: true },
+  ];
+  if (application.eventLoopMonitoringReady !== false && Number.isFinite(Number(application.eventLoopDelayMs))) {
+    fields.push({
+      name: "Event loop",
+      value: `mean ${number(application.eventLoopDelayMs).toFixed(0)} ms · p99 ${number(application.eventLoopDelayP99Ms).toFixed(0)} ms · max ${number(application.eventLoopDelayMaxMs).toFixed(0)} ms`,
+      inline: false,
+    });
+  }
+  return fields;
 }
 
 export async function readServerHealthFiles(dataDir, { now = Date.now(), maxBytes = 2_000_000 } = {}) {
