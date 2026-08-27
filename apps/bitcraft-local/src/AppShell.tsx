@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   Shield,
+  TriangleAlert,
 } from "lucide-react";
 import packageJson from "../package.json";
 import { useFeaturebase } from "featurebase-js/react";
@@ -26,6 +27,7 @@ import {
   groupDomainWarnings,
   pageGameDataWarnings,
   publicGameDataQualitySummaries,
+  relayOutageNotice,
   staleDataWarning,
 } from "./api/pageGameDataWarnings";
 import { ApiErrorState, AppSkeleton, RefreshStatus, type ApiStatusDiagnostics } from "./components/main/AppChrome";
@@ -180,13 +182,24 @@ function GameDataQualityNotice({
     domainStatus,
     responseMeta?.coherence ?? null,
   );
+  const outage = relayOutageNotice(activePanel, domainStatus);
   const warningDetails = groupDomainWarnings(domainStatus);
   if (!summaries.length) return null;
   return (
     <section className="game-data-quality" aria-label="Game data quality">
-      <strong role="status">{summaries.join("; ")}</strong>
+      {outage ? <div className="game-data-quality-message" role="status">
+        <TriangleAlert aria-hidden="true" size={18} />
+        <div>
+          <strong>BitCraft Relay is temporarily unavailable</strong>
+          <p>Some information may be out of date. We’re showing the latest saved data and will refresh automatically when Relay recovers.</p>
+          <small>
+            {outage.affectedAreas.length ? `Affected: ${outage.affectedAreas.join(", ")}` : "Some live data is affected"}
+            {outage.lastLiveUpdateAge ? ` · Last live update about ${outage.lastLiveUpdateAge} ago` : ""}
+          </small>
+        </div>
+      </div> : <strong role="status">{summaries.join("; ")}</strong>}
       <details>
-        <summary>Warning and provenance details</summary>
+        <summary>{outage ? "Technical details" : "Warning and provenance details"}</summary>
         <p>
           Local coherence: <strong>{responseMeta?.coherence ?? "unknown"}</strong>
           {responseMeta?.availableGenerations?.length
