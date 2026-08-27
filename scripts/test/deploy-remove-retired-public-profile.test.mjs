@@ -165,6 +165,7 @@ test("protected workflow requires main, tests first, sanitised inspection, and r
   assert.match(updater, /retired-public-profile-removal-v1/);
   assert.match(updater, /delegate_retired_public_profile_mode/);
   assert.match(updater, /BITCRAFT_RETIRED_PUBLIC_REMOVAL=1/);
+  assert.match(updater, /--locked-deploy/);
   assert.match(workflow, /app\.timbersteeltrade\.com\/api\/local\/health/);
   assert.match(workflow, /bootstrap\.config\?\.claimId/);
   assert.match(workflow, /health\.buildSha !== expectedRevision/);

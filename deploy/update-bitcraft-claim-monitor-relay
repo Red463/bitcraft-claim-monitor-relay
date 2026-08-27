@@ -295,7 +295,7 @@ delegate_retired_public_profile_mode() {
       ;;
     remove)
       exec env BITCRAFT_RETIRED_PUBLIC_REMOVAL=1 node "$helper" \
-        --apply --revision "$REVISION" --confirmation "$CUTOVER_CONFIRMATION"
+        --apply --revision "$REVISION" --confirmation "$CUTOVER_CONFIRMATION" --locked-deploy
       ;;
     *)
       printf "Unknown retired profile operation.\n" >&2
