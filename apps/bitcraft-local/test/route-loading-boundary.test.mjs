@@ -8,7 +8,7 @@ function readSource(url) {
 
 const component = readSource(new URL("../src/components/main/RouteLoadingState.tsx", import.meta.url));
 const shell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
-const entry = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
+const entry = readFileSync(new URL("../src/TimbersteelRoot.tsx", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 test("route loading uses one accessible destination-aware skeleton", () => {

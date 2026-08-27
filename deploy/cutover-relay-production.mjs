@@ -504,11 +504,6 @@ function hasCanonicalRedirect(site) {
     && response.location === "https://app.timbersteeltrade.com{http.request.uri}");
 }
 
-function hasPublicCanonicalRedirect(site) {
-  return site.responses.some((response) => response.status === 301
-    && response.location === "https://claim-monitor.com{http.request.uri}");
-}
-
 export function validateCaddyTopology(adapted, mode) {
   if (!["preflight", "maintenance", "final"].includes(mode)) throw new Error(`Unknown Caddy topology mode: ${mode}`);
   const sites = adaptedCaddySites(adapted);
@@ -517,24 +512,17 @@ export function validateCaddyTopology(adapted, mode) {
     "relay.timbersteeltrade.com",
     "claim.timbersteeltrade.com",
     "claim.hostred.co.uk",
-    "claim-monitor.com",
-    "www.claim-monitor.com",
   ]);
   if (sites.size !== expectedHosts.size || [...sites.keys()].some((host) => !expectedHosts.has(host))) {
     throw new Error("Caddy host set contains an unknown site or would lose a supported site block");
   }
   const app = sites.get("app.timbersteeltrade.com");
   const relay = sites.get("relay.timbersteeltrade.com");
-  const publicApex = sites.get("claim-monitor.com");
-  const publicWww = sites.get("www.claim-monitor.com");
   for (const host of ["claim.timbersteeltrade.com", "claim.hostred.co.uk"]) {
     const claim = sites.get(host);
     if (claim.proxies.length !== 0 || claim.responses.length !== 1 || !hasCanonicalRedirect(claim)) {
       throw new Error(`Caddy claim redirect is not preserved exactly for ${host}`);
     }
-  }
-  if (publicWww.proxies.length !== 0 || publicWww.responses.length !== 1 || !hasPublicCanonicalRedirect(publicWww)) {
-    throw new Error("Caddy public www redirect must point exactly to the Claim Monitor apex");
   }
   if (mode === "preflight") {
     if (app.proxies.length !== 1 || app.proxies[0].dial !== "127.0.0.1:18430" || app.responses.length !== 0) {
@@ -542,9 +530,6 @@ export function validateCaddyTopology(adapted, mode) {
     }
     if (relay.proxies.length !== 1 || relay.proxies[0].dial !== "127.0.0.1:19430" || relay.responses.length !== 0) {
       throw new Error("Pre-cutover Caddy Relay route has extra terminal behavior outside the supported 19430 proxy");
-    }
-    if (publicApex.proxies.length !== 1 || publicApex.proxies[0].dial !== "127.0.0.1:19430" || publicApex.responses.length !== 0) {
-      throw new Error("Pre-cutover Caddy public route must use only the existing 19430 web process");
     }
   } else if (mode === "maintenance") {
     if (app.proxies.length !== 1 || app.proxies[0].dial !== "127.0.0.1:19430" || !app.proxies[0].localOnly) {
@@ -555,19 +540,12 @@ export function validateCaddyTopology(adapted, mode) {
       throw new Error("Maintenance Caddy must contain only the explicit public 503 responses");
     }
     if (relay.proxies.length) throw new Error("Maintenance Caddy exposes an unsupported backend");
-    if (publicApex.proxies.length !== 0 || publicApex.responses.length !== 1
-      || publicApex.responses[0].status !== 503 || publicApex.responses[0].localOnly) {
-      throw new Error("Maintenance Caddy public route must contain only the explicit public 503 response");
-    }
   } else {
     if (app.proxies.length !== 1 || app.proxies[0].dial !== "127.0.0.1:19430" || app.responses.length !== 0) {
       throw new Error("Final Caddy app route must contain only the supported 19430 terminal behavior");
     }
     if (relay.proxies.length !== 0 || relay.responses.length !== 1 || !hasCanonicalRedirect(relay)) {
       throw new Error("Final Caddy Relay site must contain only the canonical redirect");
-    }
-    if (publicApex.proxies.length !== 1 || publicApex.proxies[0].dial !== "127.0.0.1:19430" || publicApex.responses.length !== 0) {
-      throw new Error("Final Caddy public route must use only the existing 19430 web process");
     }
     if ([...sites.values()].some((site) => site.proxies.some((entry) => entry.dial.includes("18430")))) throw new Error("Final Caddy must not contain 18430");
   }

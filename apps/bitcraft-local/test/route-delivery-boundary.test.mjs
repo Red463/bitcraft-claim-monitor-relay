@@ -26,14 +26,15 @@ const routeStyles = new Map([
 
 test("main keeps feature styles out of the eager entry graph", () => {
   const main = source("../src/main.tsx");
+  const root = source("../src/TimbersteelRoot.tsx");
 
   for (const stylesheet of routeStyles.values()) {
     assert.doesNotMatch(main, new RegExp(`styles/${stylesheet.replace(".", "\\.")}`));
   }
   assert.match(main, /import "\.\/styles\.css";/);
-  assert.match(main, /React\.lazy/);
-  assert.match(main, /Suspense/);
-  assert.match(main, /RouteErrorBoundary/);
+  assert.match(root, /React\.lazy/);
+  assert.match(root, /Suspense/);
+  assert.match(root, /RouteErrorBoundary/);
 });
 
 test("public and admin pages are delivered through lazy route boundaries", () => {

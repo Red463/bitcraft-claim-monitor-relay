@@ -1,5 +1,4 @@
 import React from "react";
-import "./styles/app-chrome.css";
 import "./styles/user-settings.css";
 import "./styles/notifications.css";
 import "./styles/app-popups.css";

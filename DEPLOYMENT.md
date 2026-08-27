@@ -13,10 +13,6 @@ Record the result of this check before and after each supervised bootstrap:
 curl --fail --silent --show-error https://app.timbersteeltrade.com/api/local/health
 ```
 
-The additive `claim-monitor.com` host profile uses this same deployment. Its
-preflight, staged rollout, observation, and rollback procedure is documented in
-[`docs/public-claim-monitor-operations.md`](docs/public-claim-monitor-operations.md).
-
 ## Locked preview identity
 
 | Purpose | Value |
@@ -31,7 +27,6 @@ preflight, staged rollout, observation, and rollback procedure is documented in
 | Key directory | `/etc/bitcraft-claim-monitor-relay` |
 | Local health | `http://127.0.0.1:19430/api/local/health` |
 | Public preview | `https://relay.timbersteeltrade.com` |
-| Public Claim Monitor | `https://claim-monitor.com` |
 
 The updater keeps immutable releases under
 `/opt/bitcraft-claim-monitor-relay/releases/<sha>` and atomically moves the
@@ -44,10 +39,6 @@ backups never live inside a release.
   systemd.
 - A `bitcraft` runtime account.
 - DNS for `relay.timbersteeltrade.com` pointing at the VPS.
-- Before public-profile activation, DNS for the exact apex
-  `claim-monitor.com` and `www.claim-monitor.com` must point at this VPS, and
-  `privacy@claim-monitor.com` must be able to receive mail. See the public
-  operations runbook; repository work does not create DNS or the mailbox.
 - Ports 80 and 443 exposed through Caddy. The Relay process stays bound to
   `127.0.0.1:19430`.
 - A reviewed full commit SHA reachable from the standalone repository's
@@ -262,9 +253,8 @@ curl --fail --silent --show-error http://127.0.0.1:19430/api/local/health
 ## One-time supervised Caddy bootstrap
 
 `deploy/Caddyfile.example` deliberately contains the maintained Timbersteel
-route, the public Claim Monitor route, and the historical redirects. Both apex
-profiles proxy to the one existing `127.0.0.1:19430` web process. It is a
-validation/reference file, not a replacement for the live configuration.
+route and the historical redirects. It is a validation/reference file, not a
+replacement for the live configuration.
 
 Routine deployment must not copy `Caddyfile.example` to
 `/etc/caddy/Caddyfile`. The updater validates the tracked example but never
@@ -273,26 +263,13 @@ installs it or reloads Caddy.
 For the one-time supervised Caddy bootstrap:
 
 1. Save a root-only copy of the live configuration.
-2. Manually merge only the reviewed `claim-monitor.com` and
-   `www.claim-monitor.com` blocks and the explicit trusted forwarding-header
-   overrides into the existing `app.timbersteeltrade.com` proxy. Preserve every
-   other live block.
-3. Inspect the diff. Confirm both apex hosts proxy only to
-   `127.0.0.1:19430`, `www` redirects only to `https://claim-monitor.com`, and
-   no public host redirects to Timbersteel.
-4. Validate before reloading. Do this only after the DNS preflight in the
-   public operations runbook.
+2. Manually merge only the reviewed maintained route and historical redirects.
+   Preserve every other live block.
+3. Inspect the diff and confirm the application proxy targets only
+   `127.0.0.1:19430`.
+4. Validate before reloading.
 
-The preferred path is the protected `Configure public Claim Monitor Caddy`
-GitHub Actions workflow. Run it from `main`, enter `claim-monitor.com` exactly,
-and approve the `relay-cutover` environment. The revision-bound updater merges
-only the reviewed public blocks, refuses partial or unsafe existing routing,
-keeps a root-only backup, validates before reload, verifies both local host
-profiles, and restores the original file if either profile fails. It is safe to
-rerun after a successful bootstrap and does not enable any public feature flag.
-
-The following commands are the manual recovery/bootstrap equivalent when the
-protected workflow is unavailable:
+The following commands are the manual bootstrap procedure:
 
 ```sh
 install -o root -g root -m 0600 \
@@ -304,15 +281,11 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy
 curl --fail --silent --show-error https://relay.timbersteeltrade.com/api/local/health
 curl --fail --silent --show-error https://app.timbersteeltrade.com/api/local/health
-curl --fail --silent --show-error https://claim-monitor.com/api/profile
-curl --fail --silent --show-error --head https://www.claim-monitor.com/
 ```
 
 If validation or a Timbersteel health check fails, restore the saved Caddy
-file, validate it, and reload Caddy. After the public profile has served users,
-use the flag/maintenance rollback in the public operations runbook instead of
-redirecting it or removing its route. This is the only step that changes the
-shared proxy configuration.
+file, validate it, and reload Caddy. This is the only step that changes the
+proxy configuration.
 
 ## Restricted deployment account
 

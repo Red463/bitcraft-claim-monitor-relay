@@ -11,9 +11,6 @@ test("schemaBootstrapSql preserves critical release tables and indexes", () => {
     "CREATE TABLE IF NOT EXISTS admin_users",
     "CREATE TABLE IF NOT EXISTS user_accounts",
     "CREATE TABLE IF NOT EXISTS user_legal_acceptances",
-    "CREATE TABLE IF NOT EXISTS public_user_accounts",
-    "CREATE TABLE IF NOT EXISTS public_user_sessions",
-    "CREATE TABLE IF NOT EXISTS public_user_legal_acceptances",
     "CREATE TABLE IF NOT EXISTS market_deal_alerts",
     "CREATE TABLE IF NOT EXISTS craft_plan_settings",
     "CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_snapshots",
@@ -50,7 +47,6 @@ test("schemaBootstrapSql preserves critical release tables and indexes", () => {
     "CREATE INDEX IF NOT EXISTS idx_market_trades_claim_region_item_time",
     "CREATE INDEX IF NOT EXISTS idx_provider_transition_pending",
     "CREATE INDEX IF NOT EXISTS idx_user_legal_acceptances_user_time",
-    "CREATE INDEX IF NOT EXISTS idx_public_user_legal_acceptances_user_time",
     "CREATE INDEX IF NOT EXISTS idx_activity_claim_time",
     "CREATE INDEX IF NOT EXISTS idx_discord_notification_outbox_status",
     "CREATE INDEX IF NOT EXISTS idx_discord_craft_plan_report_occurrences_time",
@@ -183,37 +179,24 @@ test("legal acceptance schema enforces one exact document snapshot per user", ()
   db.close();
 });
 
-test("public identity schema is additive, isolated, and cascade-safe", () => {
+test("fresh schema does not recreate retired public-profile tables", () => {
   const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
   applySchemaBootstrap(db);
-
-  const publicUserId = Number(db.prepare(`
-    INSERT INTO public_user_accounts (
-      discord_id, discord_username, discord_global_name, discord_avatar,
-      settings_json, created_at, last_login_at
-    ) VALUES ('same-discord-id', 'PublicUser', 'Public User', 'avatar', '{}', ?, ?)
-    RETURNING id
-  `).get("2026-08-25T00:00:00.000Z", "2026-08-25T00:00:00.000Z").id);
-  db.prepare("INSERT INTO public_user_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-    .run("public-token", publicUserId, "2026-09-24T00:00:00.000Z", "2026-08-25T00:00:00.000Z");
-  const acceptance = db.prepare(`
-    INSERT INTO public_user_legal_acceptances (
-      user_id, legal_version, terms_digest, privacy_digest,
-      age_confirmed, accepted_at, source
-    ) VALUES (?, '2026-08-25', 'public-terms', 'public-privacy', 1, ?, 'oauth')
-  `);
-  acceptance.run(publicUserId, "2026-08-25T00:00:00.000Z");
-
-  assert.throws(
-    () => acceptance.run(publicUserId, "2026-08-25T00:00:01.000Z"),
-    /UNIQUE constraint failed/,
+  const retiredTables = [
+    "public_craft_plan_events",
+    "public_craft_plan_share_links",
+    "public_craft_plan_invites",
+    "public_craft_plan_members",
+    "public_craft_plans",
+    "public_user_legal_acceptances",
+    "public_user_sessions",
+    "public_user_accounts",
+  ];
+  assert.deepEqual(
+    db.prepare(`SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN (${retiredTables.map(() => "?").join(",")})`).all(...retiredTables),
+    [],
   );
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM user_accounts").get().count, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM admin_users").get().count, 0);
-
-  db.prepare("DELETE FROM public_user_accounts WHERE id = ?").run(publicUserId);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_user_sessions").get().count, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_user_legal_acceptances").get().count, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_schema WHERE type = 'table' AND name = 'user_accounts'").get().count, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sqlite_schema WHERE type = 'table' AND name = 'admin_users'").get().count, 1);
   db.close();
 });

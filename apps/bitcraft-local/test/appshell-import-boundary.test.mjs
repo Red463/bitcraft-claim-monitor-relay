@@ -61,15 +61,16 @@ test("AppShell imports only top-level shell dependencies after admin/settings ex
   assert.match(appShell, /from "\.\/components\/app-chrome"/);
 });
 
-test("TimbersteelRoot gates AppShell on bootstrap after main selects a host profile", () => {
+test("main starts the dedicated root and TimbersteelRoot gates AppShell on bootstrap", () => {
   const main = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
   const timbersteelRoot = readFileSync(new URL("../src/TimbersteelRoot.tsx", import.meta.url), "utf8");
   const appShell = readFileSync(new URL("../src/AppShell.tsx", import.meta.url), "utf8");
 
-  assert.match(main, /loadHostProfile/);
-  assert.match(main, /React\.lazy\(\(\) => import\("\.\/TimbersteelRoot"\)\)/);
-  assert.match(main, /React\.lazy\(\(\) => import\("\.\/public\/PublicRoot"\)\)/);
+  assert.match(main, /import TimbersteelRoot from "\.\/TimbersteelRoot"/);
+  assert.match(main, /render\(<TimbersteelRoot \/>\)/);
+  assert.doesNotMatch(main, /loadHostProfile|PublicRoot|src\/public/);
   assert.match(timbersteelRoot, /loadBootstrap/);
+  assert.match(timbersteelRoot, /React\.lazy\(\(\) => import\("\.\/AppShell"\)\)/);
   assert.match(timbersteelRoot, /<App initialBootstrap=\{bootstrap\}/);
   assert.doesNotMatch(main, /\/api\/local\/auth\/me/);
   assert.match(appShell, /function DashboardApp\(\{ initialBootstrap \}/);

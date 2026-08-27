@@ -99,12 +99,9 @@ test("semantic Caddy validation accepts only the supported preflight, maintenanc
     hostRoute("claim.timbersteeltrade.com", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
     hostRoute("claim.hostred.co.uk", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
   ];
-  const publicRedirect = hostRoute("www.claim-monitor.com", [response(301, "https://claim-monitor.com{http.request.uri}")]);
   const preflight = caddy([
     hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:18430")]),
     hostRoute("relay.timbersteeltrade.com", [proxy("127.0.0.1:19430")]),
-    hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]),
-    publicRedirect,
     ...claims,
   ]);
   const maintenance = caddy([
@@ -113,15 +110,11 @@ test("semantic Caddy validation accepts only the supported preflight, maintenanc
       response(503),
     ]),
     hostRoute("relay.timbersteeltrade.com", [response(503)]),
-    hostRoute("claim-monitor.com", [response(503)]),
-    publicRedirect,
     ...claims,
   ]);
   const final = caddy([
     hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]),
     hostRoute("relay.timbersteeltrade.com", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
-    hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]),
-    publicRedirect,
     ...claims,
   ]);
 
@@ -133,27 +126,13 @@ test("semantic Caddy validation accepts only the supported preflight, maintenanc
     /unknown.*site|host set/i,
   );
   assert.throws(
-    () => validateCaddyTopology(caddy([hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), hostRoute("relay.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]), publicRedirect, ...claims]), "preflight"),
+    () => validateCaddyTopology(caddy([hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), hostRoute("relay.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), ...claims]), "preflight"),
     /18430|pre-cutover/i,
   );
   assert.throws(
-    () => validateCaddyTopology(caddy([hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), hostRoute("relay.timbersteeltrade.com", [response(503)]), hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]), publicRedirect, ...claims]), "final"),
+    () => validateCaddyTopology(caddy([hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]), hostRoute("relay.timbersteeltrade.com", [response(503)]), ...claims]), "final"),
     /redirect|final/i,
   );
-  const missingPublicApex = structuredClone(final);
-  missingPublicApex.apps.http.servers.srv0.routes = missingPublicApex.apps.http.servers.srv0.routes
-    .filter((route) => route.match[0].host[0] !== "claim-monitor.com");
-  assert.throws(() => validateCaddyTopology(missingPublicApex, "final"), /host set|supported site/i);
-  const publicOnSeparateService = structuredClone(final);
-  publicOnSeparateService.apps.http.servers.srv0.routes
-    .find((route) => route.match[0].host[0] === "claim-monitor.com")
-    .handle[0].routes[0].handle[0].upstreams[0].dial = "127.0.0.1:20430";
-  assert.throws(() => validateCaddyTopology(publicOnSeparateService, "final"), /public|19430/i);
-  const publicRedirectsToTimbersteel = structuredClone(final);
-  publicRedirectsToTimbersteel.apps.http.servers.srv0.routes
-    .find((route) => route.match[0].host[0] === "www.claim-monitor.com")
-    .handle[0].routes[0].handle[0].headers.Location[0] = "https://app.timbersteeltrade.com{http.request.uri}";
-  assert.throws(() => validateCaddyTopology(publicRedirectsToTimbersteel, "final"), /public|redirect|claim-monitor/i);
   const unknownHandler = structuredClone(preflight);
   unknownHandler.apps.http.servers.srv0.routes[0].handle[0].routes.push({ handle: [{ handler: "file_server" }] });
   assert.throws(() => validateCaddyTopology(unknownHandler, "preflight"), /unsupported Caddy handler/i);
@@ -450,12 +429,9 @@ function preflightCaddy(mode) {
     hostRoute("claim.timbersteeltrade.com", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
     hostRoute("claim.hostred.co.uk", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
   ];
-  const publicRedirect = hostRoute("www.claim-monitor.com", [response(301, "https://claim-monitor.com{http.request.uri}")]);
   if (mode === "preflight") return caddy([
     hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:18430")]),
     hostRoute("relay.timbersteeltrade.com", [proxy("127.0.0.1:19430")]),
-    hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]),
-    publicRedirect,
     ...claims,
   ]);
   if (mode === "maintenance") return caddy([
@@ -464,15 +440,11 @@ function preflightCaddy(mode) {
       response(503),
     ]),
     hostRoute("relay.timbersteeltrade.com", [response(503)]),
-    hostRoute("claim-monitor.com", [response(503)]),
-    publicRedirect,
     ...claims,
   ]);
   return caddy([
     hostRoute("app.timbersteeltrade.com", [proxy("127.0.0.1:19430")]),
     hostRoute("relay.timbersteeltrade.com", [response(301, "https://app.timbersteeltrade.com{http.request.uri}")]),
-    hostRoute("claim-monitor.com", [proxy("127.0.0.1:19430")]),
-    publicRedirect,
     ...claims,
   ]);
 }

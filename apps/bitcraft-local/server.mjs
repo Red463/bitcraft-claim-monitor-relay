@@ -10,16 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseMemberPermissions } from "./shared/member-permissions.mjs";
-import { resolveRequestHostProfile } from "./src/server/public/hostProfiles.mjs";
-import { publicFeatureFlags, routeHostProfileRequest } from "./src/server/public/router.mjs";
-import { createPublicApiRouter, createPublicCatalogService, createPublicDataService } from "./src/server/public/publicData.mjs";
-import { resolvePublicDiscordOAuthConfig } from "./src/server/public/auth.mjs";
-import { createPublicAuthRouter } from "./src/server/public/authRouter.mjs";
-import { createPublicIdentityRepository } from "./src/server/public/identity.mjs";
-import { createPublicPlanRouter } from "./src/server/public/planRouter.mjs";
-import { createPublicPlanComputationService, createPublicPlanRepository } from "./src/server/public/publicPlans.mjs";
-import { createPublicModerationRepository } from "./src/server/public/moderation.mjs";
-import { createPublicAdminRouter } from "./src/server/public/adminRouter.mjs";
+import { isDedicatedRequestHost } from "./src/server/dedicatedHostBoundary.mjs";
 import { mimeType, routeGroup, securityHeaders, shouldFallbackToFrontend, shouldLogVisitor, staticCacheControl } from "./src/server/httpRoutes.mjs";
 import { sendBinary, sendJson as send, sendText } from "./src/server/httpResponses.mjs";
 import { createGameIconFallbackService, serveGameIconRequest } from "./src/server/gameIconFallback.mjs";
@@ -198,13 +189,8 @@ import {
   mapSnapshotStatusCode,
   publicGenerationEvent,
   mergeClaimInventoryWithBanks,
-  normalizeClaimCraftPayloads,
   normalizeClaimInventory,
-  normalizeClaimPayload,
-  normalizeCitizensPayload,
-  normalizeMembersPayload,
   parseDomainKeys,
-  relayTopologyFromPayloads,
   RelayHttpClient,
   RelayBitCraftProvider,
   RelayClaimMarketRuntime,
@@ -272,7 +258,7 @@ import {
   readOAuthStateCookie,
   resolveOAuthStateSecret,
 } from "./src/server/oauthState.mjs";
-import { claimMonitorLegalPolicyForEnvironment, legalPolicyForEnvironment } from "./src/legal/legalPolicy.mjs";
+import { legalPolicyForEnvironment } from "./src/legal/legalPolicy.mjs";
 import { legalPolicyDigests } from "./src/server/legalPolicyDigest.mjs";
 import {
   currentLegalSnapshot,
@@ -293,12 +279,9 @@ import {
   unlinkUserCharacter,
 } from "./src/server/userPrivacy.mjs";
 import { deleteUserAccount } from "./src/server/accountDeletion.mjs";
-import { deletePublicAccount, publicAccountDeletionReview } from "./src/server/public/accountDeletion.mjs";
 import {
-  coordinatePublicPrivacyDeletion,
   coordinatePrivacyDeletion,
   readDeletionLedger,
-  replayPublicPrivacyDeletions,
   replayPrivacyDeletions,
 } from "./src/server/privacyDeletionLedger.mjs";
 import { runPrivacyRetention } from "./src/server/privacyRetention.mjs";
@@ -460,9 +443,6 @@ const configuredDiscordSandboxChannelId = String(process.env.DISCORD_SANDBOX_CHA
 const legalPolicy = legalPolicyForEnvironment(process.env);
 const legalDigests = legalPolicyDigests(legalPolicy);
 const legalSnapshot = currentLegalSnapshot(legalPolicy, legalDigests);
-const claimMonitorLegalPolicy = claimMonitorLegalPolicyForEnvironment(process.env);
-const claimMonitorLegalDigests = legalPolicyDigests(claimMonitorLegalPolicy);
-const claimMonitorLegalSnapshot = currentLegalSnapshot(claimMonitorLegalPolicy, claimMonitorLegalDigests);
 const serveFrontend = isProduction || process.env.SERVE_STATIC === "true";
 const featurebaseJwtSecret = process.env.FEATUREBASE_JWT_SECRET ?? "";
 const legacyAdminPasswordAuth = process.env.ENABLE_LEGACY_ADMIN_PASSWORD_AUTH === "true";
@@ -613,7 +593,6 @@ cleanupRetiredRegionalMarketState();
 installRetiredTableAuthorizer(db);
 
 const statements = createPreparedStatements(db);
-const publicIdentityRepository = createPublicIdentityRepository(db);
 const discordOutboxLeaser = createDiscordOutboxLeaser(db, {
   workerId: `${processRole}:${os.hostname()}:${process.pid}:${randomBytes(8).toString("hex")}`,
   leaseMs: discordNotificationLeaseMs,
@@ -1276,18 +1255,6 @@ async function runPrivacyRetentionJob() {
         userId: account.id,
         discordId: account.discordId,
         deletionKey: privacyDeletionKey(),
-        randomUUID: () => operationId,
-      }),
-    }),
-    deleteInactivePublicAccount: async (account) => coordinatePublicPrivacyDeletion({
-      ledgerPath: privacyLedgerPath,
-      key: privacyLedgerKey(),
-      discordId: account.discordId,
-      deleteAccount: (operationId) => deletePublicAccount(db, {
-        userId: account.id,
-        discordId: account.discordId,
-        deletionKey: privacyDeletionKey(),
-        dispositions: [],
         randomUUID: () => operationId,
       }),
     }),
@@ -7878,141 +7845,6 @@ async function serveBuiltFrontend(url, method, res) {
   return true;
 }
 
-function publicOAuthStateSecret() {
-  const keyName = "public_discord_oauth_state_secret";
-  const stored = String(statements.getSecret.get(keyName)?.value ?? "").trim();
-  if (stored) return stored;
-  const generated = randomBytes(32).toString("base64url");
-  statements.upsertSecret.run(keyName, generated, new Date().toISOString());
-  return generated;
-}
-
-const publicDataService = createPublicDataService({
-  http: new RelayHttpClient({ baseUrl: relayBaseUrl }),
-  normalizers: {
-    normalizeClaimPayload,
-    normalizeMembersPayload,
-    normalizeCitizensPayload,
-    normalizeClaimInventory,
-    normalizeClaimCraftPayloads,
-  },
-  topologyFromPayloads: relayTopologyFromPayloads,
-});
-const publicCatalogService = createPublicCatalogService({
-  searchEntities: (query, limit) => gameCatalogRepository.searchEntities(query, limit),
-  recipeDetail: recipeDetailFromLocalCatalog,
-});
-const publicDataApiRequest = createPublicApiRouter({
-  data: publicDataService,
-  catalog: publicCatalogService,
-  serveIcon: (pathname, res) => serveGameIconRequest(
-    pathname.replace("/api/public/game-icon/", "/api/local/game-icon/"),
-    res,
-    gameIconFallbackService,
-  ),
-});
-const configuredPublicFeatures = publicFeatureFlags();
-const resolvedPublicOAuthConfig = resolvePublicDiscordOAuthConfig(process.env);
-const publicAuthRequest = createPublicAuthRouter({
-  repository: publicIdentityRepository,
-  legalPolicy: claimMonitorLegalPolicy,
-  legalSnapshot: claimMonitorLegalSnapshot,
-  stateSecret: publicOAuthStateSecret(),
-  config: {
-    ...resolvedPublicOAuthConfig,
-    enabled: resolvedPublicOAuthConfig.enabled
-      && configuredPublicFeatures.publicCollaborationEnabled
-      && configuredPublicFeatures.publicLegalConfigurationConfirmed,
-  },
-  deletion: {
-    review: (userId) => publicAccountDeletionReview(db, userId),
-    deleteAccount: ({ userId, discordId, dispositions }) => coordinatePublicPrivacyDeletion({
-      ledgerPath: privacyLedgerPath,
-      key: privacyLedgerKey(),
-      discordId,
-      deleteAccount: (operationId) => deletePublicAccount(db, {
-        userId,
-        discordId,
-        deletionKey: privacyDeletionKey(),
-        dispositions,
-        randomUUID: () => operationId,
-      }),
-    }),
-  },
-});
-const configuredPublicPlanTokenHmacKey = String(process.env.PUBLIC_PLAN_TOKEN_HMAC_KEY ?? "").trim();
-const publicPlanRepository = configuredPublicFeatures.publicCollaborationEnabled && configuredPublicPlanTokenHmacKey
-  ? createPublicPlanRepository(db, { tokenHmacKey: configuredPublicPlanTokenHmacKey })
-  : null;
-const publicPlanComputation = publicPlanRepository
-  ? createPublicPlanComputationService({ data: publicDataService, catalog: publicCatalogService })
-  : null;
-const publicPlanRequest = publicPlanRepository && publicPlanComputation
-  ? createPublicPlanRouter({
-      repository: publicPlanRepository,
-      identityRepository: publicIdentityRepository,
-      legalSnapshot: claimMonitorLegalSnapshot,
-      computation: publicPlanComputation,
-    })
-  : null;
-const publicModerationRepository = createPublicModerationRepository(db);
-const publicAdminRequest = createPublicAdminRouter({
-  repository: publicModerationRepository,
-  privacy: {
-    review: (userId) => publicAccountDeletionReview(db, userId),
-    deleteAccount: ({ userId, discordId, dispositions }) => coordinatePublicPrivacyDeletion({
-      ledgerPath: privacyLedgerPath,
-      key: privacyLedgerKey(),
-      discordId,
-      deleteAccount: (operationId) => deletePublicAccount(db, {
-        userId,
-        discordId,
-        deletionKey: privacyDeletionKey(),
-        dispositions,
-        randomUUID: () => operationId,
-      }),
-    }),
-  },
-  hasPermission: adminHasPermission,
-  audit,
-  healthSnapshot: () => ({
-    cache: publicDataService.health(),
-    gate: {
-      profileEnabled: configuredPublicFeatures.publicProfileEnabled,
-      collaborationEnabled: configuredPublicFeatures.publicCollaborationEnabled,
-      legalConfigurationConfirmed: configuredPublicFeatures.publicLegalConfigurationConfirmed,
-    },
-    oauth: { enabled: resolvedPublicOAuthConfig.enabled },
-    rateTotals: {
-      publicReads: publicDataApiRequest.health(),
-      limiter: rateLimit.stats(),
-      routes: routePerformanceTelemetry.snapshot().rateLimits,
-    },
-  }),
-});
-async function publicApiRequest(request) {
-  const isLegalRequest = request.url.pathname === "/api/public/legal";
-  const isAuthRequest = request.url.pathname.startsWith("/api/public/auth/");
-  if (isLegalRequest || (isAuthRequest
-    && configuredPublicFeatures.publicCollaborationEnabled
-    && configuredPublicFeatures.publicLegalConfigurationConfirmed)) {
-    if (isAuthRequest
-      && request.url.pathname !== "/api/public/auth/session"
-      && !rateLimit(request.req, request.res, "auth", RATE_LIMITS.auth)) return true;
-    if (await publicAuthRequest(request)) return true;
-  }
-  const isPlanRequest = request.url.pathname === "/api/public/plans"
-    || request.url.pathname.startsWith("/api/public/plans/")
-    || request.url.pathname.startsWith("/api/public/invites/")
-    || request.url.pathname.startsWith("/api/public/shared-plans/");
-  if (isPlanRequest
-    && configuredPublicFeatures.publicCollaborationEnabled
-    && configuredPublicFeatures.publicLegalConfigurationConfirmed
-    && publicPlanRequest
-    && await publicPlanRequest(request)) return true;
-  return publicDataApiRequest(request);
-}
-
 function manualRefreshAccess(req, res) {
   const rawHeader = req.headers[MANUAL_REFRESH_HEADER];
   const refreshId = String(Array.isArray(rawHeader) ? rawHeader[0] ?? "" : rawHeader ?? "").trim();
@@ -8032,11 +7864,14 @@ function manualRefreshAccess(req, res) {
 
 const server = createServer(async (req, res) => {
   try {
-    // Route order matters: public health/proxy/config endpoints are handled
-    // before authenticated admin routes, while static frontend fallback stays at
-    // the end so API typos do not accidentally return index.html.
+    // Resolve the dedicated hostname before any route or session lookup. Static
+    // frontend fallback stays at the end so API typos never return index.html.
     const url = new URL(req.url ?? "/", "http://localhost");
-    const hostProfile = resolveRequestHostProfile(req, {
+    const dedicatedHostAllowed = isDedicatedRequestHost({
+      host: req.headers.host,
+      forwardedHost: req.headers["x-forwarded-host"],
+      remoteAddress: req.socket.remoteAddress,
+    }, {
       isProduction,
       allowDevelopmentHosts: !isProduction,
       allowDirectLoopbackHealthHost:
@@ -8044,16 +7879,7 @@ const server = createServer(async (req, res) => {
         && req.method === "GET"
         && url.pathname === "/api/local/health",
     });
-    if (!hostProfile) return send(res, 421, { error: "Unknown host" });
-    if (await routeHostProfileRequest({
-      profile: hostProfile,
-      method: req.method,
-      url,
-      res,
-      send,
-      features: configuredPublicFeatures,
-      publicRequest: (request) => publicApiRequest({ ...request, req, address: clientAddress(req) }),
-    })) return;
+    if (!dedicatedHostAllowed) return send(res, 421, { error: "Unknown host" });
     const routeMeasurement = measuredRoutePaths.has(url.pathname)
       ? routePerformanceTelemetry.observe(req, res, { path: url.pathname })
       : null;
@@ -9196,7 +9022,6 @@ const server = createServer(async (req, res) => {
       if (!requireAdminMutation(req, res, user)) return;
       const requiredPermission = adminPermissionFor(req.method, url.pathname);
       if (!requireAdminPermission(req, res, user, requiredPermission)) return;
-      if (await publicAdminRequest({ req, res, user, method: req.method, url })) return;
       if (req.method === "GET" && url.pathname === "/api/local/admin/status") return send(res, 200, databaseStatus());
       if (req.method === "GET" && url.pathname === "/api/local/admin/empire-membership") {
         return send(res, 200, empireMembershipAdminPayload());
@@ -11005,35 +10830,11 @@ function replayCurrentPrivacyDeletionLedger() {
   });
 }
 
-function replayCurrentPublicPrivacyDeletionLedger() {
-  const key = privacyLedgerKey();
-  const keys = privacyLedgerVerificationKeys();
-  const records = readDeletionLedger(privacyLedgerPath, keys);
-  const accounts = db.prepare("SELECT id, discord_id AS discordId FROM public_user_accounts").all();
-  return replayPublicPrivacyDeletions({
-    records,
-    accounts,
-    key,
-    keys,
-    deleteAccount: (account) => {
-      const dispositions = publicAccountDeletionReview(db, account.id).ownedPlans
-        .map((plan) => ({ planId: plan.id, action: "delete" }));
-      return deletePublicAccount(db, {
-        userId: account.id,
-        discordId: account.discordId,
-        deletionKey: privacyDeletionKey(),
-        dispositions,
-      });
-    },
-  });
-}
-
 assertCanonicalDiscordGatewayReady(deploymentRuntime, {
   settings: getDiscordSettingsRaw(),
   webSocketAvailable: typeof WebSocket === "function",
 });
 replayCurrentPrivacyDeletionLedger();
-replayCurrentPublicPrivacyDeletionLedger();
 await relayClaimScopeFence.reconcile(currentClaimId());
 
 if (processRoleConfig.serveHttp) {

@@ -52,13 +52,11 @@ export async function runPrivacyRetention(db, {
   now = new Date(),
   dryRun = false,
   deleteInactiveAccount = async () => undefined,
-  deleteInactivePublicAccount = async () => undefined,
   sendInactiveWarning = async () => undefined,
 } = {}) {
   const plan = privacyRetentionPlan(now);
   const counts = {
     user_sessions: rowCount(db, "SELECT COUNT(*) AS count FROM user_sessions WHERE expires_at < ?", plan.now),
-    public_user_sessions: rowCount(db, "SELECT COUNT(*) AS count FROM public_user_sessions WHERE expires_at <= ?", plan.now),
     admin_sessions: rowCount(db, "SELECT COUNT(*) AS count FROM admin_sessions WHERE expires_at < ?", plan.now),
     market_deal_alerts: rowCount(db, "SELECT COUNT(*) AS count FROM market_deal_alerts WHERE created_at < ?", plan.marketAlerts),
     analytics_events: rowCount(db, "SELECT COUNT(*) AS count FROM analytics_events WHERE occurred_at < ?", plan.analytics),
@@ -77,29 +75,11 @@ export async function runPrivacyRetention(db, {
   `).all(plan.inactiveWarn);
   const toDelete = inactive.filter((account) => String(account.inactiveSince) <= plan.inactiveDelete);
   const toWarn = inactive.filter((account) => String(account.inactiveSince) > plan.inactiveDelete && !account.warningSentAt);
-  const inactivePublic = db.prepare(`
-    SELECT account.id, account.discord_id AS discordId,
-      account.discord_username AS username,
-      COALESCE(account.last_login_at, account.created_at) AS inactiveSince
-    FROM public_user_accounts AS account
-    WHERE COALESCE(account.last_login_at, account.created_at) <= ?
-      AND NOT EXISTS (
-        SELECT 1 FROM public_craft_plans AS owned
-        WHERE owned.owner_user_id = account.id
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM public_craft_plan_members AS member
-        WHERE member.user_id = account.id AND member.role = 'editor'
-      )
-    ORDER BY account.id
-  `).all(plan.inactiveDelete);
   counts.inactive_accounts = toDelete.length;
   counts.inactivity_warnings = toWarn.length;
-  counts.public_inactive_accounts = inactivePublic.length;
   if (dryRun) return { dryRun: true, plan, counts };
 
   counts.user_sessions = deleteCount(db, "DELETE FROM user_sessions WHERE expires_at < ?", plan.now);
-  counts.public_user_sessions = deleteCount(db, "DELETE FROM public_user_sessions WHERE expires_at <= ?", plan.now);
   counts.admin_sessions = deleteCount(db, "DELETE FROM admin_sessions WHERE expires_at < ?", plan.now);
   counts.market_deal_alerts = deleteCount(db, "DELETE FROM market_deal_alerts WHERE created_at < ?", plan.marketAlerts);
   counts.analytics_events = deleteCount(db, "DELETE FROM analytics_events WHERE occurred_at < ?", plan.analytics);
@@ -137,14 +117,5 @@ export async function runPrivacyRetention(db, {
       deletions.push({ userId: account.id, deleted: false, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  const publicDeletions = [];
-  for (const account of inactivePublic) {
-    try {
-      await deleteInactivePublicAccount(account);
-      publicDeletions.push({ userId: account.id, deleted: true });
-    } catch (error) {
-      publicDeletions.push({ userId: account.id, deleted: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-  return { dryRun: false, plan, counts, warnings, deletions, publicDeletions };
+  return { dryRun: false, plan, counts, warnings, deletions };
 }

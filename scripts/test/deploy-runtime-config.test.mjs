@@ -55,16 +55,13 @@ test("Caddy serves canonical traffic from the app and permanently redirects Rela
   assert.doesNotMatch(caddy, /lb_retry_match[\s\S]*(POST|PUT|PATCH|DELETE)/);
 });
 
-test("Caddy serves the public profile from the same web process with trusted forwarding headers", () => {
-  for (const host of ["app.timbersteeltrade.com", "claim-monitor.com"]) {
-    const proxyHeaders = caddy.match(new RegExp(`${host.replaceAll(".", "\\.")}\\s*\\{[\\s\\S]*?reverse_proxy 127\\.0\\.0\\.1:19430\\s*\\{([\\s\\S]*?)\\n\\t\\}`))?.[1] ?? "";
-    assert.match(proxyHeaders, /^\s*header_up Host \{host\}\s*$/m);
-    assert.match(proxyHeaders, /^\s*header_up X-Forwarded-For \{remote_host\}\s*$/m);
-    assert.match(proxyHeaders, /^\s*header_up X-Forwarded-Host \{host\}\s*$/m);
-    assert.match(proxyHeaders, /^\s*header_up X-Forwarded-Proto \{scheme\}\s*$/m);
-  }
-  assert.match(caddy, /www\.claim-monitor\.com\s*\{\s*redir https:\/\/claim-monitor\.com\{uri\} permanent\s*\}/);
-  assert.doesNotMatch(caddy, /^claim-monitor\.com\s*\{\s*redir https:\/\/app\.timbersteeltrade\.com/m);
+test("Caddy forwards the exact dedicated host boundary and has no retired public sites", () => {
+  const proxyHeaders = caddy.match(/app\.timbersteeltrade\.com\s*\{[\s\S]*?reverse_proxy 127\.0\.0\.1:19430\s*\{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+  assert.match(proxyHeaders, /^\s*header_up Host \{host\}\s*$/m);
+  assert.match(proxyHeaders, /^\s*header_up X-Forwarded-For \{remote_host\}\s*$/m);
+  assert.match(proxyHeaders, /^\s*header_up X-Forwarded-Host \{host\}\s*$/m);
+  assert.match(proxyHeaders, /^\s*header_up X-Forwarded-Proto \{scheme\}\s*$/m);
+  assert.doesNotMatch(caddy, /(^|\n)(?:www\.)?claim-monitor\.com\s*\{/);
 });
 
 test("canonical Caddy app route returns explicit browser and API maintenance responses", () => {
@@ -80,17 +77,11 @@ test("environment template is preview-safe by default", () => {
   assert.match(environment, /DISCORD_DELIVERY_MODE=record/);
   assert.match(environment, /ENABLE_DISCORD_STARTUP=false/);
   assert.match(environment, /LEGAL_CONFIGURATION_CONFIRMED=false/);
-  assert.match(environment, /^PUBLIC_PROFILE_ENABLED=false$/m);
-  assert.match(environment, /^PUBLIC_COLLABORATION_ENABLED=false$/m);
-  assert.match(environment, /^PUBLIC_LEGAL_CONFIGURATION_CONFIRMED=false$/m);
-  assert.match(environment, /^PUBLIC_ORIGIN=https:\/\/claim-monitor\.com$/m);
-  assert.match(environment, /^PUBLIC_DISCORD_OAUTH_CLIENT_ID=$/m);
-  assert.match(environment, /^PUBLIC_DISCORD_OAUTH_CLIENT_SECRET=$/m);
-  assert.match(environment, /^PUBLIC_PLAN_TOKEN_HMAC_KEY=$/m);
+  assert.doesNotMatch(environment, /^PUBLIC_(PROFILE|COLLABORATION|LEGAL|ORIGIN|DISCORD|PLAN)/m);
 });
 
 test("Relay database backup schedule is persistent and runs daily in London time", () => {
-  assert.equal(schemaVersion.trim(), "3");
+  assert.equal(schemaVersion.trim(), "4");
   assert.match(backupService, /backup-bitcraft-claim-monitor-relay daily/);
   assert.match(backupTimer, /OnCalendar=\*-\*-\* 03:30:00 Europe\/London/);
   assert.match(backupTimer, /RandomizedDelaySec=15m/);

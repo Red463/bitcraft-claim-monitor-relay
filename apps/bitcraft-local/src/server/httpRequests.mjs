@@ -36,8 +36,7 @@ export function requestLogPolicy(requestTarget, event) {
   } catch {
     // Malformed request targets remain eligible for the existing generic log.
   }
-  const isDiscordCallback = pathname === "/api/local/auth/discord/callback"
-    || pathname === "/api/public/auth/discord/callback";
+  const isDiscordCallback = pathname === "/api/local/auth/discord/callback";
   return {
     logGeneric: !isDiscordCallback,
     discordDiagnostic: isDiscordCallback && event === "exception"

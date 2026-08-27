@@ -160,10 +160,6 @@ export function deletionLedgerSubject(discordId, key) {
   return createHmac("sha256", key).update(`discord:${String(discordId)}`).digest("base64url");
 }
 
-export function publicDeletionLedgerSubject(discordId, key) {
-  return createHmac("sha256", key).update(`public-profile:discord:${String(discordId)}`).digest("base64url");
-}
-
 export function signDeletionLedgerRecord(record, key) {
   const unsigned = { ...record, keyId: deletionLedgerKeyId(key) };
   return {
@@ -450,46 +446,6 @@ export function coordinatePrivacyDeletion({
   throw integrityError;
 }
 
-export function coordinatePublicPrivacyDeletion({
-  ledgerPath,
-  key,
-  discordId,
-  deleteAccount,
-  now = () => new Date(),
-  randomUUID = cryptoRandomUUID,
-}) {
-  const operationId = randomUUID();
-  const occurredAt = now();
-  const base = {
-    version: RECORD_VERSION,
-    operationId,
-    subject: publicDeletionLedgerSubject(discordId, key),
-    occurredAt: occurredAt.toISOString(),
-    expiresAt: new Date(occurredAt.getTime() + RETENTION_MS).toISOString(),
-  };
-  appendDeletionLedgerRecord(ledgerPath, { ...base, state: "pending" }, key);
-  let result;
-  try {
-    result = deleteAccount(operationId);
-  } catch (error) {
-    appendDeletionLedgerRecord(ledgerPath, { ...base, state: "aborted", occurredAt: now().toISOString() }, key);
-    throw error;
-  }
-  let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      appendDeletionLedgerRecord(ledgerPath, { ...base, state: "committed", occurredAt: now().toISOString() }, key);
-      return result;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  const integrityError = new Error("Public account data was deleted but the privacy recovery marker could not be finalized");
-  integrityError.code = "privacy_integrity_failure";
-  integrityError.cause = lastError;
-  throw integrityError;
-}
-
 export function committedDeletionSubjects(records, now = new Date()) {
   const state = new Map();
   for (const record of records) state.set(`${record.keyId}\u0000${record.operationId}`, record);
@@ -503,17 +459,6 @@ export function replayPrivacyDeletions({ records, accounts, key, keys = [key], d
   let deleted = 0;
   for (const account of accounts) {
     if (!keys.some((candidate) => subjects.has(deletionLedgerSubject(account.discordId, candidate)))) continue;
-    deleteAccount(account);
-    deleted += 1;
-  }
-  return { deleted };
-}
-
-export function replayPublicPrivacyDeletions({ records, accounts, key, keys = [key], deleteAccount, now = new Date() }) {
-  const subjects = committedDeletionSubjects(records, now);
-  let deleted = 0;
-  for (const account of accounts) {
-    if (!keys.some((candidate) => subjects.has(publicDeletionLedgerSubject(account.discordId, candidate)))) continue;
     deleteAccount(account);
     deleted += 1;
   }

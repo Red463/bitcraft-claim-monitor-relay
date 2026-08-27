@@ -3,7 +3,6 @@ import { BOT_SECTION_IDS, type BotSection } from "../bot/botSectionState.ts";
 export const ADMIN_TAB_IDS = [
   "status",
   "server-health",
-  "public-service",
   "analytics",
   "empire-membership",
   "configuration",

@@ -25,15 +25,6 @@ app.timbersteeltrade.com {
 	}
 }
 
-# The public profile stays closed throughout a protected Timbersteel cutover.
-claim-monitor.com {
-	header Retry-After 60
-	respond "Claim Monitor is temporarily unavailable for a protected production cutover." 503
-}
-
-www.claim-monitor.com {
-	redir https://claim-monitor.com{uri} permanent
-}
 
 relay.timbersteeltrade.com {
 	header Retry-After 60

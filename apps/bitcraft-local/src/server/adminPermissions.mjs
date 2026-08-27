@@ -23,15 +23,10 @@ const ADMIN_ROLE_PERMISSIONS = {
     "discord.view",
     "discord.manage",
     "discord.moderate",
-    "public.health",
-    "public.lookup",
-    "public.moderate",
-    "public.restore",
-    "public.privacy",
   ],
   "discord-manager": ["status.view", "settings.view", "discord.view", "discord.manage"],
-  moderator: ["status.view", "settings.view", "discord.view", "discord.moderate", "audit.view", "public.health", "public.moderate"],
-  viewer: ["status.view", "settings.view", "data.view", "analytics.view", "audit.view", "discord.view", "public.health"],
+  moderator: ["status.view", "settings.view", "discord.view", "discord.moderate", "audit.view"],
+  viewer: ["status.view", "settings.view", "data.view", "analytics.view", "audit.view", "discord.view"],
 };
 
 export function normalizeAdminRole(value) {
@@ -49,11 +44,6 @@ export function adminHasPermission(user, permission) {
 }
 
 export function adminPermissionFor(method, pathname) {
-  if (pathname === "/api/local/admin/public-service/health") return "public.health";
-  if (pathname.startsWith("/api/local/admin/public-service/privacy/")) return "public.privacy";
-  if (method === "GET" && (pathname === "/api/local/admin/public-service/account" || pathname === "/api/local/admin/public-service/plan")) return "public.lookup";
-  if (method === "POST" && (pathname === "/api/local/admin/public-service/accounts/restore" || pathname === "/api/local/admin/public-service/plans/restore")) return "public.restore";
-  if (pathname.startsWith("/api/local/admin/public-service/")) return "public.moderate";
   if (pathname === "/api/local/admin/me") return "status.view";
   if (pathname === "/api/local/admin/status") return "status.view";
   if (pathname === "/api/local/admin/empire-membership") return "status.view";

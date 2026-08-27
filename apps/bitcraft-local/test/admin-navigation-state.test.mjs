@@ -27,15 +27,11 @@ test("admin navigation removes configuration state outside Configuration", () =>
   );
 });
 
-test("admin navigation accepts the focused Public service console", () => {
+test("admin navigation rejects the retired public-service console", () => {
   assert.deepEqual(parseAdminLocation("?page=admin&admin=public-service"), {
-    tab: "public-service",
+    tab: "status",
     configurationSection: "general",
   });
-  assert.equal(
-    adminSearchWithTab("?page=admin&config=privacy", "public-service"),
-    "?page=admin&admin=public-service",
-  );
 });
 
 test("bot navigation validates and serializes the selected section", () => {

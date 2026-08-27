@@ -53,7 +53,4 @@ export const LEGAL_VERSION: string;
 export const LEGAL_EFFECTIVE_DATE: string;
 export const defaultLegalOperator: Readonly<LegalOperator>;
 export function legalPolicyForEnvironment(env?: Record<string, unknown>): LegalPolicy;
-export const CLAIM_MONITOR_LEGAL_VERSION: string;
-export const CLAIM_MONITOR_LEGAL_EFFECTIVE_DATE: string;
-export function claimMonitorLegalPolicyForEnvironment(env?: Record<string, unknown>): LegalPolicy;
 

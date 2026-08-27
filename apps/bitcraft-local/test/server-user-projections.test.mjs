@@ -29,7 +29,7 @@ test("publicAdminUser exposes safe admin identity, role labels, and permissions"
     avatarUrl: "https://cdn.discordapp.com/avatars/123456789012345/avatar-hash.png?size=128",
     role: "moderator",
     roleLabel: "Moderator",
-    permissions: ["status.view", "settings.view", "discord.view", "discord.moderate", "audit.view", "public.health", "public.moderate"],
+    permissions: ["status.view", "settings.view", "discord.view", "discord.moderate", "audit.view"],
   });
 });
 

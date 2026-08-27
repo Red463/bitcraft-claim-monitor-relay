@@ -8,6 +8,32 @@ const deployment = readFileSync(new URL("../../DEPLOYMENT.md", import.meta.url),
 const gitAttributes = readFileSync(new URL("../../.gitattributes", import.meta.url), "utf8");
 const mapDiagnostic = readFileSync(new URL("../../deploy/diagnose-native-map-serving.mjs", import.meta.url), "utf8");
 
+test("Relay deployment surfaces cannot re-enable the retired public profile", () => {
+  const environment = readFileSync(new URL("../../deploy/bitcraft-claim-monitor-relay.env.example", import.meta.url), "utf8");
+  const caddy = readFileSync(new URL("../../deploy/Caddyfile.example", import.meta.url), "utf8");
+  const replay = readFileSync(new URL("../../deploy/replay-privacy-deletions.mjs", import.meta.url), "utf8");
+  const combined = `${script}\n${environment}\n${caddy}\n${replay}`;
+  for (const retired of [
+    "--configure-public-caddy",
+    "--install-public-oauth-credentials",
+    "--enable-public-readonly",
+    "--disable-public-readonly",
+    "PUBLIC_PROFILE_ENABLED",
+    "PUBLIC_COLLABORATION_ENABLED",
+    "PUBLIC_LEGAL_CONFIGURATION_CONFIRMED",
+    "PUBLIC_ORIGIN",
+    "PUBLIC_DISCORD_OAUTH_CLIENT_ID",
+    "PUBLIC_DISCORD_OAUTH_CLIENT_SECRET",
+    "PUBLIC_PLAN_TOKEN_HMAC_KEY",
+  ]) assert.equal(combined.includes(retired), false, `${retired} must be absent`);
+  assert.doesNotMatch(caddy, /(^|\n)(?:www\.)?claim-monitor\.com\s*\{/);
+  assert.match(script, /PUBLIC_URL/);
+  assert.match(script, /--no-public-check/);
+  assert.match(script, /--force-backup/);
+  assert.match(script, /--generate-map/);
+  assert.match(script, /restore_live_installation/);
+});
+
 test("Relay updater has only isolated defaults", () => {
   for (const expected of [
     /APP_ROOT="\$\{APP_ROOT:-\/opt\/bitcraft-claim-monitor-relay\}"/,
@@ -143,7 +169,7 @@ test("Relay updater retains three releases only after success", () => {
 test("every runtime-user Git boundary uses the isolated Relay HOME", () => {
   assert.match(
     script,
-    /run_git_as_user\(\) \{\s+sudo -u "\$RUN_USER" env HOME="\$RUN_HOME" \\\s+GIT_NO_REPLACE_OBJECTS=1 \\\s+GIT_SSH_COMMAND="ssh -F \$RUN_SSH_CONFIG" git "\$@"/,
+    /run_git_as_user\(\) \{\s+sudo -u "\$RUN_USER" env HOME="\$RUN_HOME" \\\s+GIT_SSH_COMMAND="ssh -F \$RUN_SSH_CONFIG" git "\$@"/,
   );
   for (const operation of [
     /run_git_as_user[\s\\]+-C "\$SOURCE_DIR" fetch --prune origin main/,
@@ -204,10 +230,6 @@ test("Relay updater snapshots and restores every live install target transaction
     "$BACKUP_HELPER_PATH",
     "$BACKUP_CRYPTO_HELPER_PATH",
     "$PRIVACY_REPLAY_HELPER_PATH",
-    "$PUBLIC_CADDY_HELPER_PATH",
-    "$PUBLIC_CADDY_REFERENCE_PATH",
-    "$PUBLIC_OAUTH_HELPER_PATH",
-    "$PUBLIC_READONLY_HELPER_PATH",
     "$UPDATER_PATH",
     "$CURRENT_LINK",
     "$SYSTEMD_DIR/bitcraft-claim-monitor-relay.service",
@@ -238,7 +260,7 @@ test("Relay rollback accumulates every restore failure and retains incomplete sn
     script.indexOf("restore_service_runtime()"),
   );
   assert.match(restore, /local status=0/);
-  assert.equal((restore.match(/restore_live_path [^\n]+ \|\| status=1/g) || []).length, 21);
+  assert.equal((restore.match(/restore_live_path [^\n]+ \|\| status=1/g) || []).length, 17);
   assert.match(restore, /systemctl daemon-reload \|\| status=1/);
   assert.match(restore, /return "\$status"/);
   assert.match(script, /rollback_attempted=1/);

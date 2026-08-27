@@ -4,11 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 
 import { deleteUserAccount } from "../apps/bitcraft-local/src/server/accountDeletion.mjs";
-import { deletePublicAccount } from "../apps/bitcraft-local/src/server/public/accountDeletion.mjs";
 import {
   readDeletionLedger,
   replayPrivacyDeletions,
-  replayPublicPrivacyDeletions,
 } from "../apps/bitcraft-local/src/server/privacyDeletionLedger.mjs";
 
 function regularPath(candidate, expectedRoot) {
@@ -76,29 +74,6 @@ try {
         manageTransaction: false,
       }),
     });
-    const hasPublicSchema = Boolean(db.prepare(`
-      SELECT 1 AS present FROM sqlite_schema
-      WHERE type = 'table' AND name = 'public_user_accounts'
-    `).get());
-    const publicAccounts = hasPublicSchema
-      ? db.prepare("SELECT id, discord_id AS discordId FROM public_user_accounts").all()
-      : [];
-    const publicProfile = hasPublicSchema
-      ? replayPublicPrivacyDeletions({
-          records,
-          accounts: publicAccounts,
-          key,
-          keys,
-          deleteAccount: (account) => deletePublicAccount(db, {
-            userId: account.id,
-            discordId: account.discordId,
-            deletionKey: key,
-            dispositions: db.prepare("SELECT id AS planId, 'delete' AS action FROM public_craft_plans WHERE owner_user_id = ? ORDER BY id")
-              .all(account.id),
-            manageTransaction: false,
-          }),
-        })
-      : { deleted: 0 };
     db.exec("COMMIT");
     summary = {
       status: "ok",
@@ -106,7 +81,6 @@ try {
       verificationKeys: keys.length,
       profiles: {
         timbersteel: { status: "ok", scanned: accounts.length, deleted: timbersteel.deleted },
-        public: { status: hasPublicSchema ? "ok" : "not-present", scanned: publicAccounts.length, deleted: publicProfile.deleted },
       },
     };
   } catch (error) {

@@ -9,6 +9,17 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.63.0-beta.13] - 2026-08-27
+
+### Removed
+
+- Removed the `claim-monitor.com` public application, public accounts, collaborative public plans, and public-service administration.
+- Removed public OAuth, public feature flags, and public deployment controls.
+
+### Security
+
+- Added a protected, one-way production cleanup for retired public data, credentials, backups, and proxy routes.
+
 ## [0.63.0-beta.12] - 2026-08-26
 
 ### Added

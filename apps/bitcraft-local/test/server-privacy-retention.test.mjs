@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 
 import { RETENTION, privacyRetentionPlan, runPrivacyRetention } from "../src/server/privacyRetention.mjs";
 import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
-import { deletePublicAccount } from "../src/server/public/accountDeletion.mjs";
 
 test("privacy retention policy preserves the approved exact periods", () => {
   assert.equal(RETENTION.userSessionsDays, 30);
@@ -61,71 +60,11 @@ test("retention dry-run is non-mutating and execution warns once then routes ina
   db.close();
 });
 
-test("privacy retention previews and deletes expired public sessions without changing current sessions", async () => {
+test("privacy retention reports only dedicated account and session operations", async () => {
   const db = new DatabaseSync(":memory:");
   applySchemaBootstrap(db);
-  const userId = Number(db.prepare(`
-    INSERT INTO public_user_accounts (discord_id, discord_username, settings_json, created_at)
-    VALUES ('public-session-user', 'Public', '{}', '2026-01-01T00:00:00.000Z')
-  `).run().lastInsertRowid);
-  const insertSession = db.prepare("INSERT INTO public_user_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)");
-  insertSession.run("expired-public-session", userId, "2026-08-25T11:59:59.000Z", "2026-08-01T00:00:00.000Z");
-  insertSession.run("boundary-public-session", userId, "2026-08-26T12:00:00.000Z", "2026-08-01T00:00:00.000Z");
-  insertSession.run("current-public-session", userId, "2026-08-27T00:00:00.000Z", "2026-08-25T00:00:00.000Z");
-
-  const dryRun = await runPrivacyRetention(db, { now: new Date("2026-08-26T12:00:00.000Z"), dryRun: true });
-  assert.equal(dryRun.counts.public_user_sessions, 2);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_user_sessions").get().count, 3);
-
-  const applied = await runPrivacyRetention(db, { now: new Date("2026-08-26T12:00:00.000Z") });
-  assert.equal(applied.counts.public_user_sessions, 2);
-  assert.deepEqual(db.prepare("SELECT token_hash FROM public_user_sessions ORDER BY token_hash").all().map((row) => row.token_hash), ["current-public-session"]);
-  db.close();
-});
-
-test("public inactivity purges only planless accounts without accepted editor membership after 24 months", async () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  applySchemaBootstrap(db);
-  const insertUser = db.prepare(`
-    INSERT INTO public_user_accounts (discord_id, discord_username, settings_json, created_at, last_login_at)
-    VALUES (?, ?, '{}', ?, ?)
-  `);
-  const old = "2024-07-20T12:00:00.000Z";
-  const ownerId = Number(insertUser.run("100", "Owner", old, old).lastInsertRowid);
-  const editorId = Number(insertUser.run("200", "Editor", old, old).lastInsertRowid);
-  const viewerId = Number(insertUser.run("300", "Viewer", old, old).lastInsertRowid);
-  const planlessId = Number(insertUser.run("400", "Planless", old, old).lastInsertRowid);
-  const recentId = Number(insertUser.run("500", "Recent", "2026-08-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z").lastInsertRowid);
-  const document = '{"schemaVersion":1,"targets":[],"routeOverrides":{},"multipliers":{},"sectionOverrides":{},"rowNameOverrides":{}}';
-  const addPlan = db.prepare(`
-    INSERT INTO public_craft_plans (id, owner_user_id, claim_id, title, document_json, status, document_revision, access_revision, created_at, updated_at)
-    VALUES (?, ?, '42', ?, ?, 'active', 1, 1, ?, ?)
-  `);
-  addPlan.run("owned", ownerId, "Owned", document, old, old);
-  addPlan.run("shared", recentId, "Shared", document, old, old);
-  db.prepare("INSERT INTO public_craft_plan_members (plan_id, user_id, role, created_at, updated_at) VALUES ('shared', ?, 'editor', ?, ?)").run(editorId, old, old);
-  db.prepare("INSERT INTO public_craft_plan_members (plan_id, user_id, role, created_at, updated_at) VALUES ('shared', ?, 'viewer', ?, ?)").run(viewerId, old, old);
-
-  const dryRun = await runPrivacyRetention(db, { now: new Date("2026-08-26T12:00:00.000Z"), dryRun: true });
-  assert.equal(dryRun.counts.public_inactive_accounts, 2);
-  const deleted = [];
-  const result = await runPrivacyRetention(db, {
-    now: new Date("2026-08-26T12:00:00.000Z"),
-    deleteInactivePublicAccount: async (account) => {
-      deleted.push(account.id);
-      deletePublicAccount(db, {
-        userId: account.id,
-        discordId: account.discordId,
-        deletionKey: "public-deletion-key",
-        dispositions: [],
-      });
-    },
-  });
-  assert.deepEqual(deleted, [viewerId, planlessId]);
-  assert.equal(result.counts.public_inactive_accounts, 2);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_craft_plan_members WHERE user_id = ?").get(viewerId).count, 0, "viewer membership is removed during purge");
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_user_accounts WHERE id IN (?, ?)").get(ownerId, editorId).count, 2);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM public_user_accounts WHERE id = ?").get(recentId).count, 1);
+  const result = await runPrivacyRetention(db, { now: new Date("2026-08-26T12:00:00.000Z"), dryRun: true });
+  assert.equal(Object.keys(result.counts).some((key) => key.startsWith("public_")), false);
+  assert.equal(Object.hasOwn(result, "publicDeletions"), false);
   db.close();
 });

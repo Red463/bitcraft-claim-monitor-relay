@@ -35,7 +35,6 @@ test("requestLogPolicy suppresses generic callback details for slow, closed, and
   assert.equal(typeof httpRequests.requestLogPolicy, "function");
   const callbacks = [
     "/api/local/auth/discord/callback?code=secret-code&state=secret-state",
-    "/api/public/auth/discord/callback?code=public-secret-code&state=public-secret-state",
   ];
 
   for (const callback of callbacks) {
