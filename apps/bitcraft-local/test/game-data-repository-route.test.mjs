@@ -83,6 +83,43 @@ test("current-state reads reject legacy rows rather than manufacturing Relay pro
   db.close();
 });
 
+test("current-state reads reuse unchanged parsed payload without hiding external updates", async () => {
+  const db = new DatabaseSync(":memory:");
+  applySchemaBootstrap(db);
+  applyAdditiveColumnMigrations(db);
+  const repository = createCurrentStateRepository(db);
+  const claimId = "1369094286777412590";
+  const observedAt = "2026-08-27T10:00:00.000Z";
+
+  await repository.commitGeneration({
+    claimId,
+    generation: 1,
+    domains: {
+      "regional-market": {
+        data: { orders: [{ entityId: "1" }] },
+        confidence: "authoritative",
+        provenance: relayProvenance(observedAt),
+        warnings: [],
+      },
+    },
+  });
+
+  const first = repository.read(claimId, "regional-market");
+  const second = repository.read(claimId, "regional-market");
+  assert.strictEqual(second.data, first.data);
+
+  db.prepare(`
+    UPDATE domain_payload_current
+    SET data_json = ?
+    WHERE claim_id = ? AND domain = 'regional-market'
+  `).run(JSON.stringify({ orders: [{ entityId: "2" }] }), claimId);
+
+  const externallyUpdated = repository.read(claimId, "regional-market");
+  assert.notStrictEqual(externallyUpdated.data, first.data);
+  assert.equal(externallyUpdated.data.orders[0].entityId, "2");
+  db.close();
+});
+
 test("generation commit atomically replaces only the submitted domains", async () => {
   const db = new DatabaseSync(":memory:");
   applySchemaBootstrap(db);

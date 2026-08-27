@@ -8,6 +8,7 @@ import { useGameDataGeneration } from "../../hooks/useGameDataGeneration";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { toNumber, type AnyRecord } from "../../main-app-data";
 import { updateQueryState } from "../../navigation";
+import { createDelayedRefreshTask } from "../../refresh/pageRefresh.mjs";
 import type { LoadState } from "../../types/app";
 import { formatNumber, timeAgo } from "../../utils/format";
 import {
@@ -17,6 +18,7 @@ import {
   sumExactDecimalIntegers,
 } from "./buyOrderFinderUtils";
 import type { MarketRefreshProps } from "./globalMarket";
+import { marketRequestCanCommit } from "./marketUi";
 
 type BuyOrderFinderProps = MarketRefreshProps & {
   claimId: string;
@@ -59,6 +61,19 @@ export function BuyOrderFinder({
     claimId,
     ["catalogs", "regional-market"],
   );
+  const requestKey = JSON.stringify([
+    claimId,
+    regionId,
+    search.trim(),
+    page,
+    pageSize,
+    sort,
+    direction,
+    generationSequence,
+    refreshSequence,
+  ]);
+  const requestKeyRef = React.useRef(requestKey);
+  requestKeyRef.current = requestKey;
 
   React.useEffect(() => {
     const transition = buyOrderSearchTransition(appliedLocationQuery.current, locationSearch);
@@ -85,29 +100,33 @@ export function BuyOrderFinder({
 
   React.useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams({
-      claimId,
-      regionId: regionId || "all",
-      search: search.trim(),
-      page: String(page),
-      pageSize: String(pageSize),
-      sort,
-      direction,
-    });
-    setState((current) => ({ ...current, error: null, loading: true }));
-    trackRefresh(
-      "buy-order-finder",
-      fetch(`/api/local/market/buy-orders?${params}`, {
+    const refresh = createDelayedRefreshTask(() => {
+      const params = new URLSearchParams({
+        claimId,
+        regionId: regionId || "all",
+        search: search.trim(),
+        page: String(page),
+        pageSize: String(pageSize),
+        sort,
+        direction,
+      });
+      setState((current) => ({ ...current, error: null, loading: true }));
+      return fetch(`/api/local/market/buy-orders?${params}`, {
         headers: refreshHeaders,
         signal: controller.signal,
-      }),
-    )
+      });
+    }, 240);
+    trackRefresh("buy-order-finder", refresh.promise)
       .then((response) => response.ok
         ? response.json()
         : Promise.reject(new Error(`buy orders HTTP ${response.status}`)))
-      .then((payload) => setState({ data: payload, error: null, loading: false }))
+      .then((payload) => {
+        if (marketRequestCanCommit(requestKey, requestKeyRef.current, controller.signal.aborted)) {
+          setState({ data: payload, error: null, loading: false });
+        }
+      })
       .catch((error) => {
-        if (!controller.signal.aborted) {
+        if (marketRequestCanCommit(requestKey, requestKeyRef.current, controller.signal.aborted)) {
           setState((current) => ({
             ...current,
             error: error instanceof Error ? error.message : String(error),
@@ -115,13 +134,17 @@ export function BuyOrderFinder({
           }));
         }
       });
-    return () => controller.abort();
+    return () => {
+      refresh.cancel();
+      controller.abort();
+    };
   }, [
     claimId,
     direction,
     generationSequence,
     page,
     pageSize,
+    requestKey,
     refreshHeaders,
     refreshSequence,
     regionId,

@@ -1278,7 +1278,7 @@ test("server collection paginates listings and protects production mutations", a
       'relay_closed_listing:19:historic-1', ?, '19', 'historic-order', 'player-1',
       'Tester', NULL, 'Buyer', '30', 'item', 'Leather', '5', '10', '50',
       NULL, NULL, '2026-05-20T12:00:00.000Z',
-      '2026-05-20T12:00:01.000Z', '{}'
+      '2026-05-20T12:00:01.000Z', '{"listing":{"claimEntityId":1369094286777412590}}'
     )
   `).run(claimId);
   staleRegionalDb.prepare(`
@@ -1434,6 +1434,7 @@ test("server collection paginates listings and protects production mutations", a
   assert.deepEqual(marketPriceHistory.recentTrades.map((trade) => trade.id), [
     "relay_closed_listing:19:historic-1",
   ]);
+  assert.equal(marketPriceHistory.recentTrades[0].claimId, "1369094286777412590");
   assert.equal(marketPriceHistory.priceStats.totalVolume, "5");
   assert.equal(priceHistoryRequests, 0);
   await writeDatabaseWithRetry(path.join(dataDir, "bitcraft-local.sqlite"), (marketDb) => {
@@ -2349,12 +2350,20 @@ test("server collection paginates listings and protects production mutations", a
   assert.equal(routeHealthResponse.status, 200);
   const routeHealth = await routeHealthResponse.json();
   const routePerformance = routeHealth.application.routePerformance;
+  const catalogPerformance = routePerformance.routes.find((route) => route.path === "/api/local/market/catalog");
   const orderBookPerformance = routePerformance.routes.find((route) => route.path === "/api/local/market/order-book");
+  const priceHistoryPerformance = routePerformance.routes.find((route) => route.path === "/api/local/market/price-history");
   const favoriteQuotesPerformance = routePerformance.routes.find((route) => route.path === "/api/local/market/favorite-quotes");
   const gameDataPerformance = routePerformance.routes.find((route) => route.path === "/api/local/game-data");
+  assert.ok(catalogPerformance.sampleCount >= 1);
+  assert.ok(catalogPerformance.responseBytes.p99 > 0);
+  assert.ok(catalogPerformance.projectionMs.p99 >= 0);
   assert.ok(orderBookPerformance.sampleCount >= 26);
   assert.ok(orderBookPerformance.responseBytes.p99 > 0);
   assert.equal(orderBookPerformance.status429, 0);
+  assert.ok(priceHistoryPerformance.sampleCount >= 1);
+  assert.ok(priceHistoryPerformance.responseBytes.p99 > 0);
+  assert.ok(priceHistoryPerformance.projectionMs.p99 >= 0);
   assert.ok(favoriteQuotesPerformance.sampleCount >= 13);
   assert.ok(favoriteQuotesPerformance.responseBytes.p99 > 0);
   assert.ok(favoriteQuotesPerformance.projectionMs.p99 >= 0);
@@ -2367,6 +2376,9 @@ test("server collection paginates listings and protects production mutations", a
   assert.deepEqual(routePerformance.rateLimits.gameDataRead, { reportOnly: true, wouldLimit: 1 });
   assert.deepEqual(routePerformance.gates.gameData, { active: 0, queued: 0, rejected: 0, maxConcurrent: 8, maxQueued: 16 });
   assert.deepEqual(routePerformance.gates.market, { active: 0, queued: 0, rejected: 0, maxConcurrent: 8, maxQueued: 16 });
+  assert.ok(routePerformance.marketOrderIndexCache.builds >= 1);
+  assert.ok(routePerformance.marketOrderIndexCache.hits >= 1);
+  assert.ok(routePerformance.marketOrderIndexCache.entries <= 2);
   assert.doesNotMatch(JSON.stringify(routePerformance), new RegExp(`${claimId}|itemId|claimId|normal-browser-refresh`));
 
   const poll = await fetch(`${origin}/api/local/admin/poll`, {

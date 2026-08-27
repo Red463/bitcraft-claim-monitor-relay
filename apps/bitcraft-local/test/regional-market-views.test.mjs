@@ -808,6 +808,164 @@ test("regional market order-book view preserves exact prices and scopes regions"
   });
 });
 
+test("regional market order index cache reuses one scoped generation for catalog and order-book projections", () => {
+  assert.equal(typeof views.createRegionalMarketOrderIndexCache, "function");
+  const cache = views.createRegionalMarketOrderIndexCache();
+  const liveSnapshot = {
+    orders: [{
+      entityId: "9007199254740993",
+      side: "sell",
+      regionId: "19",
+      itemType: "item",
+      itemId: "30",
+      price: "9007199254740993",
+      quantity: "2",
+      claimName: "Low Market",
+    }, {
+      entityId: "9007199254740994",
+      side: "buy",
+      regionId: "19",
+      itemType: "item",
+      itemId: "30",
+      price: "9007199254740994",
+      quantity: "3",
+      claimName: "Buyer Hall",
+    }, {
+      entityId: "9007199254740995",
+      side: "sell",
+      regionId: "7",
+      itemType: "cargo",
+      itemId: "30",
+      price: "17",
+      quantity: "4",
+    }],
+  };
+  const scope = { claimId: "100", generation: 42, allowedRegionIds: ["7", "19"] };
+  const index = cache.get(liveSnapshot, scope);
+
+  const catalog = views.regionalMarketCatalogView(liveSnapshot, [
+    { kind: "items", targetId: "30", name: "Item Thirty" },
+    { kind: "cargo", targetId: "30", name: "Cargo Thirty" },
+  ], {
+    ...scope,
+    regionId: "19",
+    orderIndex: index,
+    availableOnly: true,
+    sort: "name",
+  });
+  const book = views.regionalMarketOrderBookView(liveSnapshot, {
+    kind: "items",
+    targetId: "30",
+    name: "Item Thirty",
+  }, {
+    ...scope,
+    regionId: "19",
+    itemType: "item",
+    itemId: "30",
+    orderIndex: index,
+  });
+
+  assert.deepEqual(catalog.items.map((item) => [item.itemType, item.itemId, item.lowestSellPrice, item.highestBuyPrice]), [
+    ["item", "30", "9007199254740993", "9007199254740994"],
+  ]);
+  assert.deepEqual(book.sellOrders.map((order) => order.entityId), ["9007199254740993"]);
+  assert.deepEqual(book.buyOrders.map((order) => order.entityId), ["9007199254740994"]);
+  assert.equal(cache.get(liveSnapshot, scope), index);
+  assert.deepEqual(cache.cacheStats(), {
+    entries: 1,
+    builds: 1,
+    hits: 1,
+    maxEntries: 2,
+  });
+});
+
+test("regional market order index cache bounds retained generations", () => {
+  const cache = views.createRegionalMarketOrderIndexCache({ maxEntries: 2 });
+  const liveSnapshot = { orders: [] };
+
+  cache.get(liveSnapshot, { claimId: "100", generation: 1, allowedRegionIds: ["19"] });
+  cache.get(liveSnapshot, { claimId: "100", generation: 2, allowedRegionIds: ["19"] });
+  cache.get(liveSnapshot, { claimId: "100", generation: 3, allowedRegionIds: ["19"] });
+
+  assert.deepEqual(cache.cacheStats(), {
+    entries: 2,
+    builds: 3,
+    hits: 0,
+    maxEntries: 2,
+  });
+});
+
+test("regional market order index cache replaces an existing key without over-evicting", () => {
+  const cache = views.createRegionalMarketOrderIndexCache({ maxEntries: 2 });
+  const scopeOne = { claimId: "100", generation: 1, allowedRegionIds: ["19"] };
+  const scopeTwo = { claimId: "100", generation: 2, allowedRegionIds: ["19"] };
+  const first = { orders: [] };
+  const second = { orders: [] };
+
+  cache.get(first, scopeOne);
+  cache.get(second, scopeTwo);
+  cache.get(first, scopeOne);
+  cache.get({ orders: [] }, scopeOne);
+
+  assert.equal(cache.cacheStats().entries, 2);
+});
+
+test("regional market order index cache rebuilds when a same-generation payload changes", () => {
+  const cache = views.createRegionalMarketOrderIndexCache();
+  const scope = { claimId: "100", generation: 7, allowedRegionIds: ["19"] };
+  const firstSnapshot = {
+    orders: [{ regionId: "19", itemType: "item", itemId: "30", side: "sell", price: "10" }],
+  };
+  const replacementSnapshot = {
+    orders: [{ regionId: "19", itemType: "item", itemId: "30", side: "sell", price: "20" }],
+  };
+
+  const first = cache.get(firstSnapshot, scope);
+  const replacement = cache.get(replacementSnapshot, scope);
+  const catalog = views.regionalMarketCatalogView(replacementSnapshot, [
+    { kind: "items", targetId: "30", name: "Item Thirty" },
+  ], {
+    ...scope,
+    regionId: "19",
+    orderIndex: replacement,
+  });
+
+  assert.notStrictEqual(replacement, first);
+  assert.equal(catalog.items[0].lowestSellPrice, "20");
+  assert.deepEqual(cache.cacheStats(), {
+    entries: 1,
+    builds: 2,
+    hits: 0,
+    maxEntries: 2,
+  });
+});
+
+test("regional market order index preserves all-region equal-price location ties", () => {
+  const cache = views.createRegionalMarketOrderIndexCache();
+  const snapshot = {
+    orders: [
+      { regionId: "19", itemType: "item", itemId: "30", side: "sell", price: "20", claimName: "A expensive" },
+      { regionId: "7", itemType: "item", itemId: "30", side: "sell", price: "10", claimName: "B first sell" },
+      { regionId: "19", itemType: "item", itemId: "30", side: "sell", price: "10", claimName: "A later sell" },
+      { regionId: "19", itemType: "item", itemId: "30", side: "buy", price: "10", claimName: "A cheap" },
+      { regionId: "7", itemType: "item", itemId: "30", side: "buy", price: "20", claimName: "B first buy" },
+      { regionId: "19", itemType: "item", itemId: "30", side: "buy", price: "20", claimName: "A later buy" },
+    ],
+  };
+  const catalogRows = [{ kind: "items", targetId: "30", name: "Item Thirty" }];
+  const scope = { claimId: "100", generation: 9, allowedRegionIds: ["7", "19"], regionId: "all" };
+
+  const fallback = views.regionalMarketCatalogView(snapshot, catalogRows, scope);
+  const indexed = views.regionalMarketCatalogView(snapshot, catalogRows, {
+    ...scope,
+    orderIndex: cache.get(snapshot, scope),
+  });
+
+  assert.deepEqual(indexed.items, fallback.items);
+  assert.equal(indexed.items[0].lowestSellLocation, "B first sell");
+  assert.equal(indexed.items[0].highestBuyLocation, "B first buy");
+});
+
 test("favorite quotes index one scoped generation once without colliding typed identities", () => {
   assert.equal(
     typeof views.regionalMarketFavoriteQuotesView,

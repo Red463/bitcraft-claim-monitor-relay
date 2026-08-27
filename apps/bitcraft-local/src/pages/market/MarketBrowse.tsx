@@ -19,7 +19,7 @@ import {
   marketItemType,
   normalizeMarketOrders,
 } from "./globalMarket";
-import { availabilityFlags, exactMarketInteger, marketPriceClass, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
+import { availabilityFlags, exactMarketInteger, marketDetailLoadingState, marketDetailRequestPlan, marketPriceClass, marketRequestCanCommit, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
 import { MarketPriceChart } from "./MarketPriceChart";
 
 type Props = MarketRefreshProps & {
@@ -90,6 +90,19 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const suggestionsOpenRef = React.useRef(false);
   const generationSequence = useGameDataGeneration(claimId, ["catalogs", "regional-market"]);
   const availabilityFilter = availabilityFlags(availability);
+  const detailRequestPlan = marketDetailRequestPlan(Boolean(selectedItem), detailTab);
+  const selectedRequestIdentity = selectedItem
+    ? `${marketItemType(selectedItem.itemType)}:${String(selectedItem.id)}`
+    : "";
+  const catalogRequestKey = JSON.stringify([claimId, regionId, query, category, availability, catalogSort, generationSequence, refreshSequence]);
+  const orderBookRequestKey = JSON.stringify([claimId, regionId, selectedRequestIdentity, generationSequence, refreshSequence]);
+  const priceHistoryRequestKey = JSON.stringify([claimId, regionId, selectedRequestIdentity, range, detailTab, refreshSequence]);
+  const catalogRequestKeyRef = React.useRef(catalogRequestKey);
+  const orderBookRequestKeyRef = React.useRef(orderBookRequestKey);
+  const priceHistoryRequestKeyRef = React.useRef(priceHistoryRequestKey);
+  catalogRequestKeyRef.current = catalogRequestKey;
+  orderBookRequestKeyRef.current = orderBookRequestKey;
+  priceHistoryRequestKeyRef.current = priceHistoryRequestKey;
 
   React.useEffect(() => {
     if (mode === "buy" && query.trim().length < 2) {
@@ -111,6 +124,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
     }, 220);
     trackRefresh("global-market-catalog", refresh.promise)
       .then((payload) => {
+        if (!marketRequestCanCommit(catalogRequestKey, catalogRequestKeyRef.current, controller.signal.aborted)) return;
         const items = Array.isArray(payload.items) ? payload.items : [];
         const categories = Array.isArray(payload.categories) ? payload.categories.map(String) : [];
         setCatalogItems(items);
@@ -119,13 +133,15 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
         setCatalogState({ loading: false, error: "", categories });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setCatalogState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        if (marketRequestCanCommit(catalogRequestKey, catalogRequestKeyRef.current, controller.signal.aborted)) {
+          setCatalogState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        }
       });
     return () => {
       refresh.cancel();
       controller.abort();
     };
-  }, [availability, catalogSort, category, generationSequence, query, refreshSequence, regionId]);
+  }, [availability, catalogRequestKey, catalogSort, category, generationSequence, query, refreshSequence, regionId]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -161,16 +177,25 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       "global-market-item-detail",
       fetch(urls.orderBook, { headers: refreshHeaders, signal: controller.signal })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`order book HTTP ${response.status}`))),
-    ).then((detail) => setDetailState((current) => ({ ...current, loading: false, error: "", detail })))
+    ).then((detail) => {
+      if (marketRequestCanCommit(orderBookRequestKey, orderBookRequestKeyRef.current, controller.signal.aborted)) {
+        setDetailState((current) => ({ ...current, loading: false, error: "", detail }));
+      }
+    })
       .catch((error) => {
-        if (!controller.signal.aborted) setDetailState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        if (marketRequestCanCommit(orderBookRequestKey, orderBookRequestKeyRef.current, controller.signal.aborted)) {
+          setDetailState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+        }
       });
     return () => controller.abort();
-  }, [generationSequence, refreshSequence, regionId, selectedItem]);
+  }, [generationSequence, orderBookRequestKey, refreshSequence, regionId, selectedItem, detailRequestPlan.orderBook]);
 
   React.useEffect(() => {
     if (!selectedItem) {
       setDetailState((current) => ({ ...current, historyError: "", history: null }));
+      return;
+    }
+    if (!detailRequestPlan.priceHistory) {
       return;
     }
     const controller = new AbortController();
@@ -184,19 +209,26 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       "global-market-item-history",
       fetch(urls.priceHistory, { headers: refreshHeaders, signal: controller.signal })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`price history HTTP ${response.status}`))),
-    ).then((history) => setDetailState((current) => ({ ...current, historyError: "", history })))
+    ).then((history) => {
+      if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
+        setDetailState((current) => ({ ...current, historyError: "", history }));
+      }
+    })
       .catch((error) => {
-        if (!controller.signal.aborted) setDetailState((current) => ({
-          ...current,
-          historyError: error instanceof Error ? error.message : String(error),
-        }));
+        if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
+          setDetailState((current) => ({
+            ...current,
+            historyError: error instanceof Error ? error.message : String(error),
+          }));
+        }
       });
     return () => controller.abort();
-  }, [range, refreshSequence, regionId, selectedItem]);
+  }, [detailRequestPlan.priceHistory, priceHistoryRequestKey, range, refreshSequence, regionId, selectedItem]);
 
   function chooseItem(item: AnyRecord) {
     catalogScrollRef.current = window.scrollY;
     suggestionsOpenRef.current = false;
+    setDetailState(marketDetailLoadingState());
     setSelectedItem(item);
     setSuggestions([]);
     setPage(1);
@@ -218,7 +250,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   function showResults() {
     suggestionsOpenRef.current = false;
     setSelectedItem(null);
-    setDetailState((current) => ({ ...current, detail: null, history: null, error: "", historyError: "" }));
+    setDetailState(marketDetailLoadingState(false));
     setSuggestions([]);
     updateQueryState(mode === "browse" ? { item: null, itemName: null, itemType: null } : { buyItem: null, buyItemName: null, buyItemType: null }, "replace");
     onQueryStateChange();
@@ -298,7 +330,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
           <span>{mode === "buy" ? "Find an item with buy orders" : "Search global catalog"}</span>
           <div className="suggestion-anchor">
             <Search size={16} />
-            <input value={query} onFocus={() => { suggestionsOpenRef.current = true; setSuggestions(marketSuggestionResults(catalogItems, query, true)); }} onChange={(event) => { suggestionsOpenRef.current = true; setQuery(event.target.value); setSelectedItem(null); setActiveSuggestion(-1); }} onKeyDown={onSuggestionKeyDown} placeholder="Item or cargo name" role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`${mode}-market-suggestions`} aria-activedescendant={activeSuggestion >= 0 ? `${mode}-market-option-${activeSuggestion}` : undefined} />
+            <input value={query} onFocus={() => { suggestionsOpenRef.current = true; setSuggestions(marketSuggestionResults(catalogItems, query, true)); }} onChange={(event) => { suggestionsOpenRef.current = true; setQuery(event.target.value); setSelectedItem(null); setDetailState(marketDetailLoadingState(false)); setActiveSuggestion(-1); }} onKeyDown={onSuggestionKeyDown} placeholder="Item or cargo name" role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`${mode}-market-suggestions`} aria-activedescendant={activeSuggestion >= 0 ? `${mode}-market-option-${activeSuggestion}` : undefined} />
             {suggestions.length ? <div className="suggestion-menu" id={`${mode}-market-suggestions`} role="listbox">{suggestions.map((item, index) => (
               <button id={`${mode}-market-option-${index}`} role="option" aria-selected={activeSuggestion === index} key={`${item.itemType}-${item.id}`} type="button" onMouseEnter={() => setActiveSuggestion(index)} onClick={() => chooseItem(item)}>
                 <ItemIcon item={item} /><strong>{item.name}</strong>{item.tier ? <TierBadge tier={item.tier} /> : null}<small>{item.rarityStr ? <RarityBadge rarity={item.rarityStr} /> : null}{item.tag ?? ""}</small>

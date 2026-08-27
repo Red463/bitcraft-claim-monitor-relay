@@ -63,6 +63,7 @@ export function createCurrentStateRepository(
       changedDomains: DomainKey[];
     }) => void;
     now?: () => Date;
+    readCacheEntries?: number;
   } = {},
 ): ProviderSink & {
   read(claimId: string, domain: DomainKey): StoredDomainSnapshot | null;
@@ -156,6 +157,13 @@ export function createCurrentStateRepository(
   const read = db.prepare(
     "SELECT * FROM domain_payload_current WHERE claim_id = ? AND domain = ? AND provider = 'relay'",
   );
+  const readCacheLimit = Math.max(1, Math.floor(Number(options.readCacheEntries) || 32));
+  const parsedReadCache = new Map<string, {
+    dataJson: string;
+    data: unknown;
+    warningsJson: string;
+    warnings: string[];
+  }>();
   const markError = db.prepare(`
     UPDATE domain_payload_current
     SET last_attempt_at = ?, last_error = ?, updated_at = ?
@@ -761,8 +769,27 @@ export function createCurrentStateRepository(
     read(claimId, domain) {
       const row = read.get(claimId, domain);
       if (!row) return null;
+      const cacheKey = `${claimId}\u0000${domain}`;
+      const dataJson = String(row.data_json);
+      const warningsJson = String(row.warnings_json ?? "[]");
+      const cached = parsedReadCache.get(cacheKey);
+      const parsed = {
+        dataJson,
+        data: cached?.dataJson === dataJson ? cached.data : JSON.parse(dataJson),
+        warningsJson,
+        warnings: cached?.warningsJson === warningsJson
+          ? cached.warnings
+          : JSON.parse(warningsJson) as string[],
+      };
+      parsedReadCache.delete(cacheKey);
+      parsedReadCache.set(cacheKey, parsed);
+      while (parsedReadCache.size > readCacheLimit) {
+        const oldestKey = parsedReadCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        parsedReadCache.delete(oldestKey);
+      }
       return {
-        data: JSON.parse(String(row.data_json)),
+        data: parsed.data,
         confidence: String(row.confidence ?? "unknown") as StoredDomainSnapshot["confidence"],
         generation: Number(row.generation ?? 0),
         lastError: row.last_error == null ? null : String(row.last_error),
@@ -775,7 +802,7 @@ export function createCurrentStateRepository(
           sourceObservedAt: row.source_observed_at == null ? null : String(row.source_observed_at),
           receivedAt: String(row.received_at ?? row.last_success_at),
         },
-        warnings: JSON.parse(String(row.warnings_json ?? "[]")),
+        warnings: parsed.warnings,
       };
     },
   };
