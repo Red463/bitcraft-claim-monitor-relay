@@ -9,6 +9,18 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.63.1-beta.1] - 2026-08-27
+
+### Added
+
+- Added marketplace route and cache-performance diagnostics for operators.
+
+### Changed
+
+- Improved marketplace search responsiveness and prevented obsolete searches from replacing newer results.
+- Made item details load faster by reusing current market data and loading price history only when the Stats view is opened.
+- Reduced repeated regional-market processing to improve catalogue and order-book response times.
+
 ## [0.63.0-beta.14] - 2026-08-27
 
 ### Removed
