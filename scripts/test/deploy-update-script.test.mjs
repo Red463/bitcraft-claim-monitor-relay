@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const script = readFileSync(new URL("../../deploy/update-bitcraft-claim-monitor-relay", import.meta.url), "utf8");
@@ -7,6 +9,22 @@ const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8")
 const deployment = readFileSync(new URL("../../DEPLOYMENT.md", import.meta.url), "utf8");
 const gitAttributes = readFileSync(new URL("../../.gitattributes", import.meta.url), "utf8");
 const mapDiagnostic = readFileSync(new URL("../../deploy/diagnose-native-map-serving.mjs", import.meta.url), "utf8");
+
+test("the beta.12 updater transition helpers are inert and fail closed", () => {
+  for (const relative of [
+    "../../deploy/configure-public-caddy.mjs",
+    "../../deploy/install-public-oauth-credentials.mjs",
+    "../../deploy/enable-public-readonly.mjs",
+  ]) {
+    const helper = new URL(relative, import.meta.url);
+    const source = readFileSync(helper, "utf8");
+    assert.doesNotMatch(source, /\bimport\b|\brequire\s*\(|child_process|node:fs|systemctl|caddy/);
+    const result = spawnSync(process.execPath, [fileURLToPath(helper)], { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Retired public deployment operation is unavailable.\n");
+  }
+});
 
 test("Relay deployment surfaces cannot re-enable the retired public profile", () => {
   const environment = readFileSync(new URL("../../deploy/bitcraft-claim-monitor-relay.env.example", import.meta.url), "utf8");
