@@ -14,11 +14,6 @@ const scannedRoots = [
   "docs/privacy-operations-runbook.md",
   "docs/relay-migration/table-inventory.md",
 ];
-const allowed = new Set([
-  "apps/bitcraft-local/src/server/retiredPublicProfileCleanup.mjs",
-  "deploy/remove-retired-public-profile.mjs",
-  ".github/workflows/remove-retired-public-profile.yml",
-]);
 const retiredPatterns = [
   /\/api\/public\//,
   /claim-monitor\.com/,
@@ -43,7 +38,7 @@ function filesUnder(relative) {
 
 test("retired public product identifiers cannot return to runtime or active operations", () => {
   const violations = [];
-  for (const file of scannedRoots.flatMap(filesUnder).filter((entry) => !allowed.has(entry))) {
+  for (const file of scannedRoots.flatMap(filesUnder)) {
     const source = readFileSync(path.join(repositoryRoot, file), "utf8").replaceAll("\\", "/");
     for (const pattern of retiredPatterns) {
       if (pattern.test(source)) violations.push(`${file}: ${pattern}`);

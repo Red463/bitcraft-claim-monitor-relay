@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.63.0-beta.14] - 2026-08-27
+
+### Removed
+
+- Finalised removal of the retired public Claim Monitor profile after deleting its production data, credentials, backups, and proxy routes.
+- Removed the one-time cleanup workflow and compatibility helpers now that production cleanup is complete.
+
 ## [0.63.0-beta.13] - 2026-08-27
 
 ### Removed
