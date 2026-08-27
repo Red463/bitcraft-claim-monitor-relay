@@ -10,6 +10,7 @@ import {
 const MAX_CONCURRENT_LOADS = 4;
 const MAX_CACHE_ENTRIES = 8;
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
+const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
 
 function eventUrlWithGenerations(url, partitions) {
   const generations = {};
@@ -48,6 +49,9 @@ export function createMapResourceBinaryLoader({
   maxConcurrentLoads = MAX_CONCURRENT_LOADS,
   cacheMaxEntries = MAX_CACHE_ENTRIES,
   cacheMaxBytes = MAX_CACHE_BYTES,
+  loadTimeoutMs = DEFAULT_LOAD_TIMEOUT_MS,
+  setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimer = (timer) => clearTimeout(timer),
 }) {
   if (typeof fetchBinary !== "function" || typeof connectEvents !== "function") {
     throw new TypeError("Resource partition loader dependencies are required");
@@ -55,6 +59,7 @@ export function createMapResourceBinaryLoader({
   const loadLimit = positiveInteger(maxConcurrentLoads, MAX_CONCURRENT_LOADS, MAX_CONCURRENT_LOADS);
   const cacheEntryLimit = nonNegativeInteger(cacheMaxEntries, MAX_CACHE_ENTRIES, MAX_CACHE_ENTRIES);
   const cacheByteLimit = nonNegativeInteger(cacheMaxBytes, MAX_CACHE_BYTES, MAX_CACHE_BYTES);
+  const loadTimeout = positiveInteger(loadTimeoutMs, DEFAULT_LOAD_TIMEOUT_MS, Number.MAX_SAFE_INTEGER);
   let partitions = createMapResourceBinaryState();
   let eventUrl = "";
   let connection = null;
@@ -128,7 +133,14 @@ export function createMapResourceBinaryLoader({
 
   const runActive = async (request) => {
     const { key, controller } = request;
-    try {
+    const deadline = new Promise((_resolve, reject) => {
+      request.timeoutTimer = setTimer(() => {
+        request.timedOut = true;
+        controller.abort();
+        reject(new Error("Resource partition load timed out"));
+      }, loadTimeout);
+    });
+    const load = async () => {
       let recoveryRemaining = 1;
       while (true) {
         const response = await fetchBinary(request.url, controller.signal);
@@ -174,11 +186,17 @@ export function createMapResourceBinaryLoader({
         publish(applyMapResourceBinaryCommitted(partitions, key, decoded, { freshness, warning }));
         return;
       }
+    };
+    try {
+      await Promise.race([load(), deadline]);
     } catch (error) {
-      if (!controller.signal.aborted && !isAbort(error) && active.get(key) === request && !stopped && !paused && partitions.has(key)) {
+      const failed = request.timedOut || (!controller.signal.aborted && !isAbort(error));
+      if (failed && active.get(key) === request && !stopped && !paused && partitions.has(key) && !pending.has(key)) {
         markUnavailable(key);
       }
     } finally {
+      if (request.timeoutTimer != null) clearTimer(request.timeoutTimer);
+      request.timeoutTimer = null;
       if (active.get(key) === request) active.delete(key);
       pump();
     }
@@ -201,7 +219,7 @@ export function createMapResourceBinaryLoader({
       const [key, work] = selected;
       pending.delete(key);
       if (!partitions.has(key)) continue;
-      const request = { ...work, controller: new AbortController() };
+      const request = { ...work, controller: new AbortController(), timedOut: false, timeoutTimer: null };
       active.set(key, request);
       void runActive(request);
     }

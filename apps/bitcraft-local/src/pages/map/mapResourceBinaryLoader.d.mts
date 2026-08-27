@@ -23,6 +23,9 @@ export function createMapResourceBinaryLoader(input: {
   maxConcurrentLoads?: number;
   cacheMaxEntries?: number;
   cacheMaxBytes?: number;
+  loadTimeoutMs?: number;
+  setTimer?(callback: () => void, delayMs: number): unknown;
+  clearTimer?(timer: unknown): void;
 }): {
   setScope(scope: BrowserResourcePartitionScope[], eventUrl: string): void;
   pause(): void;
