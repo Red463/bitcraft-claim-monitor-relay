@@ -153,12 +153,17 @@ test("inspection mode reports counts and key names without mutating files or exp
 test("protected workflow requires main, tests first, sanitised inspection, and relay-cutover approval", () => {
   const workflow = readFileSync(new URL("../../.github/workflows/remove-retired-public-profile.yml", import.meta.url), "utf8");
   const helper = readFileSync(new URL("../../deploy/remove-retired-public-profile.mjs", import.meta.url), "utf8");
+  const updater = readFileSync(new URL("../../deploy/update-bitcraft-claim-monitor-relay", import.meta.url), "utf8");
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
   assert.match(workflow, /remove-claim-monitor\.com/);
   assert.match(workflow, /corepack pnpm --filter @workspace\/bitcraft-local run build/);
   assert.match(workflow, /corepack pnpm --filter @workspace\/bitcraft-local test/);
-  assert.match(workflow, /--inspect[\s\S]*upload-artifact@v4/);
-  assert.match(workflow, /environment: relay-cutover[\s\S]*BITCRAFT_RETIRED_PUBLIC_REMOVAL=1[\s\S]*--apply/);
+  assert.match(workflow, /update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --inspect-retired-public-profile[\s\S]*upload-artifact@v4/);
+  assert.match(workflow, /environment: relay-cutover[\s\S]*update-bitcraft-claim-monitor-relay --revision '\$GITHUB_SHA' --remove-retired-public-profile[\s\S]*--confirmation 'remove-claim-monitor\.com'/);
+  assert.doesNotMatch(workflow, /sudo (?:env[^\n]+ )?node /);
+  assert.match(updater, /retired-public-profile-removal-v1/);
+  assert.match(updater, /delegate_retired_public_profile_mode/);
+  assert.match(updater, /BITCRAFT_RETIRED_PUBLIC_REMOVAL=1/);
   assert.match(workflow, /app\.timbersteeltrade\.com\/api\/local\/health/);
   assert.match(workflow, /bootstrap\.config\?\.claimId/);
   assert.match(workflow, /health\.buildSha !== expectedRevision/);

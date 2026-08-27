@@ -70,7 +70,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
-            "sudo node /opt/bitcraft-claim-monitor-relay/current/deploy/remove-retired-public-profile.mjs --inspect" \
+            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA' --inspect-retired-public-profile" \
             > "$RUNNER_TEMP/retired-public-inspection.json"
       - uses: actions/upload-artifact@v4
         with:
@@ -105,7 +105,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -- "$RELAY_VPS_DEPLOY_USER@$RELAY_VPS_HOST" \
-            "sudo env BITCRAFT_RETIRED_PUBLIC_REMOVAL=1 node /opt/bitcraft-claim-monitor-relay/current/deploy/remove-retired-public-profile.mjs --apply --revision '$GITHUB_SHA' --confirmation 'remove-claim-monitor.com'" \
+            "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --revision '$GITHUB_SHA' --remove-retired-public-profile --confirmation 'remove-claim-monitor.com'" \
             >/dev/null
       - name: Verify dedicated production invariants
         env:
