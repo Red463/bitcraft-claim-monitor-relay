@@ -23,6 +23,7 @@ function fixture() {
   const other = insert.run("222222222222222222", "Other", "Other User", "87654321", "Other Character", now, now);
   const userId = Number(target.lastInsertRowid);
   const otherUserId = Number(other.lastInsertRowid);
+  db.prepare("INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at) VALUES ('personal', 'Private', 'personal', ?, 0, 1, '{}', ?, ?)").run(userId, now, now);
   db.prepare("INSERT INTO user_sessions (token_hash, user_id, expires_at, created_at, reauthenticated_at) VALUES ('one', ?, ?, ?, ?)").run(userId, "2026-08-25T12:00:00.000Z", now, now);
   db.prepare("INSERT INTO user_legal_acceptances (user_id, legal_version, terms_digest, privacy_digest, age_confirmed, accepted_at, source) VALUES (?, 'v1', 't', 'p', 1, ?, 'existing-session')").run(userId, now);
   const watch = db.prepare(`
@@ -92,6 +93,7 @@ test("full account deletion removes account data, de-identifies retained records
   assert.equal(receipt.anonymized.admin_audit_log, 1);
   assert.equal(receipt.anonymized.discord_delivery_log, 1);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM user_accounts WHERE id = ?").get(userId).count, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plans WHERE owner_user_id = ?").get(userId).count, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM user_accounts WHERE id = ?").get(otherUserId).count, 1);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM admin_users WHERE username = 'Thomas' AND role = 'owner' AND discord_id = '111111111111111111'").get().count, 1);
   assert.equal(db.prepare("SELECT user_id FROM discord_mod_cases").get().user_id, marker);
