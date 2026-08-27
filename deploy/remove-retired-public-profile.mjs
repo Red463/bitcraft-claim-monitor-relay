@@ -310,14 +310,22 @@ export function restoreActiveServices(states, paths, execute = runCommand) {
   if (failures.length) throw new Error(`Service restoration failed: ${failures.join("; ")}`);
 }
 
-function verifyDedicatedHealth(paths) {
-  runCommand(paths.curlBinary, [
+export function verifyDedicatedHealth(paths, options = {}) {
+  const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 30;
+  const probe = options.probe ?? ((command, args) => spawnSync(command, args, { stdio: "ignore" }));
+  const wait = options.wait ?? (() => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000));
+  const args = [
     "-fsS",
     "--connect-timeout", "2",
     "--max-time", "10",
     "--header", "Host: app.timbersteeltrade.com",
     "http://127.0.0.1:19430/api/local/health",
-  ], "Verify dedicated health");
+  ];
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (probe(paths.curlBinary, args).status === 0) return;
+    if (attempt + 1 < attempts) wait();
+  }
+  throw new Error("Dedicated health did not become ready after service restart");
 }
 
 function actualApply(paths) {

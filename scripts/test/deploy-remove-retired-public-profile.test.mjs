@@ -16,6 +16,7 @@ import {
   removePublicCaddySites,
   removePublicEnvironmentValues,
   restoreActiveServices,
+  verifyDedicatedHealth,
 } from "../../deploy/remove-retired-public-profile.mjs";
 
 test("public environment removal deletes every retired key without exposing values", () => {
@@ -197,4 +198,26 @@ test("service restoration attempts every previously active unit and reports all 
     "bitcraft-claim-monitor-relay-worker.service",
     "bitcraft-claim-monitor-relay-collector.timer",
   ]);
+});
+
+test("dedicated health verification waits through normal service startup", () => {
+  let probes = 0;
+  let waits = 0;
+  verifyDedicatedHealth({ curlBinary: "curl" }, {
+    attempts: 3,
+    probe() {
+      probes += 1;
+      return { status: probes === 3 ? 0 : 7 };
+    },
+    wait() {
+      waits += 1;
+    },
+  });
+  assert.equal(probes, 3);
+  assert.equal(waits, 2);
+  assert.throws(() => verifyDedicatedHealth({ curlBinary: "curl" }, {
+    attempts: 2,
+    probe: () => ({ status: 7 }),
+    wait() {},
+  }), /did not become ready/);
 });
