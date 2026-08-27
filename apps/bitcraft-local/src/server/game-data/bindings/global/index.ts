@@ -419,6 +419,7 @@ import StageResourceGrowthRecipeDescReducer from "./stage_resource_growth_recipe
 import StageResourcePlacementRecipeDescReducer from "./stage_resource_placement_recipe_desc_reducer";
 import StageSecondaryKnowledgeDescReducer from "./stage_secondary_knowledge_desc_reducer";
 import StageSkillDescReducer from "./stage_skill_desc_reducer";
+import StageSkillLevelKnowledgeDescReducer from "./stage_skill_level_knowledge_desc_reducer";
 import StageStageRewardsDescReducer from "./stage_stage_rewards_desc_reducer";
 import StageTargetingMatrixDescReducer from "./stage_targeting_matrix_desc_reducer";
 import StageTeleportItemDescReducer from "./stage_teleport_item_desc_reducer";
@@ -693,6 +694,7 @@ import SecondaryKnowledgeDescRow from "./secondary_knowledge_desc_table";
 import SellOrderStateRow from "./sell_order_state_table";
 import SignedInPlayerStateRow from "./signed_in_player_state_table";
 import SkillDescRow from "./skill_desc_table";
+import SkillLevelKnowledgeDescRow from "./skill_level_knowledge_desc_table";
 import StageRewardsDescRow from "./stage_rewards_desc_table";
 import StaminaStateRow from "./stamina_state_table";
 import StorageLogStateRow from "./storage_log_state_table";
@@ -3951,6 +3953,24 @@ const tablesSchema = __schema({
       { name: 'skill_desc_skill_type_key', constraint: 'unique', columns: ['skillType'] },
     ],
   }, SkillDescRow),
+  skillLevelKnowledgeDesc: __table({
+    name: 'skill_level_knowledge_desc',
+    indexes: [
+      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'skill_id', name: 'skill_level_knowledge_desc_skill_id_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+      ] },
+      { accessor: 'skill_level', name: 'skill_level_knowledge_desc_skill_id_level_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+        'level',
+      ] },
+    ],
+    constraints: [
+      { name: 'skill_level_knowledge_desc_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SkillLevelKnowledgeDescRow),
   stageRewardsDesc: __table({
     name: 'stage_rewards_desc',
     indexes: [
@@ -4824,6 +4844,7 @@ const reducersSchema = __reducers(
   __reducerSchema("stage_resource_placement_recipe_desc", StageResourcePlacementRecipeDescReducer),
   __reducerSchema("stage_secondary_knowledge_desc", StageSecondaryKnowledgeDescReducer),
   __reducerSchema("stage_skill_desc", StageSkillDescReducer),
+  __reducerSchema("stage_skill_level_knowledge_desc", StageSkillLevelKnowledgeDescReducer),
   __reducerSchema("stage_stage_rewards_desc", StageStageRewardsDescReducer),
   __reducerSchema("stage_targeting_matrix_desc", StageTargetingMatrixDescReducer),
   __reducerSchema("stage_teleport_item_desc", StageTeleportItemDescReducer),
@@ -5342,6 +5363,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "signed_in_player_state": Omit<typeof tablesSchema.schemaType.tables["signedInPlayerState"], "accessorName"> & { readonly accessorName: "signed_in_player_state" };
     /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
     readonly "skill_desc": Omit<typeof tablesSchema.schemaType.tables["skillDesc"], "accessorName"> & { readonly accessorName: "skill_desc" };
+    /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+    readonly "skill_level_knowledge_desc": Omit<typeof tablesSchema.schemaType.tables["skillLevelKnowledgeDesc"], "accessorName"> & { readonly accessorName: "skill_level_knowledge_desc" };
     /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
     readonly "stage_rewards_desc": Omit<typeof tablesSchema.schemaType.tables["stageRewardsDesc"], "accessorName"> & { readonly accessorName: "stage_rewards_desc" };
     /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -5682,6 +5705,7 @@ const tableAccessorAliases = {
   "sell_order_state": "sellOrderState",
   "signed_in_player_state": "signedInPlayerState",
   "skill_desc": "skillDesc",
+  "skill_level_knowledge_desc": "skillLevelKnowledgeDesc",
   "stage_rewards_desc": "stageRewardsDesc",
   "stamina_state": "staminaState",
   "storage_log_state": "storageLogState",
@@ -6229,6 +6253,8 @@ export type DbView = __DbViewBase & {
   readonly "signed_in_player_state": __DbViewBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __DbViewBase["skillDesc"];
+  /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+  readonly "skill_level_knowledge_desc": __DbViewBase["skillLevelKnowledgeDesc"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __DbViewBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -6799,6 +6825,8 @@ export type Tables = __TablesBase & {
   readonly "signed_in_player_state": __TablesBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __TablesBase["skillDesc"];
+  /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
+  readonly "skill_level_knowledge_desc": __TablesBase["skillLevelKnowledgeDesc"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __TablesBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */

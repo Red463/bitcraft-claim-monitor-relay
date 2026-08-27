@@ -42,4 +42,7 @@ export default __t.row({
   requiredAchievements: __t.array(__t.i32()).name("required_achievements"),
   requiredKnowledges: __t.array(__t.i32()).name("required_knowledges"),
   showInProgression: __t.bool().name("show_in_progression"),
+  equipmentBuffId: __t.i32().name("equipment_buff_id"),
+  equipmentBuffChancePerHit: __t.f32().name("equipment_buff_chance_per_hit"),
+  equipmentBuffSkillId: __t.i32().name("equipment_buff_skill_id"),
 });
