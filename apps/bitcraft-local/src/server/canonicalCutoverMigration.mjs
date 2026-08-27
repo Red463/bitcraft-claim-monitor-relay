@@ -78,6 +78,7 @@ const MUTATED_TABLES = new Set([
   "app_settings",
   "app_secrets",
   "craft_plan_settings",
+  "craft_plans",
   "market_deal_watches",
   "scheduled_jobs",
   "admin_audit_log",
@@ -1099,6 +1100,14 @@ function collectTableCounts(sourceDescription, targetDescription, source, target
   const sourcePlans = source.prepare("SELECT plan_key FROM craft_plan_settings").all().map((row) => String(row.plan_key));
   const planConflicts = sourcePlans.filter((key) => targetPlans.has(key)).length;
   set("craft_plan_settings", { conflicting: planConflicts, replaced: planConflicts, retained: counts.craft_plan_settings.target - planConflicts, selected: sourcePlans.length });
+  const sourceHasPlanRecords = source.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'craft_plans'").get();
+  const sourcePlanRecords = sourceHasPlanRecords ? source.prepare("SELECT id, scope, owner_user_id FROM craft_plans").all() : [];
+  const importedPlanIds = sourcePlanRecords.length
+    ? sourcePlanRecords.filter((row) => row.scope === "shared" || accountMap.has(Number(row.owner_user_id))).map((row) => String(row.id))
+    : ["legacy-primary"];
+  const targetPlanIds = new Set(target.prepare("SELECT id FROM craft_plans").all().map((row) => String(row.id)));
+  const planRecordConflicts = importedPlanIds.filter((id) => targetPlanIds.has(id)).length;
+  set("craft_plans", { conflicting: planRecordConflicts, replaced: planRecordConflicts, retained: counts.craft_plans.target - planRecordConflicts, selected: importedPlanIds.length });
   const watchConflicts = mappings.watches.filter((entry) => entry.action === "update").length;
   set("market_deal_watches", { conflicting: watchConflicts, replaced: watchConflicts, retained: counts.market_deal_watches.target - watchConflicts, selected: mappings.watches.length });
   const sourceJobs = new Set(source.prepare("SELECT job_key FROM scheduled_jobs").all().map((row) => String(row.job_key)));
@@ -1329,6 +1338,45 @@ function applyCraftPlans(db) {
   `);
   for (const row of db.prepare("SELECT * FROM source.craft_plan_settings ORDER BY plan_key").iterate()) {
     statement.run(row.plan_key, row.config_json, row.created_at, row.updated_at);
+  }
+  const hasPlanRecords = db.prepare("SELECT 1 FROM source.sqlite_schema WHERE type = 'table' AND name = 'craft_plans'").get();
+  const sourcePlanCount = hasPlanRecords ? Number(db.prepare("SELECT COUNT(*) AS count FROM source.craft_plans").get().count) : 0;
+  if (!sourcePlanCount) {
+    const legacy = db.prepare("SELECT * FROM source.craft_plan_settings ORDER BY updated_at DESC LIMIT 1").get();
+    if (!legacy) return;
+    const config = JSON.parse(legacy.config_json);
+    const planName = String(config.name ?? "Settlement craft plan").trim().slice(0, 80) || "Settlement craft plan";
+    delete config.name;
+    db.prepare("UPDATE craft_plans SET is_primary = 0 WHERE is_primary = 1").run();
+    db.prepare(`
+      INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
+      VALUES ('legacy-primary', ?, 'shared', NULL, 1, 1, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, scope = 'shared', owner_user_id = NULL,
+        is_primary = 1, revision = craft_plans.revision + 1, config_json = excluded.config_json,
+        created_at = excluded.created_at, updated_at = excluded.updated_at
+    `).run(planName, JSON.stringify(config), legacy.created_at, legacy.updated_at);
+    return;
+  }
+  const sourcePrimaryCount = Number(db.prepare("SELECT COUNT(*) AS count FROM source.craft_plans WHERE scope = 'shared' AND is_primary = 1").get().count);
+  if (sourcePlanCount > 0 && sourcePrimaryCount !== 1) throw new Error("Source craft plans must contain exactly one primary shared plan");
+  if (sourcePlanCount > 0) db.prepare("UPDATE craft_plans SET is_primary = 0 WHERE is_primary = 1").run();
+  const upsertPlan = db.prepare(`
+    INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, scope = excluded.scope,
+      owner_user_id = excluded.owner_user_id, is_primary = excluded.is_primary,
+      revision = excluded.revision, config_json = excluded.config_json,
+      created_at = excluded.created_at, updated_at = excluded.updated_at
+  `);
+  for (const row of db.prepare(`
+    SELECT plans.*, target_accounts.id AS target_owner_user_id
+    FROM source.craft_plans AS plans
+    LEFT JOIN source.user_accounts AS source_accounts ON source_accounts.id = plans.owner_user_id
+    LEFT JOIN user_accounts AS target_accounts ON target_accounts.discord_id = source_accounts.discord_id
+    ORDER BY plans.created_at, plans.id
+  `).iterate()) {
+    if (row.scope === "personal" && row.target_owner_user_id == null) continue;
+    upsertPlan.run(row.id, row.name, row.scope, row.target_owner_user_id ?? null, row.is_primary, row.revision, row.config_json, row.created_at, row.updated_at);
   }
 }
 

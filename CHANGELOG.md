@@ -9,6 +9,17 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.64.0-beta.1] - 2026-08-27
+
+### Added
+
+- Added simultaneous shared and private personal Craft Planning plans with clear plan selection and management controls.
+- Added revision-safe plan creation, duplication, editing, deletion, and primary shared-plan selection for users and administrators.
+
+### Changed
+
+- Kept dashboard and Discord Craft Planning reporting tied to the primary shared plan while making viewed plans refresh independently.
+
 ## [0.63.1-beta.2] - 2026-08-27
 
 ### Fixed

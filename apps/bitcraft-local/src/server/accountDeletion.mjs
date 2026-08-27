@@ -171,6 +171,15 @@ export function deleteUserAccount(db, {
     deleted.discord_temp_bans = count(db.prepare("DELETE FROM discord_temp_bans WHERE user_id = ?").run(discordId));
     deleted.user_legal_acceptances = count(db.prepare("DELETE FROM user_legal_acceptances WHERE user_id = ?").run(userId));
     deleted.user_sessions = count(db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId));
+    const ownedPlanIds = db.prepare("SELECT id FROM craft_plans WHERE owner_user_id = ?").all(userId).map((row) => String(row.id));
+    deleted.craft_plan_progress_audit_events = 0;
+    deleted.craft_plan_progress_audit_snapshots = 0;
+    deleted.craft_plan_progress_audit_state = 0;
+    for (const planId of ownedPlanIds) {
+      deleted.craft_plan_progress_audit_events += count(db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(planId));
+      deleted.craft_plan_progress_audit_snapshots += count(db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(planId));
+      deleted.craft_plan_progress_audit_state += count(db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(planId));
+    }
     deleted.access_control_allowlist_entries = removeAccessControlAllowlistEntries(db, discordId, deletedAt);
 
     const anonymized = {

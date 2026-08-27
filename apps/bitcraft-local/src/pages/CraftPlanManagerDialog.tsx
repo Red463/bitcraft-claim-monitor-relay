@@ -180,7 +180,7 @@ function formatStoredBytes(value: unknown) {
   return `${formatNumber(bytes / (1024 * 1024), 1)} MB`;
 }
 
-export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { open: boolean; onClose: () => void; csrfToken: string; onSaved: () => void }) {
+export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved, planId = "legacy-primary", personal = false, ownerManaged = personal }: { open: boolean; onClose: () => void; csrfToken: string; onSaved: () => void; planId?: string; personal?: boolean; ownerManaged?: boolean }) {
   const [state, setState] = React.useState<AnyRecord | null>(null);
   const [config, setConfig] = React.useState<CraftPlanConfig>(emptyConfig());
   const [activeTab, setActiveTab] = React.useState<ManagerTab>("targets");
@@ -225,7 +225,11 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
     setOperation(mode);
     setError(null);
     try {
-      const result = await adminApi("/admin/craft-plan");
+      const result = await adminApi(ownerManaged
+        ? `/user/craft-plans/${encodeURIComponent(planId)}`
+        : planId === "legacy-primary"
+          ? "/admin/craft-plan"
+          : `/admin/craft-plan?planId=${encodeURIComponent(planId)}`);
       if (requestId !== loadRequestId.current) return;
       const loadedConfig = managerConfigFromResult(result);
       setState(result);
@@ -244,15 +248,15 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
         setOperation(null);
       }
     }
-  }, [adminApi]);
+  }, [adminApi, ownerManaged, planId]);
 
   const loadAudit = React.useCallback(async () => {
     setAuditLoading(true);
     setAuditError(null);
     setProgressAuditError(null);
     const [settingsResult, progressResult] = await Promise.allSettled([
-      adminApi("/admin/craft-plan/audit?limit=100"),
-      adminApi("/admin/craft-plan/progress-audit"),
+      adminApi(`/admin/craft-plan/audit?limit=100&planId=${encodeURIComponent(planId)}`),
+      adminApi(`/admin/craft-plan/progress-audit?planId=${encodeURIComponent(planId)}`),
     ]);
     if (settingsResult.status === "fulfilled") {
       setAuditRows(Array.isArray(settingsResult.value.auditLog) ? settingsResult.value.auditLog : []);
@@ -266,13 +270,13 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
     }
     setAuditLoading(false);
     setAuditLoaded(true);
-  }, [adminApi]);
+  }, [adminApi, planId]);
 
   async function downloadProgressAudit(range: string) {
     setAuditDownloadRange(range);
     setAuditDownloadError(null);
     try {
-      const response = await fetch(`${LOCAL_API}/admin/craft-plan/progress-audit/export?range=${range}`, {
+      const response = await fetch(`${LOCAL_API}/admin/craft-plan/progress-audit/export?range=${range}&planId=${encodeURIComponent(planId)}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -341,7 +345,7 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
     const wasLegacyTracked = config.sourceRules.bankPlayerIds.includes(playerId);
     setBankLoads((current) => ({ ...current, [playerId]: { status: "loading", banks: current[playerId]?.banks ?? [], warnings: [] } }));
     try {
-      const result = await adminApi(`/admin/craft-plan/player-banks?playerId=${encodeURIComponent(playerId)}`);
+      const result = await adminApi(ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}/player-banks?playerId=${encodeURIComponent(playerId)}` : `/admin/craft-plan/player-banks?playerId=${encodeURIComponent(playerId)}`);
       const banks = Array.isArray(result.banks) ? result.banks : [];
       setBankLoads((current) => ({ ...current, [playerId]: { status: "loaded", banks, warnings: Array.isArray(result.warnings) ? result.warnings.map(String) : [] } }));
       setConfig((current) => {
@@ -442,7 +446,7 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
     setError(null);
     setStatus(null);
     try {
-      const result = await adminApi(`/admin/craft-plan/workstation-preset?tier=${encodeURIComponent(String(preset.tier))}`);
+      const result = await adminApi(ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}/workstation-preset?tier=${encodeURIComponent(String(preset.tier))}` : `/admin/craft-plan/workstation-preset?tier=${encodeURIComponent(String(preset.tier))}`);
       const incoming = Array.isArray(result.workstations) ? result.workstations : [];
       const known = new Set(config.targets.map(itemKey));
       const additions = incoming.filter((target: AnyRecord) => {
@@ -472,11 +476,10 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
         ...config,
         sourceRules: finalizeLegacyBankMigrations(config.sourceRules, legacyBankMigrations),
       };
-      const result = await adminApi("/admin/craft-plan", { method: "PUT", body: JSON.stringify(submittedConfig) });
-      const loadedConfig = managerConfigFromResult(result);
-      setState(result);
-      setConfig(loadedConfig);
-      setSavedConfigSignature(JSON.stringify(loadedConfig));
+      const revision = Number(state?.planRecord?.revision ?? 0);
+      const path = ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}` : `/admin/craft-plans/${encodeURIComponent(planId)}`;
+      await adminApi(path, { method: "PUT", body: JSON.stringify({ name: submittedConfig.name, config: submittedConfig, expectedRevision: revision }) });
+      await load("refreshing");
       setRefreshConfirmationOpen(false);
       setStatus("Craft plan saved.");
       setAuditLoaded(false);
@@ -508,8 +511,8 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
     <Dialog open title="Craft plan manager" closeOnBackdrop={false} onClose={onClose} className="modal craft-plan-manager" backdropClassName="modal-backdrop craft-plan-manager-backdrop">
         <header className="modal-header">
           <div>
-            <h2><ClipboardList size={22} /> Manage Craft Plan</h2>
-            <p>Set goals, choose counted inventories, apply tier presets, and tune routes for the public Craft Planning board.</p>
+            <h2><ClipboardList size={22} /> Manage {personal ? "Personal " : ""}Craft Plan</h2>
+            <p>Set goals, choose counted inventories, apply tier presets, and tune routes for this plan.</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close craft plan manager"><X size={18} /></button>
         </header>
@@ -534,7 +537,7 @@ export function CraftPlanManagerDialog({ open, onClose, csrfToken, onSaved }: { 
             ["banks", <Package size={15} />, "Banks"],
             ["routes", <Route size={15} />, "Routes"],
             ["buffers", <SlidersHorizontal size={15} />, "Buffers"],
-            ["audit", <History size={15} />, "Audit"],
+            ...(personal ? [] : [["audit", <History size={15} />, "Audit"]]),
           ].map(([id, icon, label]) => <button key={String(id)} type="button" className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id as ManagerTab)}>{icon}{label}</button>)}
         </nav>
         <div className="craft-plan-manager-body" aria-busy={busy}>

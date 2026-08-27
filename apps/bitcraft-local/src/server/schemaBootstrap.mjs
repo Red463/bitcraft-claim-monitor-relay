@@ -440,9 +440,24 @@ export const schemaBootstrapSql = `
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS craft_plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    scope TEXT NOT NULL CHECK (scope IN ('shared', 'personal')),
+    owner_user_id INTEGER,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    config_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CHECK ((scope = 'shared' AND owner_user_id IS NULL) OR (scope = 'personal' AND owner_user_id IS NOT NULL)),
+    CHECK (is_primary = 0 OR scope = 'shared')
+  );
   CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL DEFAULT 'legacy-primary',
     captured_at TEXT NOT NULL,
     baseline_revision TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
@@ -454,6 +469,7 @@ export const schemaBootstrapSql = `
   CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL DEFAULT 'legacy-primary',
     captured_at TEXT NOT NULL,
     baseline_revision TEXT,
     event_type TEXT NOT NULL,
@@ -461,7 +477,8 @@ export const schemaBootstrapSql = `
     payload_json TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_state (
-    claim_id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL DEFAULT 'legacy-primary',
     last_fingerprint TEXT,
     last_payload_gzip BLOB,
     last_snapshot_id INTEGER,
@@ -469,7 +486,8 @@ export const schemaBootstrapSql = `
     last_success_at TEXT,
     last_failure_fingerprint TEXT,
     last_error TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (claim_id, plan_id)
   );
   CREATE TABLE IF NOT EXISTS market_deal_watches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -775,6 +793,8 @@ export const schemaBootstrapSql = `
   CREATE INDEX IF NOT EXISTS idx_market_trades_claim_region_item_time
     ON market_trades (claim_id, region_id, item_id, item_type, occurred_at DESC);
   CREATE INDEX IF NOT EXISTS idx_craft_plan_settings_updated ON craft_plan_settings (updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_craft_plans_scope_owner ON craft_plans (scope, owner_user_id, updated_at DESC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_craft_plans_primary ON craft_plans (is_primary) WHERE is_primary = 1;
   CREATE INDEX IF NOT EXISTS idx_craft_plan_progress_snapshots_claim_time
     ON craft_plan_progress_audit_snapshots (claim_id, captured_at DESC);
   CREATE INDEX IF NOT EXISTS idx_craft_plan_progress_events_claim_time
