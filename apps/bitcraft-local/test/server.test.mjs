@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +70,28 @@ async function availablePort() {
   const port = await listen(server);
   await new Promise((resolve) => server.close(resolve));
   return port;
+}
+
+async function pipelinedHttpStatuses(port, paths) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const socket = connect({ host: "127.0.0.1", port }, () => {
+      socket.write(paths.map((requestPath, index) => [
+        `GET ${requestPath} HTTP/1.1`,
+        "Host: app.timbersteeltrade.com",
+        "Accept: application/json",
+        `Connection: ${index === paths.length - 1 ? "close" : "keep-alive"}`,
+        "",
+        "",
+      ].join("\r\n")).join(""));
+    });
+    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("end", () => {
+      const response = Buffer.concat(chunks).toString("utf8");
+      resolve([...response.matchAll(/HTTP\/1\.1 (\d{3})/g)].map((match) => Number(match[1])));
+    });
+    socket.on("error", reject);
+  });
 }
 
 async function waitForHealth(origin, child) {
@@ -2376,6 +2399,22 @@ test("server collection paginates listings and protects production mutations", a
   assert.deepEqual(routePerformance.rateLimits.gameDataRead, { reportOnly: true, wouldLimit: 1 });
   assert.deepEqual(routePerformance.gates.gameData, { active: 0, queued: 0, rejected: 0, maxConcurrent: 8, maxQueued: 16 });
   assert.deepEqual(routePerformance.gates.market, { active: 0, queued: 0, rejected: 0, maxConcurrent: 8, maxQueued: 16 });
+
+  const validCatalogPath = `/api/local/market/catalog?claimId=${claimId}&regionId=19&q=Leather&limit=12`;
+  const saturatedMarketStatuses = await pipelinedHttpStatuses(appPort, [
+    ...Array(24).fill(validCatalogPath),
+    validCatalogPath,
+    `/api/local/market/catalog?claimId=${claimId}&regionId=7&q=Leather&limit=12`,
+    `/api/local/market/order-book?claimId=${claimId}&regionId=7&itemType=item&itemId=30`,
+    `/api/local/market/price-history?claimId=${claimId}&regionId=7&itemType=item&itemId=30&range=30d`,
+  ]);
+  assert.equal(saturatedMarketStatuses.length, 28);
+  assert.deepEqual(saturatedMarketStatuses.slice(0, 24), Array(24).fill(200));
+  assert.equal(saturatedMarketStatuses[24], 503, "a valid overflow request proves the market projection gate is saturated");
+  assert.deepEqual(saturatedMarketStatuses.slice(25), [403, 403, 403], "out-of-scope market reads must be rejected before capacity admission");
+  const saturatedRouteHealth = await fetch(`${origin}/api/local/admin/server-health`, { headers: { cookie, origin } }).then((response) => response.json());
+  assert.equal(saturatedRouteHealth.application.routePerformance.gates.market.rejected, 1, "only the valid overflow request reaches the saturated gate");
+
   assert.ok(routePerformance.marketOrderIndexCache.builds >= 1);
   assert.ok(routePerformance.marketOrderIndexCache.hits >= 1);
   assert.ok(routePerformance.marketOrderIndexCache.entries <= 2);

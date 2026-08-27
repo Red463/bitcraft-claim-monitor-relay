@@ -10206,11 +10206,11 @@ const server = createServer(async (req, res) => {
       if (regionId !== "all" && !/^\d+$/.test(regionId)) {
         return send(res, 400, { error: "Region id must be numeric or all" });
       }
+      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+        return send(res, 403, { error: "Region is outside the configured active-region scope" });
+      }
       const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
-        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
-        }
         const query = String(url.searchParams.get("q") ?? "").trim();
         const catalogRows = query.length >= 2
           ? providerCatalogRepository.findEntities(query)
@@ -10284,11 +10284,11 @@ const server = createServer(async (req, res) => {
       if (!/^\d+$/.test(itemId)) {
         return send(res, 400, { error: "Item id must be numeric" });
       }
+      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+        return send(res, 403, { error: "Region is outside the configured active-region scope" });
+      }
       const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
-        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
-        }
         const catalogKey = `${requestedItemType === "cargo" ? "cargo" : "items"}:${itemId}`;
         const orderIndex = regionalMarketOrderIndexCache.get(current?.data, {
           claimId,
@@ -10340,11 +10340,11 @@ const server = createServer(async (req, res) => {
       if (!["24h", "7d", "30d", "all"].includes(range)) {
         return send(res, 400, { error: "Range must be 24h, 7d, 30d, or all" });
       }
+      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+        return send(res, 403, { error: "Region is outside the configured active-region scope" });
+      }
       const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
-        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
-        }
         return {
           statusCode: 200,
           body: {

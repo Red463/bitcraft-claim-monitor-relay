@@ -28,6 +28,19 @@ function elementText(node) {
   return React.isValidElement(node) ? elementText(node.props.children) : "";
 }
 
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function flushAsyncWork(count = 2) {
+  for (let index = 0; index < count; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 function createFakeClock() {
   let now = 0;
   let nextId = 1;
@@ -180,6 +193,321 @@ test("Buy Order Finder waits for typing to settle before fetching", async () => 
     harness?.restore();
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
+    globalThis.fetch = originalFetch;
+    await vite.close();
+    dom.restore();
+  }
+});
+
+test("Market Browse loads price history only on Stats and keeps its empty state hidden while pending", async () => {
+  const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Leather&itemType=0");
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+    url: String(input),
+    signal: options.signal,
+    resolve,
+  }));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let harness = null;
+  try {
+    const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
+    harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
+    const props = {
+      claimId: "55",
+      mode: "browse",
+      regionId: "19",
+      favorites: [],
+      onToggleFavorite() {},
+      canWatch: false,
+      onWatchItem() {},
+      onShowMap() {},
+      locationSearch: dom.window.location.search,
+      onQueryStateChange() {},
+      refreshSequence: 0,
+      refreshHeaders: {},
+      trackRefresh: (_taskKey, promise) => promise,
+    };
+
+    let tree = await harness.render(MarketBrowse, props);
+    assert.equal(requests.filter(({ url }) => url.includes("/price-history?")).length, 0, "Orders must not request price history");
+
+    const orderBook = requests.find(({ url }) => url.includes("/order-book?"));
+    assert.ok(orderBook);
+    orderBook.resolve(new Response(JSON.stringify({
+      item: { id: "30", itemId: "30", itemType: "item", name: "Leather" },
+      sellOrders: [],
+      buyOrders: [],
+      freshness: "fresh",
+      ageMs: 0,
+      warnings: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(MarketBrowse, props);
+
+    const statsTab = findElement(tree, (element) => element.type === "button" && elementText(element) === "Stats");
+    assert.ok(statsTab);
+    statsTab.props.onClick();
+    tree = await harness.render(MarketBrowse, props);
+    const historyRequests = requests.filter(({ url }) => url.includes("/price-history?"));
+    assert.equal(historyRequests.length, 1, "Stats starts one price-history request");
+    assert.match(historyRequests[0].url, /itemType=item/);
+    assert.match(historyRequests[0].url, /itemId=30/);
+    assert.match(historyRequests[0].url, /range=30d/);
+
+    tree = await harness.render(MarketBrowse, props);
+    assert.match(elementText(tree), /Loading price history…/);
+    assert.doesNotMatch(elementText(tree), /No recent trades were returned/);
+
+    historyRequests[0].resolve(new Response(JSON.stringify({
+      coverage: "collecting",
+      observedSince: null,
+      priceStats: {},
+      priceData: [],
+      recentTrades: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(MarketBrowse, props);
+    assert.doesNotMatch(elementText(tree), /Loading price history…/);
+    assert.match(elementText(tree), /No recent trades were returned/);
+  } finally {
+    harness?.restore();
+    globalThis.fetch = originalFetch;
+    await vite.close();
+    dom.restore();
+  }
+});
+
+test("Market Browse ignores catalog results from a previous region", async () => {
+  const dom = installDom("http://localhost/?page=market&tab=browse");
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const requests = [];
+  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+    url: String(input),
+    signal: options.signal,
+    resolve,
+  }));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let harness = null;
+  try {
+    const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
+    const clock = createFakeClock();
+    globalThis.setTimeout = clock.setTimeout;
+    globalThis.clearTimeout = clock.clearTimeout;
+    harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
+    const baseProps = {
+      claimId: "55",
+      mode: "browse",
+      favorites: [],
+      onToggleFavorite() {},
+      canWatch: false,
+      onWatchItem() {},
+      onShowMap() {},
+      locationSearch: dom.window.location.search,
+      onQueryStateChange() {},
+      refreshSequence: 0,
+      refreshHeaders: {},
+      trackRefresh: (_taskKey, promise) => promise,
+    };
+
+    await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    clock.advance(220);
+    await flushAsyncWork(1);
+    const region19Catalog = requests.find(({ url }) => url.includes("/market/catalog?") && url.includes("regionId=19"));
+    assert.ok(region19Catalog);
+
+    await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    clock.advance(220);
+    await flushAsyncWork(1);
+    const region22Catalog = requests.find(({ url }) => url.includes("/market/catalog?") && url.includes("regionId=22"));
+    assert.ok(region22Catalog);
+
+    region19Catalog.resolve(jsonResponse({ items: [{ id: "30", itemType: "item", name: "OBSOLETE_CATALOG_MARKER" }], categories: [] }));
+    await flushAsyncWork();
+    let tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_CATALOG_MARKER/);
+
+    region22Catalog.resolve(jsonResponse({ items: [{ id: "31", itemType: "item", name: "CURRENT_CATALOG_MARKER" }], categories: [] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.match(elementText(tree), /CURRENT_CATALOG_MARKER/);
+  } finally {
+    harness?.restore();
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    globalThis.fetch = originalFetch;
+    await vite.close();
+    dom.restore();
+  }
+});
+
+test("Market Browse keeps item and cargo order-book responses scoped to the selected identity", async () => {
+  const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Simple%20Plank&itemType=0");
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const requests = [];
+  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+    url: String(input),
+    signal: options.signal,
+    resolve,
+  }));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let harness = null;
+  try {
+    const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
+    const clock = createFakeClock();
+    globalThis.setTimeout = clock.setTimeout;
+    globalThis.clearTimeout = clock.clearTimeout;
+    harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
+    const props = {
+      claimId: "55",
+      mode: "browse",
+      regionId: "19",
+      favorites: [],
+      onToggleFavorite() {},
+      canWatch: false,
+      onWatchItem() {},
+      onShowMap() {},
+      locationSearch: dom.window.location.search,
+      onQueryStateChange() {},
+      refreshSequence: 0,
+      refreshHeaders: {},
+      trackRefresh: (_taskKey, promise) => promise,
+    };
+
+    await harness.render(MarketBrowse, props);
+    const item30OrderBook = requests.find(({ url }) => url.includes("/order-book?") && url.includes("itemType=item") && url.includes("itemId=30"));
+    assert.ok(item30OrderBook);
+    clock.advance(220);
+    await flushAsyncWork(1);
+    const catalog = requests.find(({ url }) => url.includes("/market/catalog?"));
+    assert.ok(catalog);
+    catalog.resolve(jsonResponse({
+      items: [
+        { id: "30", itemType: "item", name: "Simple Plank" },
+        { id: "31", itemType: "item", name: "Pine Board" },
+        { id: "31", itemType: "cargo", name: "Cargo Board" },
+      ],
+      categories: [],
+    }));
+    await flushAsyncWork();
+    let tree = await harness.render(MarketBrowse, props);
+
+    const item31Button = findElement(tree, (element) => element.type === "button" && element.props.className?.includes("market-catalog-result") && elementText(element).includes("Pine Board"));
+    assert.ok(item31Button);
+    item31Button.props.onClick();
+    tree = await harness.render(MarketBrowse, props);
+    const item31OrderBook = requests.find(({ url }) => url.includes("/order-book?") && url.includes("itemType=item") && url.includes("itemId=31"));
+    assert.ok(item31OrderBook);
+    item30OrderBook.resolve(jsonResponse({ item: { id: "30", itemType: "item", name: "Simple Plank", category: "OBSOLETE_ITEM_ID_MARKER" }, sellOrders: [], buyOrders: [] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, props);
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_ITEM_ID_MARKER/);
+
+    const cargo31Button = findElement(tree, (element) => element.type === "button" && element.props.className?.includes("market-catalog-result") && elementText(element).includes("Cargo Board"));
+    assert.ok(cargo31Button);
+    cargo31Button.props.onClick();
+    tree = await harness.render(MarketBrowse, props);
+    const cargo31OrderBook = requests.find(({ url }) => url.includes("/order-book?") && url.includes("itemType=cargo") && url.includes("itemId=31"));
+    assert.ok(cargo31OrderBook);
+    item31OrderBook.resolve(jsonResponse({ item: { id: "31", itemType: "item", name: "Pine Board", category: "OBSOLETE_ITEM_TYPE_MARKER" }, sellOrders: [], buyOrders: [] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, props);
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_ITEM_TYPE_MARKER/);
+
+    cargo31OrderBook.resolve(jsonResponse({ item: { id: "31", itemType: "cargo", name: "Cargo Board", category: "CURRENT_TYPED_ITEM_MARKER" }, sellOrders: [], buyOrders: [] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, props);
+    assert.match(elementText(tree), /CURRENT_TYPED_ITEM_MARKER/);
+  } finally {
+    harness?.restore();
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    globalThis.fetch = originalFetch;
+    await vite.close();
+    dom.restore();
+  }
+});
+
+test("Market Browse ignores order and history responses from previous regions and ranges", async () => {
+  const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Leather&itemType=0");
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+    url: String(input),
+    signal: options.signal,
+    resolve,
+  }));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let harness = null;
+  try {
+    const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
+    harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
+    const baseProps = {
+      claimId: "55",
+      mode: "browse",
+      favorites: [],
+      onToggleFavorite() {},
+      canWatch: false,
+      onWatchItem() {},
+      onShowMap() {},
+      locationSearch: dom.window.location.search,
+      onQueryStateChange() {},
+      refreshSequence: 0,
+      refreshHeaders: {},
+      trackRefresh: (_taskKey, promise) => promise,
+    };
+
+    let tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    const region19Order = requests.find(({ url }) => url.includes("/order-book?") && url.includes("regionId=19"));
+    assert.ok(region19Order);
+    const statsTab = findElement(tree, (element) => element.type === "button" && elementText(element) === "Stats");
+    assert.ok(statsTab);
+    statsTab.props.onClick();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    const region19History = requests.find(({ url }) => url.includes("/price-history?") && url.includes("regionId=19") && url.includes("range=30d"));
+    assert.ok(region19History);
+
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    const region22Order = requests.find(({ url }) => url.includes("/order-book?") && url.includes("regionId=22"));
+    const region22History30d = requests.find(({ url }) => url.includes("/price-history?") && url.includes("regionId=22") && url.includes("range=30d"));
+    assert.ok(region22Order);
+    assert.ok(region22History30d);
+
+    region19Order.resolve(jsonResponse({ item: { id: "30", itemType: "item", name: "Leather", category: "OBSOLETE_REGION_ORDER_MARKER" }, sellOrders: [], buyOrders: [] }));
+    region19History.resolve(jsonResponse({ priceStats: {}, priceData: [], recentTrades: [{ id: "old-region", quantity: "1", unitPrice: "1", regionName: "OBSOLETE_REGION_HISTORY_MARKER", createdAt: "2026-08-27T12:00:00Z" }] }));
+    await flushAsyncWork(3);
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_REGION_ORDER_MARKER|OBSOLETE_REGION_HISTORY_MARKER/);
+
+    region22Order.resolve(jsonResponse({ item: { id: "30", itemType: "item", name: "Leather", category: "CURRENT_REGION_ORDER_MARKER" }, sellOrders: [], buyOrders: [] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.match(elementText(tree), /CURRENT_REGION_ORDER_MARKER/);
+
+    const sevenDayTab = findElement(tree, (element) => element.type === "button" && elementText(element) === "7d");
+    assert.ok(sevenDayTab);
+    sevenDayTab.props.onClick();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    const region22History7d = requests.find(({ url }) => url.includes("/price-history?") && url.includes("regionId=22") && url.includes("range=7d"));
+    assert.ok(region22History7d);
+
+    region22History30d.resolve(jsonResponse({ priceStats: {}, priceData: [], recentTrades: [{ id: "old-range", quantity: "1", unitPrice: "1", regionName: "OBSOLETE_RANGE_MARKER", createdAt: "2026-08-27T12:00:00Z" }] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_RANGE_MARKER/);
+
+    region22History7d.resolve(jsonResponse({ priceStats: {}, priceData: [], recentTrades: [{ id: "current-range", quantity: "1", unitPrice: "1", regionName: "CURRENT_RANGE_MARKER", createdAt: "2026-08-27T12:00:00Z" }] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.match(elementText(tree), /CURRENT_RANGE_MARKER/);
+  } finally {
+    harness?.restore();
     globalThis.fetch = originalFetch;
     await vite.close();
     dom.restore();

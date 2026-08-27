@@ -49,6 +49,7 @@ test("market detail selection clears previous order and history responses before
   assert.deepEqual(marketDetailLoadingState(), {
     loading: true,
     error: "",
+    historyLoading: false,
     historyError: "",
     detail: null,
     history: null,
@@ -56,6 +57,7 @@ test("market detail selection clears previous order and history responses before
   assert.deepEqual(marketDetailLoadingState(false), {
     loading: false,
     error: "",
+    historyLoading: false,
     historyError: "",
     detail: null,
     history: null,

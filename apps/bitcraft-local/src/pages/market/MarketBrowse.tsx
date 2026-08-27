@@ -66,7 +66,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
     return id && name ? { id, name, itemType: toNumber(type) } : null;
   });
   const [catalogState, setCatalogState] = React.useState<{ loading: boolean; error: string; categories: string[] }>({ loading: false, error: "", categories: [] });
-  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyError: "", detail: null, history: null });
+  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyLoading: boolean; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyLoading: false, historyError: "", detail: null, history: null });
   const [category, setCategory] = React.useState(params.get("category") ?? "");
   const [availability, setAvailability] = React.useState<MarketAvailability>(() => {
     if (mode === "buy") return "buy";
@@ -192,10 +192,11 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
 
   React.useEffect(() => {
     if (!selectedItem) {
-      setDetailState((current) => ({ ...current, historyError: "", history: null }));
+      setDetailState((current) => ({ ...current, historyLoading: false, historyError: "", history: null }));
       return;
     }
     if (!detailRequestPlan.priceHistory) {
+      setDetailState((current) => current.historyLoading ? { ...current, historyLoading: false } : current);
       return;
     }
     const controller = new AbortController();
@@ -205,19 +206,21 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       regionId: regionId || "all",
       range,
     });
+    setDetailState((current) => ({ ...current, historyLoading: true, historyError: "" }));
     trackRefresh(
       "global-market-item-history",
       fetch(urls.priceHistory, { headers: refreshHeaders, signal: controller.signal })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`price history HTTP ${response.status}`))),
     ).then((history) => {
       if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
-        setDetailState((current) => ({ ...current, historyError: "", history }));
+        setDetailState((current) => ({ ...current, historyLoading: false, historyError: "", history }));
       }
     })
       .catch((error) => {
         if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
           setDetailState((current) => ({
             ...current,
+            historyLoading: false,
             historyError: error instanceof Error ? error.message : String(error),
           }));
         }
@@ -386,7 +389,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
           </header>
           {detailState.error ? <div className="error">Unable to load this market: {detailState.error}</div> : null}
           {freshnessNotice ? <div className="info">{freshnessNotice}</div> : null}
-          {detailState.loading && !detailState.detail ? <div className="market-loading-strip">Loading live orders and locally observed history…</div> : null}
+          {detailState.loading && !detailState.detail ? <div className="market-loading-strip">Loading live orders…</div> : null}
           <div className="metric-grid market-order-summary">
             <MiniStat icon={<ArrowDownUp />} label="Lowest Sell Order" value={<span className={marketPriceClass(bestSell == null ? "neutral" : "ask")}>{bestSell == null ? "—" : `${formatNumber(bestSell)}g`}</span>} />
             <MiniStat icon={<ArrowDownUp />} label="Highest Buy Order" value={<span className={marketPriceClass(bestBuy == null ? "neutral" : "bid")}>{bestBuy == null ? "—" : `${formatNumber(bestBuy)}g`}</span>} />
@@ -436,11 +439,13 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
             <div className="market-stats-workspace">
               {detailState.historyError ? <div className="error">Price history unavailable: {detailState.historyError}</div> : null}
               <div className="market-range-tabs">{(["24h", "7d", "30d", "all"] as const).map((entry) => <button className={range === entry ? "active" : ""} key={entry} onClick={() => setRange(entry)}>{entry}</button>)}</div>
-              <div className="metric-grid"><MiniStat icon={<BarChart3 />} label="24h VWAP" value={stats.avg24h == null ? "—" : `${formatNumber(stats.avg24h)}g`} /><MiniStat icon={<BarChart3 />} label="7d VWAP" value={stats.avg7d == null ? "—" : `${formatNumber(stats.avg7d)}g`} /><MiniStat icon={<BarChart3 />} label="30d Average" value={stats.avg30d == null ? "—" : `${formatNumber(stats.avg30d)}g`} /><MiniStat icon={<BarChart3 />} label="High / Low" value={stats.allTimeHigh == null ? "—" : `${formatNumber(stats.allTimeHigh)} / ${formatNumber(stats.allTimeLow)}g`} /><MiniStat icon={<BarChart3 />} label="Volume" value={formatNumber(stats.totalVolume)} /><MiniStat icon={<BarChart3 />} label="24h Change" value={stats.priceChange24h == null ? "—" : `${toNumber(stats.priceChange24h) >= 0 ? "+" : ""}${formatNumber(stats.priceChange24h)}%`} /></div>
-              <MarketPriceChart rows={priceData} range={range} />
-              {detailState.history?.coverage === "collecting" ? <div className="info">Collecting confirmed local sales for this selection. Current buy and sell orders remain live.</div> : null}
-              {detailState.history?.coverage === "locally-observed" ? <div className="info">This chart contains confirmed sales observed by this app only.{detailState.history?.observedSince ? ` Local observation window began ${timeAgo(detailState.history.observedSince)}.` : ""}</div> : null}
-              <section className="market-recent-trades"><h3>Recent trades <small>Representative item history</small></h3>{recentTrades.length ? recentTrades.slice(0, 20).map((trade, index) => <div key={String(trade.id ?? `${trade.timestamp}-${index}`)}><ItemLabel item={{ ...selectedItem, itemName: selectedItem.name }} /><span>{formatNumber(trade.quantity)} @ {formatNumber(trade.unitPrice ?? trade.price)}g</span><small>{trade.regionName ?? trade.claimName ?? "Unknown market"} · {timeAgo(trade.createdAt ?? trade.timestamp)}</small></div>) : <div className="empty-state">No recent trades were returned.</div>}</section>
+              {detailState.historyLoading ? <div className="market-loading-strip">Loading price history…</div> : <>
+                <div className="metric-grid"><MiniStat icon={<BarChart3 />} label="24h VWAP" value={stats.avg24h == null ? "—" : `${formatNumber(stats.avg24h)}g`} /><MiniStat icon={<BarChart3 />} label="7d VWAP" value={stats.avg7d == null ? "—" : `${formatNumber(stats.avg7d)}g`} /><MiniStat icon={<BarChart3 />} label="30d Average" value={stats.avg30d == null ? "—" : `${formatNumber(stats.avg30d)}g`} /><MiniStat icon={<BarChart3 />} label="High / Low" value={stats.allTimeHigh == null ? "—" : `${formatNumber(stats.allTimeHigh)} / ${formatNumber(stats.allTimeLow)}g`} /><MiniStat icon={<BarChart3 />} label="Volume" value={formatNumber(stats.totalVolume)} /><MiniStat icon={<BarChart3 />} label="24h Change" value={stats.priceChange24h == null ? "—" : `${toNumber(stats.priceChange24h) >= 0 ? "+" : ""}${formatNumber(stats.priceChange24h)}%`} /></div>
+                <MarketPriceChart rows={priceData} range={range} />
+                {detailState.history?.coverage === "collecting" ? <div className="info">Collecting confirmed local sales for this selection. Current buy and sell orders remain live.</div> : null}
+                {detailState.history?.coverage === "locally-observed" ? <div className="info">This chart contains confirmed sales observed by this app only.{detailState.history?.observedSince ? ` Local observation window began ${timeAgo(detailState.history.observedSince)}.` : ""}</div> : null}
+                <section className="market-recent-trades"><h3>Recent trades <small>Representative item history</small></h3>{recentTrades.length ? recentTrades.slice(0, 20).map((trade, index) => <div key={String(trade.id ?? `${trade.timestamp}-${index}`)}><ItemLabel item={{ ...selectedItem, itemName: selectedItem.name }} /><span>{formatNumber(trade.quantity)} @ {formatNumber(trade.unitPrice ?? trade.price)}g</span><small>{trade.regionName ?? trade.claimName ?? "Unknown market"} · {timeAgo(trade.createdAt ?? trade.timestamp)}</small></div>) : <div className="empty-state">No recent trades were returned.</div>}</section>
+              </>}
             </div>
           )}
         </div>

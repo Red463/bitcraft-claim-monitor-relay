@@ -23,6 +23,7 @@ export function marketDetailLoadingState(loading = true) {
   return {
     loading,
     error: "",
+    historyLoading: false,
     historyError: "",
     detail: null,
     history: null,
