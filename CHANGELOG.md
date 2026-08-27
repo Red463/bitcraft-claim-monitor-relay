@@ -14,6 +14,7 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 ### Fixed
 
 - Made Relay outages clear to regular users while keeping detailed diagnostics available for operators.
+- Restored live data compatibility after upstream Relay schema changes.
 
 ## [0.63.1-beta.1] - 2026-08-27
 
