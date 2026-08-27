@@ -2,6 +2,31 @@ import type React from "react";
 
 export type MarketAvailability = "any" | "sell" | "buy" | "both";
 
+export function marketSuggestionResults<T>(items: T[], query: string, open: boolean): T[] {
+  return open && query.trim().length >= 2 ? items.slice(0, 12) : [];
+}
+
+export function marketDetailLoadingState(loading = true) {
+  return {
+    loading,
+    error: "",
+    historyError: "",
+    detail: null,
+    history: null,
+  };
+}
+
+export function marketDetailRequestPlan(hasSelectedItem: boolean, detailTab: "orders" | "stats") {
+  return {
+    orderBook: hasSelectedItem,
+    priceHistory: hasSelectedItem && detailTab === "stats",
+  };
+}
+
+export function marketRequestCanCommit(requestKey: string, currentKey: string, aborted: boolean): boolean {
+  return !aborted && requestKey === currentKey;
+}
+
 export function availabilityFlags(value: MarketAvailability) {
   return {
     availableOnly: value !== "any",

@@ -112,6 +112,121 @@ function scopedOrders(snapshot, options = {}) {
     });
 }
 
+function normalizedOrderIndexScope(options = {}) {
+  return {
+    claimId: String(options.claimId ?? "").trim(),
+    generation: String(options.generation ?? "").trim(),
+    allowedRegionIds: regionIds(options.allowedRegionIds).sort(compareText),
+  };
+}
+
+function sameOrderIndexScope(left, right) {
+  return left.claimId === right.claimId
+    && left.generation === right.generation
+    && left.allowedRegionIds.length === right.allowedRegionIds.length
+    && left.allowedRegionIds.every((regionId, index) => regionId === right.allowedRegionIds[index]);
+}
+
+function emptyOrderCounts() {
+  return { sell: 0, buy: 0, bestSell: null, bestBuy: null };
+}
+
+function recordOrderCount(counts, order) {
+  const rawPrice = String(order.price ?? order.priceThreshold ?? "").trim();
+  const price = /^\d+$/.test(rawPrice) ? rawPrice : null;
+  if (String(order.side ?? "buy").toLowerCase() === "sell") {
+    counts.sell += 1;
+    if (price != null && (!counts.bestSell || compareBigInt(price, counts.bestSell.price) < 0)) {
+      counts.bestSell = { price, location: String(order.claimName ?? order.regionName ?? "") };
+    }
+  } else {
+    counts.buy += 1;
+    if (price != null && (!counts.bestBuy || compareBigInt(price, counts.bestBuy.price) > 0)) {
+      counts.bestBuy = { price, location: String(order.claimName ?? order.regionName ?? "") };
+    }
+  }
+}
+
+function buildRegionalMarketOrderIndex(snapshot, scope) {
+  const allowed = new Set(scope.allowedRegionIds);
+  const byItem = new Map();
+  for (const rawOrder of Array.isArray(record(snapshot).orders) ? record(snapshot).orders : []) {
+    const order = record(rawOrder);
+    const regionId = decimal(order.regionId);
+    if (allowed.size && !allowed.has(regionId)) continue;
+    const key = `${itemType(order.itemType)}:${decimal(order.itemId)}`;
+    const item = byItem.get(key) ?? { orders: [], countsAll: emptyOrderCounts(), countsByRegion: new Map() };
+    item.orders.push(order);
+    recordOrderCount(item.countsAll, order);
+    const counts = item.countsByRegion.get(regionId) ?? emptyOrderCounts();
+    recordOrderCount(counts, order);
+    item.countsByRegion.set(regionId, counts);
+    byItem.set(key, item);
+  }
+  return { scope, snapshot, byItem };
+}
+
+function cachedOrderIndex(snapshot, options = {}) {
+  const index = options.orderIndex;
+  if (!index || !(index.byItem instanceof Map) || !index.scope) return null;
+  return index.snapshot === snapshot
+    && sameOrderIndexScope(index.scope, normalizedOrderIndexScope(options))
+    ? index
+    : null;
+}
+
+function indexedOrderCounts(index, key, selectedRegion) {
+  const item = index?.byItem.get(key);
+  if (!item) return emptyOrderCounts();
+  const counts = selectedRegion === "all"
+    ? item.countsAll
+    : item.countsByRegion.get(selectedRegion);
+  return counts ? { ...counts } : emptyOrderCounts();
+}
+
+function indexedItemOrders(index, key, selectedRegion) {
+  const item = index?.byItem.get(key);
+  if (!item) return [];
+  return selectedRegion === "all"
+    ? item.orders
+    : item.orders.filter((order) => decimal(order.regionId) === selectedRegion);
+}
+
+export function createRegionalMarketOrderIndexCache({ maxEntries = 2 } = {}) {
+  const entryLimit = Math.max(1, Math.floor(Number(maxEntries) || 2));
+  const cache = new Map();
+  let builds = 0;
+  let hits = 0;
+
+  return {
+    get(snapshot, options = {}) {
+      const scope = normalizedOrderIndexScope(options);
+      const cacheable = Boolean(scope.claimId && scope.generation);
+      const key = cacheable
+        ? `${scope.claimId}:${scope.generation}:${scope.allowedRegionIds.join(",")}`
+        : null;
+      const cached = key ? cache.get(key) : null;
+      if (cached && cached.snapshot === snapshot && sameOrderIndexScope(cached.scope, scope)) {
+        hits += 1;
+        cache.delete(key);
+        cache.set(key, cached);
+        return cached;
+      }
+      const index = buildRegionalMarketOrderIndex(snapshot, scope);
+      builds += 1;
+      if (key) {
+        cache.delete(key);
+        while (cache.size >= entryLimit) cache.delete(cache.keys().next().value);
+        cache.set(key, index);
+      }
+      return index;
+    },
+    cacheStats() {
+      return { entries: cache.size, builds, hits, maxEntries: entryLimit };
+    },
+  };
+}
+
 function scopedStalls(snapshot, options = {}) {
   const source = record(snapshot);
   const selectedRegion = String(options.regionId ?? "all").trim().toLowerCase() || "all";
@@ -467,24 +582,16 @@ export function regionalBuyOrdersView(snapshot, options = {}) {
 }
 
 export function regionalMarketCatalogView(snapshot, catalogRows, options = {}) {
+  const index = cachedOrderIndex(snapshot, options);
+  const selectedRegion = String(options.regionId ?? "all").trim().toLowerCase() || "all";
   const counts = new Map();
-  for (const order of scopedOrders(snapshot, options)) {
-    const key = `${itemType(order.itemType)}:${decimal(order.itemId)}`;
-    const current = counts.get(key) ?? { sell: 0, buy: 0, bestSell: null, bestBuy: null };
-    const rawPrice = String(order.price ?? order.priceThreshold ?? "").trim();
-    const price = /^\d+$/.test(rawPrice) ? rawPrice : null;
-    if (String(order.side ?? "buy").toLowerCase() === "sell") {
-      current.sell += 1;
-      if (price != null && (!current.bestSell || compareBigInt(price, current.bestSell.price) < 0)) {
-        current.bestSell = { price, location: String(order.claimName ?? order.regionName ?? "") };
-      }
-    } else {
-      current.buy += 1;
-      if (price != null && (!current.bestBuy || compareBigInt(price, current.bestBuy.price) > 0)) {
-        current.bestBuy = { price, location: String(order.claimName ?? order.regionName ?? "") };
-      }
+  if (!index) {
+    for (const order of scopedOrders(snapshot, options)) {
+      const key = `${itemType(order.itemType)}:${decimal(order.itemId)}`;
+      const current = counts.get(key) ?? emptyOrderCounts();
+      recordOrderCount(current, order);
+      counts.set(key, current);
     }
-    counts.set(key, current);
   }
 
   const query = String(options.query ?? options.q ?? "").trim().toLowerCase();
@@ -497,7 +604,10 @@ export function regionalMarketCatalogView(snapshot, catalogRows, options = {}) {
     const item = catalogItem(value);
     if (query && !item.name.toLowerCase().includes(query)) return [];
     if (category && item.category !== category) return [];
-    const orderCounts = counts.get(`${item.itemType}:${item.itemId}`) ?? { sell: 0, buy: 0, bestSell: null, bestBuy: null };
+    const key = `${item.itemType}:${item.itemId}`;
+    const orderCounts = index
+      ? indexedOrderCounts(index, key, selectedRegion)
+      : counts.get(key) ?? emptyOrderCounts();
     if (availableOnly && orderCounts.sell + orderCounts.buy === 0) return [];
     if (hasSell && orderCounts.sell === 0) return [];
     if (hasBuy && orderCounts.buy === 0) return [];
@@ -547,11 +657,15 @@ export function regionalMarketCatalogView(snapshot, catalogRows, options = {}) {
 export function regionalMarketOrderBookView(snapshot, catalogRow, options = {}) {
   const requestedType = itemType(options.itemType);
   const requestedId = decimal(options.itemId);
-  const orders = scopedOrders(snapshot, options)
-    .filter((order) => (
+  const index = cachedOrderIndex(snapshot, options);
+  const selectedRegion = String(options.regionId ?? "all").trim().toLowerCase() || "all";
+  const matchingOrders = index
+    ? indexedItemOrders(index, `${requestedType}:${requestedId}`, selectedRegion)
+    : scopedOrders(snapshot, options).filter((order) => (
       itemType(order.itemType) === requestedType
       && decimal(order.itemId) === requestedId
-    ))
+    ));
+  const orders = matchingOrders
     .map((order) => ({
       ...order,
       entityId: decimal(order.entityId),

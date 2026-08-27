@@ -71,6 +71,7 @@ import {
 } from "./src/server/empireViews.mjs";
 import {
   combinedMarketStatus,
+  createRegionalMarketOrderIndexCache,
   globalCatalogStatus,
   regionalBuyOrdersView,
   regionalMarketCatalogView,
@@ -294,10 +295,13 @@ const mapPerformanceTelemetry = createMapPerformanceTelemetry();
 const routePerformanceTelemetry = createRoutePerformanceTelemetry({ maxEntries: 10_000 });
 const gameDataHeavyRouteGate = createHeavyRouteGate({ maxConcurrent: 8, maxQueued: 16 });
 const marketHeavyRouteGate = createHeavyRouteGate({ maxConcurrent: 8, maxQueued: 16 });
+const regionalMarketOrderIndexCache = createRegionalMarketOrderIndexCache({ maxEntries: 2 });
 const measuredRoutePaths = new Set([
   "/api/local/game-data",
   "/api/local/market/overview",
+  "/api/local/market/catalog",
   "/api/local/market/order-book",
+  "/api/local/market/price-history",
   "/api/local/market/favorite-quotes",
   "/api/local/history",
   "/api/local/admin/server-health",
@@ -329,6 +333,7 @@ function applicationHealthTelemetry() {
   const routePerformance = publicRoutePerformanceHealth(routePerformanceTelemetry.snapshot(), {
     gates: { gameData: gameDataHeavyRouteGate.snapshot(), market: marketHeavyRouteGate.snapshot() },
   });
+  routePerformance.marketOrderIndexCache = regionalMarketOrderIndexCache.cacheStats();
   return { requests: recent.length, status5xx, status5xxRate: recent.length ? status5xx / recent.length : 0, p50Ms: percentile(.5), p95Ms: percentile(.95), p99Ms: percentile(.99), eventLoopDelayMs: Number.isFinite(eventLoopHistogram.mean) ? eventLoopHistogram.mean / 1e6 : 0, memory: process.memoryUsage(), uptimeSeconds: process.uptime(), slowEndpoints: slow, routePerformance, planner: { ...plannerTelemetry } };
 }
 
@@ -6495,14 +6500,22 @@ function regionalMarketObservedTrades(claimId, regionId, allowedRegionIds, optio
     : "";
   const query = itemScoped ? `
     SELECT trade_id, region_id, item_id, item_type, quantity, unit_price, total_price,
-      occurred_at, raw_json
+      occurred_at,
+      CASE WHEN json_valid(raw_json)
+        THEN CAST(json_extract(raw_json, '$.listing.claimEntityId') AS TEXT)
+        ELSE NULL
+      END AS claim_entity_id
     FROM market_trades
     WHERE claim_id = ?${regionClause} AND item_id = ? AND item_type = ?
     ORDER BY occurred_at DESC, trade_id DESC
     LIMIT 5000
   ` : `
     SELECT trade_id, region_id, item_id, item_type, quantity, unit_price, total_price,
-      occurred_at, raw_json
+      occurred_at,
+      CASE WHEN json_valid(raw_json)
+        THEN CAST(json_extract(raw_json, '$.listing.claimEntityId') AS TEXT)
+        ELSE NULL
+      END AS claim_entity_id
     FROM market_trades
     WHERE claim_id = ?${regionClause}
     ORDER BY occurred_at DESC, trade_id DESC
@@ -6512,10 +6525,6 @@ function regionalMarketObservedTrades(claimId, regionId, allowedRegionIds, optio
     ? [claimId, ...regionScope, requestedItemId, requestedItemType]
     : [claimId, ...regionScope];
   return db.prepare(query).all(...queryArgs).flatMap((row) => {
-    const raw = safeJson(row.raw_json, {});
-    const listing = raw?.listing && typeof raw.listing === "object"
-      ? raw.listing
-      : {};
     const observedRegionId = String(row.region_id ?? "").trim();
     if (!/^\d+$/.test(observedRegionId)) return [];
     if (allowed.size && !allowed.has(observedRegionId)) return [];
@@ -6523,7 +6532,7 @@ function regionalMarketObservedTrades(claimId, regionId, allowedRegionIds, optio
     return [{
       tradeId: String(row.trade_id),
       regionId: observedRegionId,
-      claimEntityId: String(listing.claimEntityId ?? ""),
+      claimEntityId: String(row.claim_entity_id ?? ""),
       itemId: String(row.item_id),
       itemType: String(row.item_type) === "cargo" ? "cargo" : "item",
       quantity: String(row.quantity),
@@ -10165,28 +10174,42 @@ const server = createServer(async (req, res) => {
       if (regionId !== "all" && !/^\d+$/.test(regionId)) {
         return send(res, 400, { error: "Region id must be numeric or all" });
       }
-      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-        return send(res, 403, { error: "Region is outside the configured active-region scope" });
-      }
-      const query = String(url.searchParams.get("q") ?? "").trim();
-      const catalogRows = query.length >= 2
-        ? providerCatalogRepository.findEntities(query)
-        : providerCatalogRepository.listEntities();
-      return send(res, 200, {
-        ...regionalMarketCatalogView(
-          current?.data,
-          catalogRows,
-          {
-            ...Object.fromEntries(url.searchParams.entries()),
-            query,
-            regionId,
-            allowedRegionIds,
+      const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
+        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
+        }
+        const query = String(url.searchParams.get("q") ?? "").trim();
+        const catalogRows = query.length >= 2
+          ? providerCatalogRepository.findEntities(query)
+          : providerCatalogRepository.listEntities();
+        const orderIndex = regionalMarketOrderIndexCache.get(current?.data, {
+          claimId,
+          generation: current?.generation ?? "",
+          allowedRegionIds,
+        });
+        return {
+          statusCode: 200,
+          body: {
+            ...regionalMarketCatalogView(
+              current?.data,
+              catalogRows,
+              {
+                ...Object.fromEntries(url.searchParams.entries()),
+                query,
+                claimId,
+                generation: current?.generation ?? "",
+                regionId,
+                allowedRegionIds,
+                orderIndex,
+              },
+            ),
+            ...regionalMarketResponseStatus(current, regionId, allowedRegionIds),
+            generatedAt: current?.provenance?.receivedAt ?? null,
           },
-        ),
-        ...regionalMarketResponseStatus(current, regionId, allowedRegionIds),
-        generatedAt: current?.provenance?.receivedAt ?? null,
+        };
       });
+      return send(res, result.statusCode, result.body);
     }
     if (req.method === "POST" && url.pathname === "/api/local/market/favorite-quotes") {
       if (!rateLimit(req, res, "favoriteQuotesRead", RATE_LIMITS.favoriteQuotesRead)) return;
@@ -10229,26 +10252,39 @@ const server = createServer(async (req, res) => {
       if (!/^\d+$/.test(itemId)) {
         return send(res, 400, { error: "Item id must be numeric" });
       }
-      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-        return send(res, 403, { error: "Region is outside the configured active-region scope" });
-      }
-      const catalogKey = `${requestedItemType === "cargo" ? "cargo" : "items"}:${itemId}`;
-      const body = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => ({
-        ...regionalMarketOrderBookView(
-          current?.data,
-          providerCatalogRepository.getEntity(catalogKey),
-          {
-            itemType: requestedItemType,
-            itemId,
-            regionId,
-            allowedRegionIds,
+      const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
+        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
+        }
+        const catalogKey = `${requestedItemType === "cargo" ? "cargo" : "items"}:${itemId}`;
+        const orderIndex = regionalMarketOrderIndexCache.get(current?.data, {
+          claimId,
+          generation: current?.generation ?? "",
+          allowedRegionIds,
+        });
+        return {
+          statusCode: 200,
+          body: {
+            ...regionalMarketOrderBookView(
+              current?.data,
+              providerCatalogRepository.getEntity(catalogKey),
+              {
+                itemType: requestedItemType,
+                itemId,
+                claimId,
+                generation: current?.generation ?? "",
+                regionId,
+                allowedRegionIds,
+                orderIndex,
+              },
+            ),
+            ...regionalMarketResponseStatus(current, regionId, allowedRegionIds),
+            generatedAt: current?.provenance?.receivedAt ?? null,
           },
-        ),
-        ...regionalMarketResponseStatus(current, regionId, allowedRegionIds),
-        generatedAt: current?.provenance?.receivedAt ?? null,
-      }));
-      return send(res, 200, body);
+        };
+      });
+      return send(res, result.statusCode, result.body);
     }
     if (req.method === "GET" && url.pathname === "/api/local/market/price-history") {
       const configuredClaimId = currentClaimId();
@@ -10268,30 +10304,36 @@ const server = createServer(async (req, res) => {
       if (!/^\d+$/.test(itemId)) {
         return send(res, 400, { error: "Item id must be numeric" });
       }
-      const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
-      if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
-        return send(res, 403, { error: "Region is outside the configured active-region scope" });
-      }
       const range = String(url.searchParams.get("range") ?? "all").trim().toLowerCase();
       if (!["24h", "7d", "30d", "all"].includes(range)) {
         return send(res, 400, { error: "Range must be 24h, 7d, 30d, or all" });
       }
-      return send(res, 200, {
-        ...regionalMarketPriceHistoryView(
-          regionalMarketObservedTrades(claimId, regionId, allowedRegionIds, {
-            itemType: requestedItemType,
-            itemId,
-          }),
-          {
-            itemType: requestedItemType,
-            itemId,
-            regionId,
-            allowedRegionIds,
-            range,
+      const result = await runHeavyProjection(marketHeavyRouteGate, routeMeasurement, () => {
+        const { current, allowedRegionIds } = regionalMarketReadScope(claimId);
+        if (regionId !== "all" && allowedRegionIds.length && !allowedRegionIds.includes(regionId)) {
+          return { statusCode: 403, body: { error: "Region is outside the configured active-region scope" } };
+        }
+        return {
+          statusCode: 200,
+          body: {
+            ...regionalMarketPriceHistoryView(
+              regionalMarketObservedTrades(claimId, regionId, allowedRegionIds, {
+                itemType: requestedItemType,
+                itemId,
+              }),
+              {
+                itemType: requestedItemType,
+                itemId,
+                regionId,
+                allowedRegionIds,
+                range,
+              },
+            ),
+            currentAsOf: current?.provenance?.receivedAt ?? null,
           },
-        ),
-        currentAsOf: current?.provenance?.receivedAt ?? null,
+        };
       });
+      return send(res, result.statusCode, result.body);
     }
     if (req.method === "GET" && url.pathname === "/api/local/leaderboard") {
       const refresh = manualRefreshAccess(req, res);

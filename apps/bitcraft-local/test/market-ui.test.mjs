@@ -4,9 +4,52 @@ import test from "node:test";
 import {
   availabilityFlags,
   marketChartPoints,
+  marketDetailLoadingState,
+  marketDetailRequestPlan,
+  marketRequestCanCommit,
+  marketSuggestionResults,
   nextOptionIndex,
   nextTabIndex,
 } from "../src/pages/market/marketUi.ts";
+
+test("catalog refresh does not reopen suggestions after an item is selected", () => {
+  const items = [
+    { id: "1", name: "Simple Plank" },
+    { id: "2", name: "Simple Plank Output" },
+  ];
+
+  assert.deepEqual(marketSuggestionResults(items, "simple plank", false), []);
+  assert.deepEqual(marketSuggestionResults(items, "simple plank", true), items);
+});
+
+test("market detail selection clears previous order and history responses before loading", () => {
+  assert.deepEqual(marketDetailLoadingState(), {
+    loading: true,
+    error: "",
+    historyError: "",
+    detail: null,
+    history: null,
+  });
+  assert.deepEqual(marketDetailLoadingState(false), {
+    loading: false,
+    error: "",
+    historyError: "",
+    detail: null,
+    history: null,
+  });
+});
+
+test("market price history waits for the Stats detail tab", () => {
+  assert.deepEqual(marketDetailRequestPlan(false, "orders"), { orderBook: false, priceHistory: false });
+  assert.deepEqual(marketDetailRequestPlan(true, "orders"), { orderBook: true, priceHistory: false });
+  assert.deepEqual(marketDetailRequestPlan(true, "stats"), { orderBook: true, priceHistory: true });
+});
+
+test("market requests cannot commit after their scope changes or they are aborted", () => {
+  assert.equal(marketRequestCanCommit("item:30|19", "item:30|19", false), true);
+  assert.equal(marketRequestCanCommit("item:30|19", "item:31|19", false), false);
+  assert.equal(marketRequestCanCommit("item:30|19", "item:30|19", true), false);
+});
 
 test("market availability modes map to the existing catalog contract", () => {
   assert.deepEqual(availabilityFlags("any"), { availableOnly: false, hasSell: false, hasBuy: false });
