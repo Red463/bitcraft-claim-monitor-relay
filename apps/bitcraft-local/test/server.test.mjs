@@ -85,6 +85,7 @@ async function pipelinedHttpStatuses(port, paths) {
         "",
       ].join("\r\n")).join(""));
     });
+    socket.setTimeout(5000, () => socket.destroy(new Error("Timed out waiting for pipelined HTTP responses")));
     socket.on("data", (chunk) => chunks.push(chunk));
     socket.on("end", () => {
       const response = Buffer.concat(chunks).toString("utf8");

@@ -66,7 +66,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
     return id && name ? { id, name, itemType: toNumber(type) } : null;
   });
   const [catalogState, setCatalogState] = React.useState<{ loading: boolean; error: string; categories: string[] }>({ loading: false, error: "", categories: [] });
-  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyLoading: boolean; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyLoading: false, historyError: "", detail: null, history: null });
+  const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyLoading: boolean; historyRequestKey: string; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyLoading: false, historyRequestKey: "", historyError: "", detail: null, history: null });
   const [category, setCategory] = React.useState(params.get("category") ?? "");
   const [availability, setAvailability] = React.useState<MarketAvailability>(() => {
     if (mode === "buy") return "buy";
@@ -192,7 +192,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
 
   React.useEffect(() => {
     if (!selectedItem) {
-      setDetailState((current) => ({ ...current, historyLoading: false, historyError: "", history: null }));
+      setDetailState((current) => ({ ...current, historyLoading: false, historyRequestKey: "", historyError: "", history: null }));
       return;
     }
     if (!detailRequestPlan.priceHistory) {
@@ -213,7 +213,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`price history HTTP ${response.status}`))),
     ).then((history) => {
       if (marketRequestCanCommit(priceHistoryRequestKey, priceHistoryRequestKeyRef.current, controller.signal.aborted)) {
-        setDetailState((current) => ({ ...current, historyLoading: false, historyError: "", history }));
+        setDetailState((current) => ({ ...current, historyLoading: false, historyRequestKey: priceHistoryRequestKey, historyError: "", history }));
       }
     })
       .catch((error) => {
@@ -221,7 +221,9 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
           setDetailState((current) => ({
             ...current,
             historyLoading: false,
+            historyRequestKey: priceHistoryRequestKey,
             historyError: error instanceof Error ? error.message : String(error),
+            history: null,
           }));
         }
       });
@@ -322,6 +324,8 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const stats = detailState.history?.priceStats ?? {};
   const priceData: AnyRecord[] = Array.isArray(detailState.history?.priceData) ? detailState.history.priceData : [];
   const recentTrades: AnyRecord[] = Array.isArray(detailState.history?.recentTrades) ? detailState.history.recentTrades : [];
+  const historyPending = detailRequestPlan.priceHistory
+    && (detailState.historyLoading || detailState.historyRequestKey !== priceHistoryRequestKey);
   const hasCatalogFilters = Boolean(query || category || availability !== (mode === "buy" ? "buy" : "any") || catalogSort !== "name");
 
   return (
@@ -437,9 +441,9 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
             <div className="pagination-row"><span>Page {Math.min(page, pageCount)} of {pageCount} · {formatNumber(filteredOrders.length)} orders</span><div><button className="toolbar-button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button><button className="toolbar-button" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Next</button></div></div>
           </> : (
             <div className="market-stats-workspace">
-              {detailState.historyError ? <div className="error">Price history unavailable: {detailState.historyError}</div> : null}
+              {!historyPending && detailState.historyError ? <div className="error">Price history unavailable: {detailState.historyError}</div> : null}
               <div className="market-range-tabs">{(["24h", "7d", "30d", "all"] as const).map((entry) => <button className={range === entry ? "active" : ""} key={entry} onClick={() => setRange(entry)}>{entry}</button>)}</div>
-              {detailState.historyLoading ? <div className="market-loading-strip">Loading price history…</div> : <>
+              {historyPending ? <div className="market-loading-strip">Loading price history…</div> : <>
                 <div className="metric-grid"><MiniStat icon={<BarChart3 />} label="24h VWAP" value={stats.avg24h == null ? "—" : `${formatNumber(stats.avg24h)}g`} /><MiniStat icon={<BarChart3 />} label="7d VWAP" value={stats.avg7d == null ? "—" : `${formatNumber(stats.avg7d)}g`} /><MiniStat icon={<BarChart3 />} label="30d Average" value={stats.avg30d == null ? "—" : `${formatNumber(stats.avg30d)}g`} /><MiniStat icon={<BarChart3 />} label="High / Low" value={stats.allTimeHigh == null ? "—" : `${formatNumber(stats.allTimeHigh)} / ${formatNumber(stats.allTimeLow)}g`} /><MiniStat icon={<BarChart3 />} label="Volume" value={formatNumber(stats.totalVolume)} /><MiniStat icon={<BarChart3 />} label="24h Change" value={stats.priceChange24h == null ? "—" : `${toNumber(stats.priceChange24h) >= 0 ? "+" : ""}${formatNumber(stats.priceChange24h)}%`} /></div>
                 <MarketPriceChart rows={priceData} range={range} />
                 {detailState.history?.coverage === "collecting" ? <div className="info">Collecting confirmed local sales for this selection. Current buy and sell orders remain live.</div> : null}

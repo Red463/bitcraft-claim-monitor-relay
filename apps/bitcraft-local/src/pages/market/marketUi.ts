@@ -24,6 +24,7 @@ export function marketDetailLoadingState(loading = true) {
     loading,
     error: "",
     historyLoading: false,
+    historyRequestKey: "",
     historyError: "",
     detail: null,
     history: null,

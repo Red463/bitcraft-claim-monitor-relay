@@ -135,10 +135,11 @@ test("Buy Order Finder waits for typing to settle before fetching", async () => 
     status: 200,
     headers: { "content-type": "application/json" },
   });
-  globalThis.fetch = (input) => new Promise((resolve) => requests.push({ url: String(input), resolve }));
-  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let vite = null;
   let harness = null;
   try {
+    globalThis.fetch = (input) => new Promise((resolve) => requests.push({ url: String(input), resolve }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
     const { BuyOrderFinder } = await vite.ssrLoadModule("/src/pages/market/BuyOrderFinder.tsx");
     const clock = createFakeClock();
     globalThis.setTimeout = clock.setTimeout;
@@ -194,7 +195,7 @@ test("Buy Order Finder waits for typing to settle before fetching", async () => 
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
     globalThis.fetch = originalFetch;
-    await vite.close();
+    await vite?.close();
     dom.restore();
   }
 });
@@ -203,14 +204,15 @@ test("Market Browse loads price history only on Stats and keeps its empty state 
   const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Leather&itemType=0");
   const originalFetch = globalThis.fetch;
   const requests = [];
-  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
-    url: String(input),
-    signal: options.signal,
-    resolve,
-  }));
-  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let vite = null;
   let harness = null;
   try {
+    globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+      url: String(input),
+      signal: options.signal,
+      resolve,
+    }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
     const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
     harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
     const props = {
@@ -250,6 +252,8 @@ test("Market Browse loads price history only on Stats and keeps its empty state 
     assert.ok(statsTab);
     statsTab.props.onClick();
     tree = await harness.render(MarketBrowse, props);
+    assert.match(elementText(tree), /Loading price history…/, "the transition render must not expose empty history before its effect starts");
+    assert.doesNotMatch(elementText(tree), /No recent trades were returned/);
     const historyRequests = requests.filter(({ url }) => url.includes("/price-history?"));
     assert.equal(historyRequests.length, 1, "Stats starts one price-history request");
     assert.match(historyRequests[0].url, /itemType=item/);
@@ -275,7 +279,70 @@ test("Market Browse loads price history only on Stats and keeps its empty state 
   } finally {
     harness?.restore();
     globalThis.fetch = originalFetch;
-    await vite.close();
+    await vite?.close();
+    dom.restore();
+  }
+});
+
+test("Market Browse hides committed history immediately when its request scope changes", async () => {
+  const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Leather&itemType=0");
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  let vite = null;
+  let harness = null;
+  try {
+    globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+      url: String(input),
+      signal: options.signal,
+      resolve,
+    }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+    const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
+    harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
+    const baseProps = {
+      claimId: "55",
+      mode: "browse",
+      favorites: [],
+      onToggleFavorite() {},
+      canWatch: false,
+      onWatchItem() {},
+      onShowMap() {},
+      locationSearch: dom.window.location.search,
+      onQueryStateChange() {},
+      refreshSequence: 0,
+      refreshHeaders: {},
+      trackRefresh: (_taskKey, promise) => promise,
+    };
+
+    let tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    const statsTab = findElement(tree, (element) => element.type === "button" && elementText(element) === "Stats");
+    assert.ok(statsTab);
+    statsTab.props.onClick();
+    await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    const region19History = requests.find(({ url }) => url.includes("/price-history?") && url.includes("regionId=19"));
+    assert.ok(region19History);
+    region19History.resolve(jsonResponse({
+      priceStats: {},
+      priceData: [],
+      recentTrades: [{
+        id: "committed-region",
+        quantity: "1",
+        unitPrice: "1",
+        regionName: "COMMITTED_REGION19_HISTORY_MARKER",
+        createdAt: "2026-08-27T12:00:00Z",
+      }],
+    }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "19" });
+    assert.match(elementText(tree), /COMMITTED_REGION19_HISTORY_MARKER/);
+
+    tree = await harness.render(MarketBrowse, { ...baseProps, regionId: "22" });
+    assert.match(elementText(tree), /Loading price history…/, "the transition render must be pending for the new region");
+    assert.doesNotMatch(elementText(tree), /COMMITTED_REGION19_HISTORY_MARKER/);
+  } finally {
+    harness?.restore();
+    globalThis.fetch = originalFetch;
+    await vite?.close();
     dom.restore();
   }
 });
@@ -286,14 +353,15 @@ test("Market Browse ignores catalog results from a previous region", async () =>
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const requests = [];
-  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
-    url: String(input),
-    signal: options.signal,
-    resolve,
-  }));
-  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let vite = null;
   let harness = null;
   try {
+    globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+      url: String(input),
+      signal: options.signal,
+      resolve,
+    }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
     const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
     const clock = createFakeClock();
     globalThis.setTimeout = clock.setTimeout;
@@ -340,25 +408,26 @@ test("Market Browse ignores catalog results from a previous region", async () =>
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
     globalThis.fetch = originalFetch;
-    await vite.close();
+    await vite?.close();
     dom.restore();
   }
 });
 
-test("Market Browse keeps item and cargo order-book responses scoped to the selected identity", async () => {
+test("Market Browse keeps item and cargo order-book and history responses scoped to the selected identity", async () => {
   const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Simple%20Plank&itemType=0");
   const originalFetch = globalThis.fetch;
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const requests = [];
-  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
-    url: String(input),
-    signal: options.signal,
-    resolve,
-  }));
-  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let vite = null;
   let harness = null;
   try {
+    globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+      url: String(input),
+      signal: options.signal,
+      resolve,
+    }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
     const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
     const clock = createFakeClock();
     globalThis.setTimeout = clock.setTimeout;
@@ -424,12 +493,33 @@ test("Market Browse keeps item and cargo order-book responses scoped to the sele
     await flushAsyncWork();
     tree = await harness.render(MarketBrowse, props);
     assert.match(elementText(tree), /CURRENT_TYPED_ITEM_MARKER/);
+
+    const statsTab = findElement(tree, (element) => element.type === "button" && elementText(element) === "Stats");
+    assert.ok(statsTab);
+    statsTab.props.onClick();
+    tree = await harness.render(MarketBrowse, props);
+    const cargo31History = requests.find(({ url }) => url.includes("/price-history?") && url.includes("itemType=cargo") && url.includes("itemId=31"));
+    assert.ok(cargo31History);
+
+    item31Button.props.onClick();
+    tree = await harness.render(MarketBrowse, props);
+    const item31History = requests.find(({ url }) => url.includes("/price-history?") && url.includes("itemType=item") && url.includes("itemId=31"));
+    assert.ok(item31History);
+    cargo31History.resolve(jsonResponse({ priceStats: {}, priceData: [], recentTrades: [{ id: "old-type", quantity: "1", unitPrice: "1", regionName: "OBSOLETE_CARGO_HISTORY_MARKER", createdAt: "2026-08-27T12:00:00Z" }] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, props);
+    assert.doesNotMatch(elementText(tree), /OBSOLETE_CARGO_HISTORY_MARKER/);
+
+    item31History.resolve(jsonResponse({ priceStats: {}, priceData: [], recentTrades: [{ id: "current-type", quantity: "1", unitPrice: "1", regionName: "CURRENT_ITEM_HISTORY_MARKER", createdAt: "2026-08-27T12:00:00Z" }] }));
+    await flushAsyncWork();
+    tree = await harness.render(MarketBrowse, props);
+    assert.match(elementText(tree), /CURRENT_ITEM_HISTORY_MARKER/);
   } finally {
     harness?.restore();
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
     globalThis.fetch = originalFetch;
-    await vite.close();
+    await vite?.close();
     dom.restore();
   }
 });
@@ -438,14 +528,15 @@ test("Market Browse ignores order and history responses from previous regions an
   const dom = installDom("http://localhost/?page=market&tab=browse&item=30&itemName=Leather&itemType=0");
   const originalFetch = globalThis.fetch;
   const requests = [];
-  globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
-    url: String(input),
-    signal: options.signal,
-    resolve,
-  }));
-  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  let vite = null;
   let harness = null;
   try {
+    globalThis.fetch = (input, options = {}) => new Promise((resolve) => requests.push({
+      url: String(input),
+      signal: options.signal,
+      resolve,
+    }));
+    vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
     const { MarketBrowse } = await vite.ssrLoadModule("/src/pages/market/MarketBrowse.tsx");
     harness = installHookHarness({ cycle: null, request: null, trackPromise: (_taskKey, promise) => promise });
     const baseProps = {
@@ -509,7 +600,7 @@ test("Market Browse ignores order and history responses from previous regions an
   } finally {
     harness?.restore();
     globalThis.fetch = originalFetch;
-    await vite.close();
+    await vite?.close();
     dom.restore();
   }
 });
