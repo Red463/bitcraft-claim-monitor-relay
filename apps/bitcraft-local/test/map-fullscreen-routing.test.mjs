@@ -17,9 +17,9 @@ test("dedicated map links preserve the current map query and hash", () => {
   );
 });
 
-test("dedicated map links replace another active page without losing its query", () => {
+test("dedicated map links remove query state owned by another page", () => {
   assert.equal(
     dedicatedMapHref("https://claims.test/?page=market&tab=browse&region=12"),
-    "https://claims.test/?page=map&tab=browse&region=12&mapView=fullscreen",
+    "https://claims.test/?page=map&mapView=fullscreen",
   );
 });

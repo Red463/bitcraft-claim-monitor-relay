@@ -49,7 +49,28 @@ test("route-state helpers distinguish explicit navigation from normalization", (
 
   assert.deepEqual(calls, [
     ["push", "/?page=market&tab=live#status"],
-    ["replace", "/?page=craft-monitor&tab=live#status"],
+    ["replace", "/?page=craft-monitor#status"],
+  ]);
+});
+
+test("page navigation removes query state owned by other pages", () => {
+  const calls = [];
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { href: "http://localhost/?page=map&mapLayers=resource%3A42&mapView=fullscreen&plan=shared-plan&privacy=delete-ready#status" },
+    history: {
+      pushState: (_state, _title, href) => calls.push(href),
+      replaceState: (_state, _title, href) => calls.push(href),
+    },
+  };
+  try {
+    routeStateModule.writePageLocation("planning", "push");
+  } finally {
+    globalThis.window = originalWindow;
+  }
+
+  assert.deepEqual(calls, [
+    "/?page=planning&plan=shared-plan&privacy=delete-ready#status",
   ]);
 });
 

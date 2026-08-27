@@ -12,6 +12,24 @@ const LEGACY_PAGE_ALIASES: Readonly<Record<string, PageId>> = {
   empire: "region",
 };
 
+const PAGE_QUERY_KEYS: Readonly<Partial<Record<PageId, readonly string[]>>> = {
+  admin: ["admin", "config", "section"],
+  map: ["mapLayers", "mapView", "label", "x", "z", "regionId", "mapName", "mapX", "mapZ"],
+  market: ["tab", "item", "itemName", "itemType", "region", "buyItem", "buyItemName", "buyItemType", "buyRegion", "q", "category", "available", "sell", "buy", "sort", "buyQ"],
+  planning: ["plan"],
+  publiccrafts: ["skill", "region"],
+  "settlement-market": ["tab"],
+};
+
+const PAGE_QUERY_KEY_SET = new Set(Object.values(PAGE_QUERY_KEYS).flat());
+
+function removeForeignPageQuery(params: URLSearchParams, page: PageId): void {
+  const destinationKeys = new Set(PAGE_QUERY_KEYS[page] ?? []);
+  for (const key of PAGE_QUERY_KEY_SET) {
+    if (!destinationKeys.has(key)) params.delete(key);
+  }
+}
+
 export function canonicalPageId(page: string | null): string | null {
   if (!page) return null;
   return LEGACY_PAGE_ALIASES[page] ?? page;
@@ -31,6 +49,8 @@ function locationHref(): string {
 
 export function writeQueryLocation(values: Record<string, string | null>, mode: NavigationMode): void {
   const url = new URL(window.location.href);
+  const requestedPage = canonicalPageId(values.page ?? null) as PageId | null;
+  if (requestedPage) removeForeignPageQuery(url.searchParams, requestedPage);
   for (const [key, value] of Object.entries(values)) {
     if (value) url.searchParams.set(key, value);
     else url.searchParams.delete(key);
@@ -51,6 +71,7 @@ export function isDedicatedMapView(search: string): boolean {
 
 export function dedicatedMapHref(href: string): string {
   const url = new URL(href);
+  removeForeignPageQuery(url.searchParams, "map");
   url.searchParams.set("page", "map");
   url.searchParams.set("mapView", "fullscreen");
   return url.toString();
