@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { filterServerHealthLogs, normalizeServerHealthSnapshot, redactServerHealthText, serverHealthState } from "../src/server/serverHealth.mjs";
 import * as serverHealth from "../src/server/serverHealth.mjs";
 import { readCraftContributionDiagnostics } from "../src/server/craftContributionVisibility.mjs";
+import { createEventLoopHealthSampler } from "../src/server/eventLoopHealth.mjs";
 
 const snapshot = (overrides = {}) => normalizeServerHealthSnapshot({ schemaVersion: 1, capturedAt: new Date().toISOString(), host: { diskPercent: 40, memoryPercent: 50, cores: 2 }, services: [{ name: "web", active: true }], processes: [], logs: [], ...overrides });
 
@@ -23,6 +24,114 @@ test("server health state reports critical host conditions", () => {
   assert.equal(serverHealthState(snapshot({ host: { diskPercent: 91, memoryPercent: 50, cores: 2 } })).state, "critical");
   assert.equal(serverHealthState(snapshot({ services: [{ name: "worker", active: false }] })).state, "critical");
   assert.equal(serverHealthState(snapshot({ services: [{ name: "roads", active: false, required: false }] })).state, "healthy");
+});
+
+test("server health ignores event-loop samples until process warm-up completes", () => {
+  const result = serverHealthState(snapshot(), {
+    eventLoopDelayMs: 900,
+    eventLoopMonitoringReady: false,
+  });
+
+  assert.equal(result.state, "healthy");
+  assert.deepEqual(result.reasons, []);
+});
+
+test("server health catches a long interval stall even when the interval mean is low", () => {
+  const result = serverHealthState(snapshot(), {
+    eventLoopDelayMs: 24,
+    eventLoopDelayP99Ms: 31,
+    eventLoopDelayMaxMs: 1_800,
+    eventLoopMonitoringReady: true,
+  });
+
+  assert.equal(result.state, "critical");
+  assert.deepEqual(result.reasons, ["Node event-loop delay is critical"]);
+});
+
+test("web-role health evaluation excludes shared host incidents", () => {
+  const result = serverHealthState(
+    snapshot({ host: { diskPercent: 95, memoryPercent: 50, cores: 2 } }),
+    {},
+    { includeHost: false },
+  );
+
+  assert.equal(result.state, "healthy");
+  assert.deepEqual(result.reasons, []);
+});
+
+test("server health incident identities isolate web and worker event-loop state", () => {
+  const reason = "Node event-loop delay is critical";
+  const webKey = serverHealth.serverHealthIncidentIdentity(reason, { processRole: "web" });
+  const workerKey = serverHealth.serverHealthIncidentIdentity(reason, { processRole: "worker" });
+  const hostKey = serverHealth.serverHealthIncidentIdentity("Disk usage is critical", { processRole: "worker" });
+
+  assert.equal(webKey, "web_node_event_loop_delay_is_critical");
+  assert.equal(workerKey, "worker_node_event_loop_delay_is_critical");
+  assert.equal(hostKey, "disk_usage_is_critical");
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(webKey, { processRole: "web", includeHost: false }), true);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(workerKey, { processRole: "web", includeHost: false }), false);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(hostKey, { processRole: "web", includeHost: false }), false);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(workerKey, { processRole: "worker", includeHost: true }), true);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(webKey, { processRole: "worker", includeHost: true }), false);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(hostKey, { processRole: "worker", includeHost: true }), true);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator(webKey, { processRole: "web", includeHost: false, eventLoopMonitoringReady: false }), false);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator("node_event_loop_delay_is_critical", { processRole: "worker", includeHost: true, eventLoopMonitoringReady: false }), false);
+  assert.equal(serverHealth.serverHealthIncidentOwnedByEvaluator("node_event_loop_delay_is_critical", { processRole: "worker", includeHost: true, eventLoopMonitoringReady: true }), true);
+});
+
+test("event-loop health samples one interval and resets startup history", () => {
+  let now = 1_000;
+  let resets = 0;
+  const histogram = {
+    mean: 420_000_000,
+    max: 1_800_000_000,
+    percentile: (value) => value === 99 ? 900_000_000 : 0,
+    reset: () => { resets += 1; },
+  };
+  const sampler = createEventLoopHealthSampler(histogram, {
+    now: () => now,
+    warmupMs: 180_000,
+  });
+
+  assert.deepEqual(sampler.sampleAndReset(), {
+    eventLoopDelayMs: 420,
+    eventLoopDelayP99Ms: 900,
+    eventLoopDelayMaxMs: 1_800,
+    eventLoopMonitoringReady: false,
+  });
+  assert.equal(resets, 1);
+
+  histogram.mean = 24_000_000;
+  histogram.max = 55_000_000;
+  histogram.percentile = () => 31_000_000;
+  now += 180_001;
+
+  assert.deepEqual(sampler.sampleAndReset(), {
+    eventLoopDelayMs: 24,
+    eventLoopDelayP99Ms: 31,
+    eventLoopDelayMaxMs: 55,
+    eventLoopMonitoringReady: true,
+  });
+  assert.equal(resets, 2);
+});
+
+test("server incident fields identify the process role and measured interval", () => {
+  assert.deepEqual(serverHealth.serverHealthIncidentFields({
+    hostname: "claim-monitor",
+    processRole: "worker",
+    at: "2026-08-27T21:10:06.940Z",
+    application: {
+      eventLoopDelayMs: 320,
+      eventLoopDelayP99Ms: 480,
+      eventLoopDelayMaxMs: 1_240,
+      eventLoopMonitoringReady: true,
+    },
+  }), [
+    { name: "Server", value: "claim-monitor", inline: true },
+    { name: "Role", value: "worker", inline: true },
+    { name: "Time", value: "2026-08-27T21:10:06.940Z", inline: true },
+    { name: "Event loop", value: "mean 320 ms · p99 480 ms · max 1240 ms", inline: false },
+  ]);
 });
 
 test("server health preserves bounded optional service CPU telemetry", () => {

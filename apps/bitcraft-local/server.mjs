@@ -20,6 +20,7 @@ import { appUserCsrfToken, csrfToken, validCsrfHeader } from "./src/server/httpC
 import { BODY_LIMITS, readJson, readRawBody } from "./src/server/httpBodies.mjs";
 import { createRateLimiter, RATE_LIMITS, requestAddress } from "./src/server/httpRateLimit.mjs";
 import { createHeavyRouteGate, createRoutePerformanceTelemetry, normalizeRoutePerformancePath, sendHeavyRouteCapacityResponse } from "./src/server/routePerformance.mjs";
+import { createEventLoopHealthSampler } from "./src/server/eventLoopHealth.mjs";
 import { anonymizeIpAddress, createIpHasher, normalizeIpAddress } from "./src/server/visitorIp.mjs";
 import { normalizeVisitorSecuritySettings } from "./src/server/visitorSecuritySettings.mjs";
 import { publicNotificationActivityEvent } from "./src/server/notificationActivity.mjs";
@@ -115,6 +116,8 @@ import { evaluateLiveDealWatches, sameEnabledDealWatchRevision } from "./src/ser
 import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
 import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress } from "./src/server/craftPlanning.mjs";
+import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor.mjs";
+import { refreshFailureEntry, refreshRetryAllowed, serveLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
@@ -156,7 +159,7 @@ import { applySchemaBootstrap } from "./src/server/schemaBootstrap.mjs";
 import { APPROVED_OPERATIONAL_HISTORY_RETENTION_TABLES, latestOperationalHistoryBackupVerification, normalizeOperationalHistoryRetentionSettings, operationalHistoryRetentionPreview, readOperationalMarketTradeDailyReport, recordOperationalHistoryBackupVerification, runOperationalHistoryRetention, validateOperationalHistoryRetentionEnableGate } from "./src/server/operationalHistoryRetention.mjs";
 import { installRetiredTableAuthorizer } from "./src/server/retiredTableAuthorizer.mjs";
 import { applyDatabaseConnectionPragmas } from "./src/server/databasePragmas.mjs";
-import { applicationMetricInitialDelayMs, buildServerHealthResponse, createCachedServerHealthReader, filterServerHealthLogs, publicRoutePerformanceHealth, readServerHealthFiles, redactServerHealthText, runApplicationMetricPersistence, serverHealthState, SERVER_HEALTH_THRESHOLDS } from "./src/server/serverHealth.mjs";
+import { applicationMetricInitialDelayMs, buildServerHealthResponse, createCachedServerHealthReader, filterServerHealthLogs, publicRoutePerformanceHealth, readServerHealthFiles, redactServerHealthText, runApplicationMetricPersistence, serverHealthIncidentFields, serverHealthIncidentIdentity, serverHealthIncidentOwnedByEvaluator, serverHealthState, SERVER_HEALTH_THRESHOLDS } from "./src/server/serverHealth.mjs";
 import { createPreparedStatements } from "./src/server/preparedStatements.mjs";
 import {
   createCurrentStateRepository,
@@ -291,7 +294,26 @@ import { runPrivacyRetention } from "./src/server/privacyRetention.mjs";
 setDefaultResultOrder("ipv4first");
 
 const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
-eventLoopHistogram.enable();
+let eventLoopHealthSampler = null;
+let eventLoopHealthTimer = null;
+function eventLoopHealthTelemetry() {
+  return eventLoopHealthSampler?.current() ?? {
+    eventLoopDelayMs: 0,
+    eventLoopDelayP99Ms: 0,
+    eventLoopDelayMaxMs: 0,
+    eventLoopMonitoringReady: false,
+  };
+}
+function startEventLoopHealthMonitoring() {
+  if (eventLoopHealthSampler) return;
+  eventLoopHistogram.reset();
+  eventLoopHistogram.enable();
+  eventLoopHealthSampler = createEventLoopHealthSampler(eventLoopHistogram, {
+    warmupMs: Math.max(0, Number(process.env.EVENT_LOOP_HEALTH_WARMUP_MS ?? 180_000)),
+  });
+  eventLoopHealthTimer = setInterval(() => eventLoopHealthSampler.sampleAndReset(), 60_000);
+  eventLoopHealthTimer.unref?.();
+}
 const requestTelemetry = [];
 const mapPerformanceTelemetry = createMapPerformanceTelemetry();
 const routePerformanceTelemetry = createRoutePerformanceTelemetry({ maxEntries: 10_000 });
@@ -336,7 +358,7 @@ function applicationHealthTelemetry() {
     gates: { gameData: gameDataHeavyRouteGate.snapshot(), market: marketHeavyRouteGate.snapshot() },
   });
   routePerformance.marketOrderIndexCache = regionalMarketOrderIndexCache.cacheStats();
-  return { requests: recent.length, status5xx, status5xxRate: recent.length ? status5xx / recent.length : 0, p50Ms: percentile(.5), p95Ms: percentile(.95), p99Ms: percentile(.99), eventLoopDelayMs: Number.isFinite(eventLoopHistogram.mean) ? eventLoopHistogram.mean / 1e6 : 0, memory: process.memoryUsage(), uptimeSeconds: process.uptime(), slowEndpoints: slow, routePerformance, planner: { ...plannerTelemetry } };
+  return { requests: recent.length, status5xx, status5xxRate: recent.length ? status5xx / recent.length : 0, p50Ms: percentile(.5), p95Ms: percentile(.95), p99Ms: percentile(.99), ...eventLoopHealthTelemetry(), memory: process.memoryUsage(), uptimeSeconds: process.uptime(), slowEndpoints: slow, routePerformance, planner: { ...plannerTelemetry } };
 }
 
 async function serverHealthResponse(url, { includeDiagnosticBundle = false } = {}) {
@@ -360,20 +382,19 @@ function persistApplicationHealthBucket() {
   db.prepare("DELETE FROM server_metric_buckets WHERE bucket_at < ?").run(new Date(Date.now() - 7 * 86_400_000).toISOString());
 }
 
-function incidentKey(reason) {
-  return String(reason).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 80);
-}
-
-async function notifyServerHealthOwner(title, description, color) {
+async function notifyServerHealthOwner(title, description, color, application = {}) {
   const ownerId = defaultOwnerDiscordIdFromEnv(process.env);
   if (!/^\d+$/.test(ownerId)) throw new Error("Configured owner Discord id is unavailable");
-  return sendDiscordDirectMessage(ownerId, { embeds: [discordCommandEmbed(title, description, [{ name: "Server", value: os.hostname?.() ?? "Claim Monitor VPS", inline: true }, { name: "Time", value: new Date().toISOString(), inline: true }], color)] });
+  const fields = serverHealthIncidentFields({ hostname: os.hostname?.(), processRole, application });
+  return sendDiscordDirectMessage(ownerId, { embeds: [discordCommandEmbed(title, description, fields, color)] });
 }
 
 async function evaluateServerHealthIncidents() {
   const files = await readCachedServerHealthFiles();
-  const result = serverHealthState(files.snapshot, applicationHealthTelemetry());
-  const bad = new Map(result.state === "critical" ? result.reasons.map((reason) => [incidentKey(reason), reason]) : []);
+  const application = applicationHealthTelemetry();
+  const includeHost = processRoleConfig.runBackgroundJobs;
+  const result = serverHealthState(files.snapshot, application, { includeHost });
+  const bad = new Map(result.state === "critical" ? result.reasons.map((reason) => [serverHealthIncidentIdentity(reason, { processRole }), reason]) : []);
   const existing = new Map(db.prepare("SELECT * FROM server_health_incidents").all().map((row) => [row.incident_key, row]));
   const now = new Date().toISOString();
   for (const [key, reason] of bad) {
@@ -383,21 +404,30 @@ async function evaluateServerHealthIncidents() {
     db.prepare(`INSERT INTO server_health_incidents (incident_key,severity,state,consecutive_bad,consecutive_good,first_observed_at,last_observed_at,opened_at)
       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(incident_key) DO UPDATE SET severity=excluded.severity,state=excluded.state,consecutive_bad=excluded.consecutive_bad,consecutive_good=0,last_observed_at=excluded.last_observed_at,opened_at=COALESCE(server_health_incidents.opened_at,excluded.opened_at)`).run(key, "critical", opened ? "open" : "observing", count, 0, row?.first_observed_at ?? now, now, opened ? now : null);
     if (opened && !row?.opened_notified_at) {
-      try { await notifyServerHealthOwner("Claim Monitor server incident", reason, 0xef6461); db.prepare("UPDATE server_health_incidents SET opened_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
+      try { await notifyServerHealthOwner("Claim Monitor server incident", reason, 0xef6461, application); db.prepare("UPDATE server_health_incidents SET opened_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
       catch (error) { db.prepare("UPDATE server_health_incidents SET last_delivery_error=? WHERE incident_key=?").run(redactServerHealthText(error.message), key); }
     }
   }
   for (const [key, row] of existing) {
+    if (!serverHealthIncidentOwnedByEvaluator(key, { processRole, includeHost, eventLoopMonitoringReady: application.eventLoopMonitoringReady })) continue;
     if (bad.has(key)) continue;
     if (row.state !== "open") { db.prepare("DELETE FROM server_health_incidents WHERE incident_key=?").run(key); continue; }
     const good = Number(row.consecutive_good ?? 0) + 1;
     const recovered = good >= 3;
     db.prepare("UPDATE server_health_incidents SET consecutive_good=?, consecutive_bad=0, last_observed_at=?, state=?, recovered_at=? WHERE incident_key=?").run(good, now, recovered ? "recovered" : "open", recovered ? now : null, key);
     if (recovered && !row.recovered_notified_at) {
-      try { await notifyServerHealthOwner("Claim Monitor server recovered", String(key).replaceAll("_", " "), 0x4ee28a); db.prepare("UPDATE server_health_incidents SET recovered_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
+      try { await notifyServerHealthOwner("Claim Monitor server recovered", String(key).replaceAll("_", " "), 0x4ee28a, application); db.prepare("UPDATE server_health_incidents SET recovered_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
       catch (error) { db.prepare("UPDATE server_health_incidents SET last_delivery_error=? WHERE incident_key=?").run(redactServerHealthText(error.message), key); }
     }
   }
+}
+
+let serverHealthIncidentTimer = null;
+function startServerHealthIncidentMonitoring() {
+  if (isTestRuntime || serverHealthIncidentTimer) return;
+  void evaluateServerHealthIncidents().catch((error) => console.warn(`Server health evaluation failed: ${redactServerHealthText(error.message)}`));
+  serverHealthIncidentTimer = setInterval(() => void evaluateServerHealthIncidents().catch((error) => console.warn(`Server health evaluation failed: ${redactServerHealthText(error.message)}`)), 60_000);
+  serverHealthIncidentTimer.unref?.();
 }
 
 const trustedProxyAddresses = String(process.env.TRUSTED_PROXY_ADDRESSES ?? "")
@@ -1788,7 +1818,9 @@ function audit(user, action, details = {}) {
 
 const SLOW_REQUEST_LOG_MS = Math.max(1000, Number(process.env.SLOW_REQUEST_LOG_MS ?? 8000));
 
-const CRAFT_PLAN_RESPONSE_CACHE_TTL_MS = Math.max(1000, Number(process.env.CRAFT_PLAN_RESPONSE_CACHE_MS ?? 5_000));
+const CRAFT_PLAN_RESPONSE_CACHE_TTL_MS = Math.max(1000, Number(process.env.CRAFT_PLAN_RESPONSE_CACHE_MS ?? 60_000));
+const CRAFT_PLAN_REFRESH_RETRY_BASE_MS = Math.max(1000, Number(process.env.CRAFT_PLAN_REFRESH_RETRY_BASE_MS ?? 15_000));
+const CRAFT_PLAN_REFRESH_RETRY_MAX_MS = Math.max(CRAFT_PLAN_REFRESH_RETRY_BASE_MS, Number(process.env.CRAFT_PLAN_REFRESH_RETRY_MAX_MS ?? 300_000));
 const craftPlanResponseCache = new Map();
 const craftPlanResponseInflight = new Map();
 const craftPlanEffortBaselineCache = createCraftPlanEffortBaselineCache();
@@ -2221,8 +2253,16 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const refreshId = String(options.refreshId ?? "");
   let sourceRevision = craftPlanCurrentSourceRevision(normalizedClaimId);
   if (cached && cached.expiresAt > now && cached.sourceRevision === sourceRevision && (!forceRefresh || cached.refreshId === refreshId)) { plannerTelemetry.cacheHits += 1; return cached.workspace; }
+  if (cached && !refreshRetryAllowed(cached, { now, forceRefresh })) { plannerTelemetry.cacheHits += 1; return cached.workspace; }
   const existing = craftPlanResponseInflight.get(cacheKey);
-  if (existing?.generation === craftPlanResponseGeneration && existing?.sourceRevision === sourceRevision && (!forceRefresh || existing.refreshId === refreshId)) { plannerTelemetry.inflightReuse += 1; return existing.promise; }
+  if (existing?.generation === craftPlanResponseGeneration && existing?.sourceRevision === sourceRevision && (!forceRefresh || existing.refreshId === refreshId)) {
+    plannerTelemetry.inflightReuse += 1;
+    return serveLastGoodOrWait({
+      lastGood: cached?.workspace,
+      refresh: existing.promise,
+      forceRefresh,
+    });
+  }
   if (forceRefresh && relayProviderStarted) {
     try {
       await relayProvider.refresh({
@@ -2251,9 +2291,24 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
         sourceRevision,
         expiresAt: Date.now() + CRAFT_PLAN_RESPONSE_CACHE_TTL_MS,
         refreshId: forceRefresh ? refreshId : "",
+        refreshFailures: 0,
+        retryAfter: 0,
       });
     }
     return workspace;
+  }).catch((error) => {
+    if (cached && generation === craftPlanResponseGeneration) {
+      const current = craftPlanResponseCache.get(cacheKey);
+      const failed = refreshFailureEntry(current, cached, {
+        baseDelayMs: CRAFT_PLAN_REFRESH_RETRY_BASE_MS,
+        maxDelayMs: CRAFT_PLAN_REFRESH_RETRY_MAX_MS,
+      });
+      if (failed !== current) {
+        craftPlanResponseCache.set(cacheKey, failed);
+        console.warn(`Craft Plan background refresh failed; retry delayed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    throw error;
   }).finally(() => {
     if (craftPlanResponseInflight.get(cacheKey)?.promise === promise) craftPlanResponseInflight.delete(cacheKey);
   });
@@ -2263,7 +2318,11 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
     promise,
     refreshId: forceRefresh ? refreshId : "",
   });
-  return promise;
+  return serveLastGoodOrWait({
+    lastGood: cached?.workspace,
+    refresh: promise,
+    forceRefresh,
+  });
 }
 
 async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, options = {}) {
@@ -2364,7 +2423,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       }
     }
   }
-  const livePlan = computeCraftPlan({
+  const livePlan = await computeCraftPlanOffThread({
     config,
     detailsByKey,
     catalogWarnings,
@@ -2398,7 +2457,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const baselineStartedAt = Date.now();
   const statsBefore = craftPlanEffortBaselineCache.stats();
   const baselinePlan = await craftPlanEffortBaselineCache.getOrCreate(baselineKey, async () => (
-    compactCraftPlanEffortInput(computeCraftPlan({ config: baselineConfig, detailsByKey, catalogWarnings }))
+    compactCraftPlanEffortInput(await computeCraftPlanOffThread({ config: baselineConfig, detailsByKey, catalogWarnings }))
   ));
   const baselineStats = craftPlanEffortBaselineCache.stats();
   if (baselineStats.misses > statsBefore.misses) plannerTelemetry.lastBaselineDurationMs = Date.now() - baselineStartedAt;
@@ -7994,7 +8053,7 @@ const server = createServer(async (req, res) => {
         resourceHealth: relayMapResourceRuntime.health(),
         telemetry: mapPerformanceTelemetry.snapshot(),
         tileHealth: { pointerReloadFailureCount },
-        eventLoopDelayMs: Number.isFinite(eventLoopHistogram.mean) ? eventLoopHistogram.mean / 1e6 : 0,
+        eventLoopDelayMs: eventLoopHealthTelemetry().eventLoopDelayMs,
         rssBytes: process.memoryUsage().rss,
       }));
     }
@@ -11002,10 +11061,6 @@ function startBackgroundTasks() {
     void dispatchScheduledCraftPlanReports().catch((error) => console.warn(`Craft Planner report dispatcher failed: ${error instanceof Error ? error.message : String(error)}`));
     setInterval(dispatchScheduledCraftPlanReports, 60 * 1000);
   }
-  if (!isTestRuntime) {
-    void evaluateServerHealthIncidents().catch((error) => console.warn(`Server health evaluation failed: ${redactServerHealthText(error.message)}`));
-    setInterval(() => void evaluateServerHealthIncidents().catch((error) => console.warn(`Server health evaluation failed: ${redactServerHealthText(error.message)}`)), 60_000);
-  }
 }
 
 if (!isTestRuntime) {
@@ -11040,6 +11095,8 @@ assertCanonicalDiscordGatewayReady(deploymentRuntime, {
 });
 replayCurrentPrivacyDeletionLedger();
 await relayClaimScopeFence.reconcile(currentClaimId());
+startEventLoopHealthMonitoring();
+startServerHealthIncidentMonitoring();
 
 if (processRoleConfig.serveHttp) {
   server.listen(port, host, () => {

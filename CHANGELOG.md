@@ -9,6 +9,17 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.64.0-beta.2] - 2026-08-27
+
+### Changed
+
+- Moved intensive Craft Planning calculations off the server event loop and kept the latest successful plan available while refreshed data is calculated.
+
+### Fixed
+
+- Prevented craft-plan processing from repeatedly triggering critical event-loop incidents and made incident recovery respect the active server role.
+- Restored the Plans window as a framed, viewport-bounded dialog with scrolling content and a persistent current-plan label.
+
 ## [0.64.0-beta.1] - 2026-08-27
 
 ### Added

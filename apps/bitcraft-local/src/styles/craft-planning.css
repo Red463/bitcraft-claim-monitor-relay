@@ -868,11 +868,15 @@
   font-weight: 700;
 }
 .craft-plan-selection-notice { margin: 0 0 12px; }
-.craft-plan-active-strip { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 3px 12px rgb(0 0 0 / 18%); backdrop-filter: blur(8px); }
+.craft-plan-active-strip { position: sticky; top: 45px; z-index: 24; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 96%, transparent); box-shadow: 0 3px 12px rgb(0 0 0 / 24%); backdrop-filter: blur(8px); }
 .craft-plan-active-strip strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .craft-plan-active-strip span { flex: 0 0 auto; color: var(--muted); font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.craft-plans-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: hidden; }
-.craft-plans-dialog-body { display: grid; gap: 14px; padding: 14px; overflow: auto; }
+.craft-plans-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid rgba(139, 159, 184, .28); border-radius: 12px; background: linear-gradient(180deg, rgba(18, 25, 34, .99), rgba(8, 13, 20, .99)); box-shadow: 0 24px 70px rgb(0 0 0 / 58%); }
+.craft-plans-dialog .modal-header { position: relative; padding: 18px 58px 16px 18px; border-bottom: 1px solid rgba(139, 159, 184, .2); background: rgba(14, 21, 30, .96); }
+.craft-plans-dialog .modal-header .icon-button { position: absolute; top: 16px; right: 18px; }
+.craft-plans-dialog .modal-header h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
+.craft-plans-dialog .modal-header p { margin: 4px 0 0; color: var(--muted); line-height: 1.35; }
+.craft-plans-dialog-body { min-height: 0; display: grid; gap: 14px; padding: 16px 18px 18px; overflow-x: hidden; overflow-y: auto; }
 .craft-plan-create { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) minmax(120px, .5fr) auto; gap: 10px; align-items: end; }
 .craft-plan-create h3 { grid-column: 1 / -1; margin: 0; }
 .craft-plan-library { display: grid; gap: 7px; }
@@ -883,6 +887,11 @@
 .craft-plan-library-open strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .craft-plan-library-open small { color: var(--muted); }
 @media (max-width: 760px) {
+  .craft-plan-active-strip { top: 43px; }
+  .craft-plans-dialog { width: 100%; max-height: calc(100dvh - 20px); }
+  .craft-plans-dialog .modal-header { padding: 16px 52px 14px 14px; }
+  .craft-plans-dialog .modal-header .icon-button { top: 13px; right: 14px; }
+  .craft-plans-dialog-body { padding: 14px; }
   .craft-plan-header-selector, .craft-plan-header-selector select { width: 100%; max-width: none; }
   .craft-plan-create { grid-template-columns: 1fr; }
   .craft-plan-create h3 { grid-column: auto; }
