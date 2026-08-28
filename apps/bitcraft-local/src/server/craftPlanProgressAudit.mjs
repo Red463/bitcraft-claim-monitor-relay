@@ -376,14 +376,16 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
   for (const itemKey of [...new Set([...beforeMaterials.keys(), ...afterMaterials.keys()])].sort()) {
     const before = beforeMaterials.get(itemKey);
     const after = afterMaterials.get(itemKey);
+    const comparableBefore = comparableMaterial(before);
+    const comparableAfter = comparableMaterial(after);
     for (const [type, field] of [
-      ["requirement_delta", evidenceField(before, after, "planRequired", "required")],
-      ["required_now_delta", evidenceField(before, after, "requiredNow", "required")],
-      ["guaranteed_output_delta", evidenceField(before, after, "guaranteedCraftOutput", "guaranteedInProgress")],
-      ["estimated_output_delta", evidenceField(before, after, "estimatedCraftOutput", "estimatedInProgress")],
-      ["missing_quantity_delta", evidenceField(before, after, "missingNow", "missing")],
+      ["requirement_delta", "planRequired"],
+      ["required_now_delta", "requiredNow"],
+      ["guaranteed_output_delta", "guaranteedCraftOutput"],
+      ["estimated_output_delta", "estimatedCraftOutput"],
+      ["missing_quantity_delta", "missingNow"],
     ]) {
-      const event = valueDeltaEvent(type, itemKey, before, after, field);
+      const event = valueDeltaEvent(type, itemKey, comparableBefore, comparableAfter, field);
       if (event) events.push(event);
     }
 
@@ -519,13 +521,6 @@ function gzipJson(value) {
 function gunzipJson(value) {
   if (!value) return null;
   return JSON.parse(gunzipSync(Buffer.from(value)).toString("utf8"));
-}
-
-function evidenceField(before, after, currentField, legacyField) {
-  return Object.prototype.hasOwnProperty.call(before ?? {}, currentField)
-    || Object.prototype.hasOwnProperty.call(after ?? {}, currentField)
-    ? currentField
-    : legacyField;
 }
 
 function dependencyPathsFor(previous, current, materialKey) {
@@ -669,7 +664,7 @@ function compatibilityForSnapshots(snapshots) {
   return {
     legacyEvidence,
     limitations: legacyEvidence
-      ? ["Schema version 1 evidence does not contain stable planRequired/requiredNow/missingNow totals, explicit visible stock, selected dependency paths, or building completion. Historical values are not reconstructed from the current catalogue."]
+      ? ["Schema version 1 evidence does not contain stable planRequired/requiredNow/missingNow totals, explicit visible stock, selected dependency paths, route reviews, validation, or building completion. Cross-schema configuration fingerprints are not treated as user changes, and historical values are not reconstructed from the current catalogue."]
       : [],
   };
 }
@@ -713,8 +708,8 @@ function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null) ?? null;
 }
 
-function comparableMaterials(snapshot) {
-  return (snapshot?.materials ?? []).map((material) => ({
+function comparableMaterial(material = {}) {
+  return {
     key: material.key,
     name: material.name,
     planRequired: firstDefined(material.planRequired, material.required),
@@ -723,7 +718,11 @@ function comparableMaterials(snapshot) {
     visibleStock: firstDefined(material.visibleStock, material.available),
     guaranteedCraftOutput: firstDefined(material.guaranteedCraftOutput, material.guaranteedInProgress),
     estimatedCraftOutput: firstDefined(material.estimatedCraftOutput, material.estimatedInProgress),
-  }));
+  };
+}
+
+function comparableMaterials(snapshot) {
+  return (snapshot?.materials ?? []).map(comparableMaterial);
 }
 
 function comparableBuildingProgress(snapshot) {
@@ -733,17 +732,32 @@ function comparableBuildingProgress(snapshot) {
   };
 }
 
+function comparableRouteConfig(snapshot, { legacyEvidence, crossSchema }) {
+  const planInputs = snapshot?.planInputs ?? {};
+  const comparableInputs = legacyEvidence
+    ? Object.fromEntries(Object.entries(planInputs).filter(([key]) => key !== "routeReviews"))
+    : planInputs;
+  return {
+    planInputs: comparableInputs,
+    ...(crossSchema ? {} : { fingerprint: snapshot?.planConfigFingerprint }),
+  };
+}
+
 function comparisonDifferences(before, after) {
   const materialSources = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, sources: material.sources ?? [] }));
   const crafts = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, activeCraftSources: material.activeCraftSources ?? [] }));
+  const beforeVersion = number(before?.schemaVersion) || 1;
+  const afterVersion = number(after?.schemaVersion) || 1;
+  const legacyEvidence = beforeVersion === 1 || afterVersion === 1;
+  const crossSchema = beforeVersion !== afterVersion;
   return {
     baseline: changed({ baselineRevision: before?.baselineRevision, baselineInputs: before?.baselineInputs }, { baselineRevision: after?.baselineRevision, baselineInputs: after?.baselineInputs }),
-    routeConfig: changed({ planInputs: before?.planInputs, fingerprint: before?.planConfigFingerprint }, { planInputs: after?.planInputs, fingerprint: after?.planConfigFingerprint }),
+    routeConfig: changed(comparableRouteConfig(before, { legacyEvidence, crossSchema }), comparableRouteConfig(after, { legacyEvidence, crossSchema })),
     materials: changed(comparableMaterials(before), comparableMaterials(after)),
     sources: changed({ sourceStatus: before?.sourceStatus ?? [], materials: materialSources(before) }, { sourceStatus: after?.sourceStatus ?? [], materials: materialSources(after) }),
     craft: changed(crafts(before), crafts(after)),
     buildingProgress: changed(comparableBuildingProgress(before), comparableBuildingProgress(after)),
-    validation: changed(before?.validation ?? null, after?.validation ?? null),
+    validation: legacyEvidence ? changed(null, null) : changed(before?.validation ?? null, after?.validation ?? null),
   };
 }
 
@@ -890,9 +904,15 @@ export function createCraftPlanProgressAuditRepository(db, {
     const duplicate = text(state?.last_fingerprint) === fingerprint;
     const recovering = Boolean(state?.last_failure_fingerprint);
     const recordSnapshot = !duplicate || fullSnapshot;
-    const payloadGzip = duplicate && state?.last_payload_gzip
-      ? Buffer.from(state.last_payload_gzip)
-      : gzipJson(snapshot);
+    let payloadGzip = gzipJson(snapshot);
+    if (duplicate && !fullSnapshot && state?.last_payload_gzip) {
+      try {
+        gunzipJson(state.last_payload_gzip);
+        payloadGzip = Buffer.from(state.last_payload_gzip);
+      } catch {
+        // The current successful capture repairs corrupt state evidence below.
+      }
+    }
 
     const diff = previous
       ? diffCraftPlanProgressSnapshots(previous, snapshot)

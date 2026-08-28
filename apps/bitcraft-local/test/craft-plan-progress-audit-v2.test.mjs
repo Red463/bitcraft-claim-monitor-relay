@@ -6,6 +6,7 @@ import { createCraftPlanConfigAuditRepository } from "../src/server/craftPlanCon
 import {
   buildCraftPlanProgressSnapshot,
   createCraftPlanProgressAuditRepository,
+  diffCraftPlanProgressSnapshots,
 } from "../src/server/craftPlanProgressAudit.mjs";
 import { applyCraftPlanRecordsMigration } from "../src/server/craftPlanRepository.mjs";
 import { createPreparedStatements } from "../src/server/preparedStatements.mjs";
@@ -95,10 +96,17 @@ function v2Snapshot({
 
 function v1Snapshot(options = {}) {
   const snapshot = v2Snapshot(options);
-  const { buildingCompletion: _buildingCompletion, ...legacySnapshot } = snapshot;
+  const {
+    buildingCompletion: _buildingCompletion,
+    validation: _validation,
+    ...legacySnapshot
+  } = snapshot;
   return {
     ...legacySnapshot,
     schemaVersion: 1,
+    planInputs: Object.fromEntries(
+      Object.entries(snapshot.planInputs).filter(([key]) => key !== "routeReviews"),
+    ),
     materials: snapshot.materials.map((material) => {
       const {
         planRequired: _planRequired,
@@ -193,6 +201,36 @@ test("dependency topology does not hide unsupported demand and progress relation
   assert.ok(group.unresolvedRelationships.some((entry) => entry.effectType === "requirement_delta"));
   assert.ok(group.unresolvedRelationships.some((entry) => entry.effectType === "progress_delta"));
   db.close();
+});
+
+test("causal diff resolves v1 and v2 material aliases independently without fabricated deltas", () => {
+  const from = v1Snapshot();
+  const unchanged = v2Snapshot({ capturedAt: "2026-08-28T10:05:00.000Z" });
+  const unchangedEvents = diffCraftPlanProgressSnapshots(from, unchanged).events;
+
+  assert.deepEqual(
+    unchangedEvents.filter((event) => event.type.endsWith("_delta") && event.itemKey === "items:1"),
+    [],
+  );
+
+  const changed = v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    required: 120,
+    requiredNow: 110,
+    missing: 55,
+    guaranteed: 10,
+    estimated: 2,
+  });
+  const changedEvents = diffCraftPlanProgressSnapshots(from, changed).events
+    .filter((event) => event.type.endsWith("_delta") && event.itemKey === "items:1")
+    .map(({ type, before, after, delta }) => ({ type, before, after, delta }));
+  assert.deepEqual(changedEvents, [
+    { type: "requirement_delta", before: 100, after: 120, delta: 20 },
+    { type: "required_now_delta", before: 100, after: 110, delta: 10 },
+    { type: "guaranteed_output_delta", before: 20, after: 10, delta: -10 },
+    { type: "estimated_output_delta", before: 5, after: 2, delta: -3 },
+    { type: "missing_quantity_delta", before: 40, after: 55, delta: 15 },
+  ]);
 });
 
 test("craft collection inference requires an exact captured output-to-stock relationship", () => {
@@ -348,6 +386,44 @@ test("unchanged success after failure records recovery without duplicating the s
   const recovered = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" })
     .causalGroups.find((group) => group.observedTriggers.some((entry) => entry.type === "source_recovered"));
   assert.deepEqual(recovered.span, { from: "2026-08-28T10:05:00.000Z", to: "2026-08-28T10:10:00.000Z" });
+  db.close();
+});
+
+test("duplicate success repairs a corrupt state payload without storing a duplicate snapshot", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const initial = v2Snapshot();
+  repository.recordSuccess(initial);
+  db.prepare("UPDATE craft_plan_progress_audit_state SET last_payload_gzip = ? WHERE claim_id = '42' AND plan_id = 'legacy-primary'")
+    .run(Buffer.from("corrupt"));
+
+  const result = repository.recordSuccess({ ...initial, capturedAt: "2026-08-28T10:05:00.000Z" });
+
+  assert.equal(result.recorded, false);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_snapshots").get().count, 1);
+  assert.equal(repository.latestSuccess("42").capturedAt, "2026-08-28T10:05:00.000Z");
+  db.close();
+});
+
+test("six-hour duplicate checkpoint replaces a corrupt state payload with valid current evidence", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const initial = v2Snapshot();
+  repository.recordSuccess(initial);
+  db.prepare("UPDATE craft_plan_progress_audit_state SET last_payload_gzip = ? WHERE claim_id = '42' AND plan_id = 'legacy-primary'")
+    .run(Buffer.from("corrupt"));
+  const checkpoint = { ...initial, capturedAt: "2026-08-28T16:00:00.000Z" };
+
+  const result = repository.recordSuccess(checkpoint);
+
+  assert.equal(result.recorded, true);
+  assert.equal(result.fullSnapshot, true);
+  assert.equal(repository.latestSuccess("42").capturedAt, checkpoint.capturedAt);
+  assert.equal(repository.compareCheckpoints("42", {
+    planId: "legacy-primary",
+    from: initial.capturedAt,
+    to: checkpoint.capturedAt,
+  }).ok, true);
   db.close();
 });
 
@@ -521,7 +597,6 @@ test("v1 to v2 comparison resolves unchanged material aliases independently per 
   const repository = createCraftPlanProgressAuditRepository(db, { statements });
   const from = v1Snapshot();
   const to = v2Snapshot({ capturedAt: "2026-08-28T17:00:00.000Z" });
-  to.planConfigFingerprint = from.planConfigFingerprint;
   repository.recordSuccess(from);
   repository.recordSuccess(to);
 
@@ -549,13 +624,14 @@ test("v1 to v2 comparison reports real changed alias values without zero substit
     guaranteed: 10,
     estimated: 2,
   });
-  to.planConfigFingerprint = from.planConfigFingerprint;
   repository.recordSuccess(from);
   repository.recordSuccess(to);
 
   const result = repository.compareCheckpoints("42", { planId: "legacy-primary", from: from.capturedAt, to: to.capturedAt });
 
   assert.equal(result.differences.materials.changed, true);
+  assert.equal(result.differences.routeConfig.changed, false);
+  assert.equal(result.differences.validation.changed, false);
   assert.deepEqual(result.differences.materials.before[0], {
     estimatedCraftOutput: 5,
     guaranteedCraftOutput: 20,
