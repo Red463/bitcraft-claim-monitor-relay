@@ -93,6 +93,28 @@ function v2Snapshot({
   };
 }
 
+function v1Snapshot(options = {}) {
+  const snapshot = v2Snapshot(options);
+  const { buildingCompletion: _buildingCompletion, ...legacySnapshot } = snapshot;
+  return {
+    ...legacySnapshot,
+    schemaVersion: 1,
+    materials: snapshot.materials.map((material) => {
+      const {
+        planRequired: _planRequired,
+        requiredNow: _requiredNow,
+        missingNow: _missingNow,
+        visibleStock: _visibleStock,
+        guaranteedCraftOutput: _guaranteedCraftOutput,
+        estimatedCraftOutput: _estimatedCraftOutput,
+        dependencyPaths: _dependencyPaths,
+        ...legacy
+      } = material;
+      return legacy;
+    }),
+  };
+}
+
 test("v2 snapshot preserves stable/live aliases, visible stock, craft estimates, building completion, and typed dependency paths", () => {
   const snapshot = buildCraftPlanProgressSnapshot({
     claimId: "42",
@@ -346,6 +368,30 @@ test("source failure falls back from corrupt state evidence to the latest valid 
   db.close();
 });
 
+test("source failure scans past more than 25 corrupt checkpoints to older valid evidence", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T09:00:00.000Z" }));
+  for (let index = 1; index <= 26; index += 1) {
+    repository.recordSuccess(v2Snapshot({
+      capturedAt: new Date(Date.parse("2026-08-28T09:00:00.000Z") + index * 60_000).toISOString(),
+      available: 40 + index,
+      missing: 40 - index,
+    }));
+  }
+  db.prepare("UPDATE craft_plan_progress_audit_snapshots SET payload_gzip = ? WHERE captured_at > '2026-08-28T09:00:00.000Z'")
+    .run(Buffer.from("corrupt"));
+  db.prepare("UPDATE craft_plan_progress_audit_state SET last_payload_gzip = ? WHERE claim_id = '42' AND plan_id = 'legacy-primary'")
+    .run(Buffer.from("corrupt"));
+
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:00:00.000Z", "legacy-primary");
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" }).causalGroups[0];
+  assert.deepEqual(group.span, { from: "2026-08-28T09:00:00.000Z", to: "2026-08-28T10:00:00.000Z" });
+  assert.equal(group.unresolvedRelationships.some((entry) => /no valid prior success checkpoint/i.test(entry.reason)), false);
+  db.close();
+});
+
 test("source failure records a prior-evidence limitation when no valid checkpoint exists", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });
@@ -374,6 +420,18 @@ test("export falls back through a corrupt pre-range checkpoint to older valid ev
     "2026-08-28T10:10:00.000Z",
   ]);
   assert.ok(bundle.warnings.some((warning) => /skipped corrupt snapshot/i.test(warning)));
+  db.close();
+});
+
+test("export reports an unavailable effective boundary when no snapshot evidence exists", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+
+  const bundle = repository.exportRange("42", { label: "24h", since: "2026-08-28T10:00:00.000Z" }, "legacy-primary");
+
+  assert.equal(bundle.effectiveSince, null);
+  assert.deepEqual(bundle.snapshots, []);
+  assert.ok(bundle.warnings.some((warning) => /no valid checkpoint.*reconstruct/i.test(warning)));
   db.close();
 });
 
@@ -455,6 +513,71 @@ test("comparison reports missing and corrupt evidence and accepts v1 with explic
   const corrupt = repository.compareCheckpoints("42", { planId: "legacy-primary", from: legacyFrom.capturedAt, to: legacyTo.capturedAt });
   assert.equal(corrupt.ok, false);
   assert.equal(corrupt.error.code, "corrupt_evidence");
+  db.close();
+});
+
+test("v1 to v2 comparison resolves unchanged material aliases independently per side", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const from = v1Snapshot();
+  const to = v2Snapshot({ capturedAt: "2026-08-28T17:00:00.000Z" });
+  to.planConfigFingerprint = from.planConfigFingerprint;
+  repository.recordSuccess(from);
+  repository.recordSuccess(to);
+
+  const result = repository.compareCheckpoints("42", { planId: "legacy-primary", from: from.capturedAt, to: to.capturedAt });
+
+  assert.equal(result.ok, true);
+  for (const category of ["baseline", "routeConfig", "materials", "sources", "craft", "buildingProgress", "validation"]) {
+    assert.equal(result.differences[category].changed, false, category);
+  }
+  assert.equal(result.compatibility.legacyEvidence, true);
+  assert.match(result.compatibility.limitations.join(" "), /schema version 1/i);
+  db.close();
+});
+
+test("v1 to v2 comparison reports real changed alias values without zero substitution", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const from = v1Snapshot();
+  const to = v2Snapshot({
+    capturedAt: "2026-08-28T17:00:00.000Z",
+    required: 120,
+    requiredNow: 110,
+    missing: 55,
+    available: 50,
+    guaranteed: 10,
+    estimated: 2,
+  });
+  to.planConfigFingerprint = from.planConfigFingerprint;
+  repository.recordSuccess(from);
+  repository.recordSuccess(to);
+
+  const result = repository.compareCheckpoints("42", { planId: "legacy-primary", from: from.capturedAt, to: to.capturedAt });
+
+  assert.equal(result.differences.materials.changed, true);
+  assert.deepEqual(result.differences.materials.before[0], {
+    estimatedCraftOutput: 5,
+    guaranteedCraftOutput: 20,
+    key: "items:1",
+    missingNow: 40,
+    name: "Timber",
+    planRequired: 100,
+    requiredNow: 100,
+    visibleStock: 40,
+  });
+  assert.deepEqual(result.differences.materials.after[0], {
+    estimatedCraftOutput: 2,
+    guaranteedCraftOutput: 10,
+    key: "items:1",
+    missingNow: 55,
+    name: "Timber",
+    planRequired: 120,
+    requiredNow: 110,
+    visibleStock: 50,
+  });
+  assert.equal(result.compatibility.legacyEvidence, true);
+  assert.match(result.compatibility.limitations.join(" "), /historical values are not reconstructed/i);
   db.close();
 });
 

@@ -709,16 +709,40 @@ function changed(before, after) {
   return { changed: JSON.stringify(safeBefore) !== JSON.stringify(safeAfter), before: safeBefore, after: safeAfter };
 }
 
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null) ?? null;
+}
+
+function comparableMaterials(snapshot) {
+  return (snapshot?.materials ?? []).map((material) => ({
+    key: material.key,
+    name: material.name,
+    planRequired: firstDefined(material.planRequired, material.required),
+    requiredNow: firstDefined(material.requiredNow, material.required),
+    missingNow: firstDefined(material.missingNow, material.missing),
+    visibleStock: firstDefined(material.visibleStock, material.available),
+    guaranteedCraftOutput: firstDefined(material.guaranteedCraftOutput, material.guaranteedInProgress),
+    estimatedCraftOutput: firstDefined(material.estimatedCraftOutput, material.estimatedInProgress),
+  }));
+}
+
+function comparableBuildingProgress(snapshot) {
+  return {
+    buildingCompletion: firstDefined(snapshot?.buildingCompletion, snapshot?.planInputs?.buildingProgress),
+    progress: snapshot?.progress,
+  };
+}
+
 function comparisonDifferences(before, after) {
   const materialSources = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, sources: material.sources ?? [] }));
   const crafts = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, activeCraftSources: material.activeCraftSources ?? [] }));
   return {
     baseline: changed({ baselineRevision: before?.baselineRevision, baselineInputs: before?.baselineInputs }, { baselineRevision: after?.baselineRevision, baselineInputs: after?.baselineInputs }),
     routeConfig: changed({ planInputs: before?.planInputs, fingerprint: before?.planConfigFingerprint }, { planInputs: after?.planInputs, fingerprint: after?.planConfigFingerprint }),
-    materials: changed(before?.materials ?? [], after?.materials ?? []),
+    materials: changed(comparableMaterials(before), comparableMaterials(after)),
     sources: changed({ sourceStatus: before?.sourceStatus ?? [], materials: materialSources(before) }, { sourceStatus: after?.sourceStatus ?? [], materials: materialSources(after) }),
     craft: changed(crafts(before), crafts(after)),
-    buildingProgress: changed({ buildingCompletion: before?.buildingCompletion, progress: before?.progress }, { buildingCompletion: after?.buildingCompletion, progress: after?.progress }),
+    buildingProgress: changed(comparableBuildingProgress(before), comparableBuildingProgress(after)),
     validation: changed(before?.validation ?? null, after?.validation ?? null),
   };
 }
@@ -807,15 +831,21 @@ export function createCraftPlanProgressAuditRepository(db, {
     } catch {
       // Fall through to durable historical checkpoints.
     }
-    for (const row of statements.listLatestCraftPlanProgressSnapshots.all(text(claimId), text(planId), 25)) {
-      try {
-        const payload = gunzipJson(row.payload_gzip);
-        if (payload) return payload;
-      } catch {
-        // Keep scanning older valid checkpoints.
+    const pageSize = 25;
+    let offset = 0;
+    while (true) {
+      const rows = statements.pageLatestCraftPlanProgressSnapshots.all(text(claimId), text(planId), pageSize, offset);
+      for (const row of rows) {
+        try {
+          const payload = gunzipJson(row.payload_gzip);
+          if (payload) return payload;
+        } catch {
+          // Keep scanning older valid checkpoints.
+        }
       }
+      if (rows.length < pageSize) return null;
+      offset += rows.length;
     }
-    return null;
   }
 
   function insertEvent(claimId, planId, capturedAt, baselineRevision, event) {
@@ -1138,10 +1168,14 @@ export function createCraftPlanProgressAuditRepository(db, {
         warnings.push(`Skipped corrupt snapshot ${row.id}.`);
       }
     }
-    let effectiveSince = requestedSince;
-    if (!checkpoint && snapshots.length) {
-      effectiveSince = text(snapshots[0].capturedAt);
-      warnings.push("No valid checkpoint predates the requested range; reconstruction starts at the first retained full snapshot.");
+    let effectiveSince = checkpoint ? requestedSince : null;
+    if (!checkpoint) {
+      if (snapshots.length) {
+        effectiveSince = text(snapshots[0].capturedAt);
+        warnings.push("No valid checkpoint predates the requested range; reconstruction starts at the first retained full snapshot.");
+      } else {
+        warnings.push("No valid checkpoint evidence is available; the requested range cannot be reconstructed.");
+      }
     }
     return {
       schemaVersion: 2,
