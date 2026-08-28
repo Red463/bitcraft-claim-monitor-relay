@@ -10,7 +10,7 @@ test("Map page lives outside the legacy MainPages bundle", () => {
 
   assert.equal(existsSync(mapPageUrl), true);
   assert.doesNotMatch(mainPages, new RegExp("export function MapPanel\\b"));
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/MapPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/MapPage"\)/);
 });
 
 test("Map page has one first-party renderer and no iframe recovery path", () => {

@@ -17,7 +17,7 @@ test("Activity page lives outside the legacy MainPages bundle", () => {
 
   assert.equal(existsSync(activityPageUrl), true);
   assert.doesNotMatch(mainPages, new RegExp("export function ActivityPanel\\b"));
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/ActivityPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/ActivityPage"\)/);
 });
 
 test("Activity overview and labelled filters stack on phones", () => {

@@ -60,6 +60,7 @@ import {
   normalizeReleaseBuildId,
   observeReleaseBuild,
 } from "./utils/releaseUpdate";
+import { loadLazyRoute } from "./utils/lazyRouteRecovery";
 import { normalizeAppSettings } from "./utils/appSettings";
 import { applyMemberTrackingFilter } from "./utils/memberTracking";
 import { getTrackedOwnerName } from "./utils/ownership";
@@ -106,25 +107,29 @@ const DEFAULT_FAVICON_URL = "/favicon.ico";
 const RELEASE_UPDATED_NOTICE_MS = 8_000;
 const VISUALLY_HIDDEN_STYLE: React.CSSProperties = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 };
 
-const Dashboard = React.lazy(() => import("./pages/DashboardPage").then(({ Dashboard }) => ({ default: Dashboard })));
-const Leaderboard = React.lazy(() => import("./pages/LeaderboardPage").then(({ Leaderboard }) => ({ default: Leaderboard })));
-const Members = React.lazy(() => import("./pages/MembersPage").then(({ Members }) => ({ default: Members })));
-const Skills = React.lazy(() => import("./pages/SkillsPage").then(({ Skills }) => ({ default: Skills })));
-const Production = React.lazy(() => import("./pages/ProductionPage").then(({ Production }) => ({ default: Production })));
-const CraftPlanningPage = React.lazy(() => import("./pages/CraftPlanningPage").then(({ CraftPlanningPage }) => ({ default: CraftPlanningPage })));
-const Inventory = React.lazy(() => import("./pages/InventoryPage").then(({ Inventory }) => ({ default: Inventory })));
-const Construction = React.lazy(() => import("./pages/ConstructionPage").then(({ Construction }) => ({ default: Construction })));
-const Research = React.lazy(() => import("./pages/ResearchPage").then(({ Research }) => ({ default: Research })));
-const Market = React.lazy(() => import("./pages/MarketPage").then(({ Market }) => ({ default: Market })));
-const SettlementMarket = React.lazy(() => import("./pages/SettlementMarketPage").then(({ SettlementMarket }) => ({ default: SettlementMarket })));
-const Region = React.lazy(() => import("./pages/RegionPage").then(({ Region }) => ({ default: Region })));
-const Empires = React.lazy(() => import("./pages/EmpiresPage").then(({ Empires }) => ({ default: Empires })));
-const ActivityPanel = React.lazy(() => import("./pages/ActivityPage").then(({ ActivityPanel }) => ({ default: ActivityPanel })));
-const PublicCraftFinder = React.lazy(() => import("./pages/PublicCraftFinderPage").then(({ PublicCraftFinder }) => ({ default: PublicCraftFinder })));
-const CraftCalculatorPage = React.lazy(() => import("./pages/CraftCalculatorPage").then(({ CraftCalculatorPage }) => ({ default: CraftCalculatorPage })));
-const MapPanel = React.lazy(() => import("./pages/MapPage").then(({ MapPanel }) => ({ default: MapPanel })));
-const SyncPanel = React.lazy(() => import("./pages/SyncPage").then(({ SyncPanel }) => ({ default: SyncPanel })));
-const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel").then(({ AdminPanel }) => ({ default: AdminPanel })));
+function lazyRoute<T extends React.ComponentType<any>>(importer: () => Promise<{ default: T }>) {
+  return React.lazy(() => loadLazyRoute(importer));
+}
+
+const Dashboard = lazyRoute(() => import("./pages/DashboardPage").then(({ Dashboard }) => ({ default: Dashboard })));
+const Leaderboard = lazyRoute(() => import("./pages/LeaderboardPage").then(({ Leaderboard }) => ({ default: Leaderboard })));
+const Members = lazyRoute(() => import("./pages/MembersPage").then(({ Members }) => ({ default: Members })));
+const Skills = lazyRoute(() => import("./pages/SkillsPage").then(({ Skills }) => ({ default: Skills })));
+const Production = lazyRoute(() => import("./pages/ProductionPage").then(({ Production }) => ({ default: Production })));
+const CraftPlanningPage = lazyRoute(() => import("./pages/CraftPlanningPage").then(({ CraftPlanningPage }) => ({ default: CraftPlanningPage })));
+const Inventory = lazyRoute(() => import("./pages/InventoryPage").then(({ Inventory }) => ({ default: Inventory })));
+const Construction = lazyRoute(() => import("./pages/ConstructionPage").then(({ Construction }) => ({ default: Construction })));
+const Research = lazyRoute(() => import("./pages/ResearchPage").then(({ Research }) => ({ default: Research })));
+const Market = lazyRoute(() => import("./pages/MarketPage").then(({ Market }) => ({ default: Market })));
+const SettlementMarket = lazyRoute(() => import("./pages/SettlementMarketPage").then(({ SettlementMarket }) => ({ default: SettlementMarket })));
+const Region = lazyRoute(() => import("./pages/RegionPage").then(({ Region }) => ({ default: Region })));
+const Empires = lazyRoute(() => import("./pages/EmpiresPage").then(({ Empires }) => ({ default: Empires })));
+const ActivityPanel = lazyRoute(() => import("./pages/ActivityPage").then(({ ActivityPanel }) => ({ default: ActivityPanel })));
+const PublicCraftFinder = lazyRoute(() => import("./pages/PublicCraftFinderPage").then(({ PublicCraftFinder }) => ({ default: PublicCraftFinder })));
+const CraftCalculatorPage = lazyRoute(() => import("./pages/CraftCalculatorPage").then(({ CraftCalculatorPage }) => ({ default: CraftCalculatorPage })));
+const MapPanel = lazyRoute(() => import("./pages/MapPage").then(({ MapPanel }) => ({ default: MapPanel })));
+const SyncPanel = lazyRoute(() => import("./pages/SyncPage").then(({ SyncPanel }) => ({ default: SyncPanel })));
+const AdminPanel = lazyRoute(() => import("./components/admin/AdminPanel").then(({ AdminPanel }) => ({ default: AdminPanel })));
 
 function PageRefreshCycleSeal({ cycle, coordinator }: { cycle: PageRefreshCycle | null; coordinator: PageRefreshTaskCoordinator }) {
   React.useEffect(() => {

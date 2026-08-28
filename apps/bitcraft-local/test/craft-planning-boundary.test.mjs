@@ -11,7 +11,7 @@ test("Craft Planning page is registered in navigation, access control, and AppSh
   assert.match(appType, /\| "planning"/);
   assert.match(navigation, /\["planning", "Craft Planning"/);
   assert.match(access, /\["planning", "Craft Planning"\]/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/CraftPlanningPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/CraftPlanningPage"\)/);
   assert.match(appShell, /planning: <CraftPlanningPage/);
 });
 

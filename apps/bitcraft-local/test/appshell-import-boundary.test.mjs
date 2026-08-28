@@ -56,7 +56,7 @@ test("AppShell imports only top-level shell dependencies after admin/settings ex
   assert.equal(appShell.includes("./components/bot/"), false);
   assert.doesNotMatch(appShell, /DashboardWidgets|DataTable|ItemDisplay|SearchBox|Segmented|Stats/);
   assert.doesNotMatch(appShell, /buildConstructionProjects|constructionNeededMaterials|mapWithBrowserConcurrency|discordColorToHex|NOTIFICATION_SOUND_OPTIONS|THEME_FIELD_GROUPS/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
   assert.equal(appShell.includes('import { UserSettingsDialog } from "./components/main/UserSettingsDialog";'), true);
 });
 
