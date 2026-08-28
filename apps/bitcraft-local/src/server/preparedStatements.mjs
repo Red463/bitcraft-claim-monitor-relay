@@ -55,6 +55,27 @@ export function createPreparedStatements(db) {
     SET actor_id = NULL, actor_display_name = ?
     WHERE actor_type = 'user_account' AND actor_id = ?
   `),
+  listCraftPlanRouteReviews: db.prepare(`
+    SELECT * FROM craft_plan_route_reviews WHERE plan_id = ? ORDER BY output_key
+  `),
+  deleteCraftPlanRouteReview: db.prepare(`
+    DELETE FROM craft_plan_route_reviews WHERE plan_id = ? AND output_key = ?
+  `),
+  upsertCraftPlanRouteReview: db.prepare(`
+    INSERT INTO craft_plan_route_reviews (
+      plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
+      reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(plan_id, output_key) DO UPDATE SET
+      signature_fingerprint = excluded.signature_fingerprint,
+      selected_route_id = excluded.selected_route_id,
+      confirmed_fingerprint = excluded.confirmed_fingerprint,
+      reviewer_type = excluded.reviewer_type,
+      reviewer_id = excluded.reviewer_id,
+      reviewer_display_name = excluded.reviewer_display_name,
+      reviewed_at = excluded.reviewed_at,
+      configuration_revision = excluded.configuration_revision
+  `),
   insertCraftPlanProgressSnapshot: db.prepare(`
     INSERT INTO craft_plan_progress_audit_snapshots (
       claim_id, plan_id, captured_at, baseline_revision, fingerprint, full_snapshot,

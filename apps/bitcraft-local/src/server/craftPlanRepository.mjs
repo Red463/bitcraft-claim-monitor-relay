@@ -131,12 +131,22 @@ export function createCraftPlanRepository(db, {
   randomUUID = cryptoRandomUUID,
   now = () => new Date().toISOString(),
   configAudit = null,
+  routeReviews = null,
 } = {}) {
   const row = (id) => db.prepare("SELECT * FROM craft_plans WHERE id = ?").get(String(id));
   const ownerCharacter = (ownerUserId) => db.prepare("SELECT character_player_id FROM user_accounts WHERE id = ? AND character_status = 'approved'").get(ownerUserId)?.character_player_id;
   const visible = (entry, subject = {}) => entry && (entry.scope === "shared" || subject.admin || Number(entry.owner_user_id) === Number(subject.userId));
   const requireRevision = (entry, expectedRevision) => {
-    if (!Number.isInteger(Number(expectedRevision)) || Number(entry.revision) !== Number(expectedRevision)) throw problem("This plan changed since it was opened", 409, "craft_plan_revision_conflict");
+    if (!Number.isInteger(Number(expectedRevision)) || Number(entry.revision) !== Number(expectedRevision)) {
+      const error = problem("This plan changed since it was opened", 409, "craft_plan_revision_conflict");
+      const current = publicPlan(entry);
+      error.conflict = {
+        currentRevision: current.revision,
+        plan: { id: current.id, name: current.name, scope: current.scope, updatedAt: current.updatedAt },
+        config: current.config,
+      };
+      throw error;
+    }
   };
   const getVisible = (id, subject = {}) => {
     const entry = row(id);
@@ -161,6 +171,16 @@ export function createCraftPlanRepository(db, {
     before: auditValue(before),
     after: auditValue(after),
   });
+  const authorizedConfig = (entry, candidate) => {
+    let config = candidate ?? json(entry.config_json);
+    if (entry.scope === "personal") {
+      const sanitized = personalConfig(config, ownerCharacter(entry.owner_user_id));
+      if (sanitized.changed) throw problem("Personal plans can only use the owner's verified character sources", 400, "craft_plan_source_forbidden");
+      config = sanitized.config;
+    }
+    delete config.name;
+    return config;
+  };
   const createPersonal = ({ ownerUserId, name: requestedName, duplicateFromPlanId }, overrides = {}) => {
     const count = Number(db.prepare("SELECT COUNT(*) AS count FROM craft_plans WHERE scope = 'personal' AND owner_user_id = ?").get(ownerUserId).count);
     if (count >= MAX_PERSONAL_CRAFT_PLANS) throw problem(`Personal plans are limited to ${MAX_PERSONAL_CRAFT_PLANS}`, 409, "craft_plan_limit");
@@ -185,19 +205,36 @@ export function createCraftPlanRepository(db, {
     const entry = row(id);
     if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
     requireRevision(entry, expectedRevision);
-    let config = changes.config ?? json(entry.config_json);
-    if (entry.scope === "personal") {
-      const sanitized = personalConfig(config, ownerCharacter(entry.owner_user_id));
-      if (sanitized.changed) throw problem("Personal plans can only use the owner's verified character sources", 400, "craft_plan_source_forbidden");
-      config = sanitized.config;
+    const config = authorizedConfig(entry, changes.config);
+    const routeReviewState = options.routeReviewState;
+    if (routeReviewState && routeReviews) {
+      const state = routeReviews.previewState(entry.id, routeReviewState.routeReviews, routeReviewState.confirmations);
+      const wasPublic = entry.scope === "shared" && json(entry.config_json).enabled !== false;
+      const previousFingerprints = new Map((routeReviewState.previousRouteReviews ?? [])
+        .filter((route) => route?.ambiguous)
+        .map((route) => [route.outputKey, route.fingerprint]));
+      const newlyUnconfirmed = state.unconfirmed.filter((route) => (
+        !wasPublic || previousFingerprints.get(route.outputKey) !== route.fingerprint
+      ));
+      if (entry.scope === "shared" && config.enabled !== false && newlyUnconfirmed.length) {
+        const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
+        error.unconfirmedRoutes = newlyUnconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));
+        throw error;
+      }
     }
-    delete config.name;
     const timestamp = now();
     const before = publicPlan(entry);
     db.exec("BEGIN IMMEDIATE");
     try {
       db.prepare("UPDATE craft_plans SET name = ?, config_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?").run(name(changes.name ?? entry.name), JSON.stringify(config), timestamp, entry.id);
       const after = publicPlan(row(entry.id));
+      if (routeReviewState && routeReviews) routeReviews.reconcile({
+        planId: entry.id,
+        configurationRevision: after.revision,
+        routeReviews: routeReviewState.routeReviews,
+        confirmations: routeReviewState.confirmations,
+        reviewer: routeReviewState.reviewer ?? options.actor,
+      });
       recordConfigAudit(before, after, "update", options, timestamp);
       db.exec("COMMIT");
       return after;
@@ -223,6 +260,12 @@ export function createCraftPlanRepository(db, {
     primary: () => publicPlan(db.prepare("SELECT * FROM craft_plans WHERE is_primary = 1 LIMIT 1").get()),
     getVisible,
     getAdmin: (id) => publicPlan(row(id)),
+    stage(id, config, { admin = false, userId = null, expectedRevision } = {}) {
+      const entry = row(id);
+      if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
+      if (expectedRevision !== undefined) requireRevision(entry, expectedRevision);
+      return { plan: publicPlan(entry), config: authorizedConfig(entry, config) };
+    },
     listVisible: ({ userId = null } = {}) => db.prepare("SELECT * FROM craft_plans WHERE scope = 'shared' OR owner_user_id = ? ORDER BY scope = 'personal', is_primary DESC, updated_at DESC").all(userId).map(planSummary),
     listAdmin: ({ scope = "", query = "" } = {}) => db.prepare("SELECT * FROM craft_plans WHERE (? = '' OR scope = ?) AND name LIKE ? ORDER BY is_primary DESC, updated_at DESC LIMIT 200").all(scope, scope, `%${query}%`).map(planSummary),
     createPersonal,
@@ -237,12 +280,28 @@ export function createCraftPlanRepository(db, {
       const id = randomUUID();
       const config = { ...(source?.config ?? { enabled: true, targets: [] }) };
       delete config.name;
+      const routeReviewState = options.routeReviewState;
+      if (routeReviewState && routeReviews && config.enabled !== false) {
+        const state = routeReviews.previewState(id, routeReviewState.routeReviews, routeReviewState.confirmations);
+        if (state.unconfirmed.length) {
+          const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
+          error.unconfirmedRoutes = state.unconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));
+          throw error;
+        }
+      }
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare(`INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
           VALUES (?, ?, 'shared', NULL, 0, 1, ?, ?, ?)`)
           .run(id, name(requestedName), JSON.stringify(config), timestamp, timestamp);
         const plan = publicPlan(row(id));
+        if (routeReviewState && routeReviews) routeReviews.reconcile({
+          planId: id,
+          configurationRevision: plan.revision,
+          routeReviews: routeReviewState.routeReviews,
+          confirmations: routeReviewState.confirmations,
+          reviewer: routeReviewState.reviewer ?? options.actor,
+        });
         recordConfigAudit(null, plan, "create", options, timestamp);
         db.exec("COMMIT");
         return plan;

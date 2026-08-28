@@ -468,6 +468,21 @@ export const schemaBootstrapSql = `
     changes_json TEXT NOT NULL,
     FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS craft_plan_route_reviews (
+    plan_id TEXT NOT NULL,
+    output_key TEXT NOT NULL,
+    signature_fingerprint TEXT NOT NULL,
+    selected_route_id TEXT NOT NULL,
+    confirmed_fingerprint TEXT,
+    reviewer_type TEXT NOT NULL,
+    reviewer_id TEXT,
+    reviewer_display_name TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+    PRIMARY KEY (plan_id, output_key),
+    FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE,
+    CHECK (output_key GLOB 'items:*' OR output_key GLOB 'cargo:*')
+  );
   CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id TEXT NOT NULL,
@@ -821,6 +836,8 @@ export const schemaBootstrapSql = `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_craft_plans_primary ON craft_plans (is_primary) WHERE is_primary = 1;
   CREATE INDEX IF NOT EXISTS idx_craft_plan_config_audit_plan_time
     ON craft_plan_config_audit (plan_id, occurred_at ASC, id ASC);
+  CREATE INDEX IF NOT EXISTS idx_craft_plan_route_reviews_plan
+    ON craft_plan_route_reviews (plan_id, output_key);
   CREATE INDEX IF NOT EXISTS idx_craft_plan_progress_snapshots_claim_time
     ON craft_plan_progress_audit_snapshots (claim_id, captured_at DESC);
   CREATE INDEX IF NOT EXISTS idx_craft_plan_progress_events_claim_time
