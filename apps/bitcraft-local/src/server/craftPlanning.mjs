@@ -1581,6 +1581,187 @@ function materialRowsForRequirements({
   }).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name));
 }
 
+export function joinCraftPlanBaselineMaterials(livePlan = {}, baselinePlan = {}) {
+  const baselineRequirements = new Map(
+    (Array.isArray(baselinePlan?.materials) ? baselinePlan.materials : []).map((material) => [
+      String(material?.key ?? ""),
+      material?.planRequired ?? material?.bufferedRequired ?? material?.required,
+    ]),
+  );
+  return {
+    ...livePlan,
+    materials: (Array.isArray(livePlan?.materials) ? livePlan.materials : []).map((material) => ({
+      ...material,
+      planRequired: baselineRequirements.has(String(material?.key ?? ""))
+        ? baselineRequirements.get(String(material?.key ?? ""))
+        : 0,
+      requiredNow: material?.required,
+      missingNow: material?.missing,
+    })),
+  };
+}
+
+const CRAFT_PLAN_TYPED_MATERIAL_KEY = /^(items|cargo):([0-9]+)$/;
+const CRAFT_PLAN_REQUIRED_MATERIAL_QUANTITIES = ["planRequired", "requiredNow", "missingNow", "required", "missing"];
+const CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES = [
+  "bufferedRequired",
+  "available",
+  "inProgress",
+  "guaranteedInProgress",
+  "estimatedInProgress",
+];
+
+function craftPlanValidationError(code, path, message, details = {}) {
+  return { code, path, message, ...details };
+}
+
+function completedPlanRoutes(plan) {
+  return [
+    ...(Array.isArray(plan?.steps) ? plan.steps.map((route, index) => ({ route, path: `steps[${index}]` })) : []),
+    ...(Array.isArray(plan?.materials) ? plan.materials.flatMap((material, materialIndex) => (
+      (Array.isArray(material?.sourceRoutes) ? material.sourceRoutes : []).map((route, routeIndex) => ({
+        route,
+        path: `materials[${materialIndex}].sourceRoutes[${routeIndex}]`,
+      }))
+    )) : []),
+  ];
+}
+
+function craftPlanProgressCompletion(progress, view, section = null) {
+  const branch = progress?.[view];
+  return section == null ? branch?.overall?.completion : branch?.sections?.[section]?.completion;
+}
+
+export function validateCompletedCraftPlan(plan = {}, {
+  requiredSources = [],
+  previousPlan = null,
+  baselineRevision = plan?.effortProgress?.baselineRevision,
+} = {}) {
+  const errors = [];
+  const materials = Array.isArray(plan?.materials) ? plan.materials : [];
+  const materialKeys = new Set();
+
+  for (const [index, material] of materials.entries()) {
+    const path = `materials[${index}]`;
+    const key = String(material?.key ?? "").trim();
+    const match = CRAFT_PLAN_TYPED_MATERIAL_KEY.exec(key);
+    if (!match
+      || (material?.kind != null && String(material.kind) !== match?.[1])
+      || (material?.id != null && String(material.id) !== match?.[2])) {
+      errors.push(craftPlanValidationError("invalid_material_key", `${path}.key`, "Material keys must be exact items:<id> or cargo:<id> identities.", { key }));
+    }
+    if (materialKeys.has(key)) {
+      errors.push(craftPlanValidationError("duplicate_material_key", `${path}.key`, `Material key ${key || "(empty)"} appears more than once.`, { key }));
+    }
+    materialKeys.add(key);
+
+    for (const field of [...CRAFT_PLAN_REQUIRED_MATERIAL_QUANTITIES, ...CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES]) {
+      if (CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES.includes(field) && material?.[field] == null) continue;
+      const value = material?.[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        errors.push(craftPlanValidationError("invalid_material_quantity", `${path}.${field}`, `${field} must be a finite non-negative number.`, { key, field, value }));
+      }
+    }
+    if (material?.requiredNow !== material?.required || material?.missingNow !== material?.missing) {
+      errors.push(craftPlanValidationError("material_alias_mismatch", path, "Compatibility aliases must match requiredNow and missingNow.", { key }));
+    }
+  }
+
+  const completedRoutes = completedPlanRoutes(plan);
+  for (const { route, path } of completedRoutes) {
+    const selectedRecipeId = String(route?.selectedRecipeId ?? "").trim();
+    const alternatives = Array.isArray(route?.alternatives) ? route.alternatives : [];
+    if (!selectedRecipeId || !alternatives.some((alternative) => String(alternative?.id ?? "").trim() === selectedRecipeId)) {
+      errors.push(craftPlanValidationError("invalid_selected_route", `${path}.selectedRecipeId`, "The selected route must identify one of the completed route alternatives.", { selectedRecipeId }));
+    }
+  }
+  for (const [outputKey, selectedRecipeId] of Object.entries(plan?.config?.routeOverrides ?? {})) {
+    const selectedRouteExists = completedRoutes.some(({ route }) => (
+      craftPlanItemKey(route?.output) === outputKey
+      && String(route?.selectedRecipeId ?? "").trim() === String(selectedRecipeId ?? "").trim()
+    ));
+    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey)) || !selectedRouteExists) {
+      errors.push(craftPlanValidationError("invalid_selected_route", `config.routeOverrides.${outputKey}`, "The configured route must match the completed selected route for its typed output.", {
+        outputKey,
+        selectedRecipeId: String(selectedRecipeId ?? ""),
+      }));
+    }
+  }
+
+  for (const [index, source] of (Array.isArray(requiredSources) ? requiredSources : []).entries()) {
+    const path = `requiredSources[${index}]`;
+    if (!source || typeof source !== "object"
+      || !String(source.sourceId ?? "").trim()
+      || !String(source.label ?? "").trim()
+      || !String(source.type ?? "").trim()
+      || typeof source.available !== "boolean") {
+      errors.push(craftPlanValidationError("required_source_incomplete", path, "Required source status is incomplete."));
+    } else if (source.available !== true) {
+      errors.push(craftPlanValidationError("required_source_unavailable", path, "A required planner source is unavailable.", {
+        sourceId: String(source.sourceId),
+        error: String(source.error ?? "Unavailable"),
+      }));
+    }
+  }
+  for (const [index, source] of (Array.isArray(plan?.unavailableSources) ? plan.unavailableSources : []).entries()) {
+    errors.push(craftPlanValidationError("required_source_unavailable", `unavailableSources[${index}]`, "A required planner source is unavailable.", {
+      sourceId: String(source?.sourceId ?? ""),
+      error: String(source?.error ?? "Unavailable"),
+    }));
+  }
+
+  const normalizedBaselineRevision = String(baselineRevision ?? "").trim();
+  const previousBaselineRevision = String(previousPlan?.effortProgress?.baselineRevision ?? "").trim();
+  if (previousPlan && normalizedBaselineRevision && normalizedBaselineRevision === previousBaselineRevision) {
+    const previousRequirements = new Map(
+      (Array.isArray(previousPlan?.materials) ? previousPlan.materials : []).map((material) => [String(material?.key ?? ""), material?.planRequired]),
+    );
+    for (const [index, material] of materials.entries()) {
+      const key = String(material?.key ?? "");
+      if (previousRequirements.has(key) && previousRequirements.get(key) !== material?.planRequired) {
+        errors.push(craftPlanValidationError("unstable_baseline_material", `materials[${index}].planRequired`, `Canonical requirement for ${key} changed within baseline revision ${normalizedBaselineRevision}.`, {
+          key,
+          previousPlanRequired: previousRequirements.get(key),
+          planRequired: material?.planRequired,
+        }));
+      }
+    }
+  }
+
+  const progress = plan?.effortProgress ?? {};
+  const sections = new Set([
+    ...Object.keys(progress?.confirmed?.sections ?? {}),
+    ...Object.keys(progress?.projected?.sections ?? {}),
+  ]);
+  for (const section of [null, ...sections]) {
+    const confirmed = craftPlanProgressCompletion(progress, "confirmed", section);
+    const projected = craftPlanProgressCompletion(progress, "projected", section);
+    if (typeof confirmed === "number" && Number.isFinite(confirmed)
+      && typeof projected === "number" && Number.isFinite(projected)
+      && projected < confirmed) {
+      const suffix = section == null ? "overall" : `sections.${section}`;
+      errors.push(craftPlanValidationError("projected_progress_regression", `effortProgress.projected.${suffix}.completion`, "Projected progress must not be below confirmed progress.", {
+        section,
+        confirmed,
+        projected,
+      }));
+    }
+  }
+
+  return { valid: errors.length === 0, baselineRevision: normalizedBaselineRevision, errors };
+}
+
+export function selectCraftPlanPublication({ candidatePlan, lastGoodPlan = null, validation = { valid: true } } = {}) {
+  if (validation?.valid === true) {
+    return { plan: candidatePlan, retainedLastGood: false, diagnostic: null };
+  }
+  return {
+    plan: lastGoodPlan,
+    retainedLastGood: Boolean(lastGoodPlan),
+    diagnostic: validation,
+  };
+}
+
 export function computeCraftPlan({
   config,
   detailsByKey = new Map(),

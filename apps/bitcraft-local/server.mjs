@@ -112,7 +112,7 @@ import { normalizeMarketDealWatchSettings } from "./src/server/marketDealWatchSe
 import { evaluateLiveDealWatches, sameEnabledDealWatchRevision } from "./src/server/liveDealWatch.mjs";
 import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
-import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress } from "./src/server/craftPlanning.mjs";
+import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, joinCraftPlanBaselineMaterials, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, selectCraftPlanPublication, validateCompletedCraftPlan } from "./src/server/craftPlanning.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
@@ -1110,6 +1110,7 @@ const craftPlanProgressAudit = createCraftPlanProgressAuditRepository(db, {
   retentionDays: 14,
 });
 let craftPlanProgressAuditWriteWarning = null;
+const craftPlanCalculationValidationWarnings = new Map();
 const gameCatalogRepository = createGameCatalogRepository(db);
 const empireMembershipRepository = createEmpireMembershipRepository(db);
 
@@ -2200,7 +2201,11 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const generation = craftPlanResponseGeneration;
   const startedAt = Date.now();
   plannerTelemetry.freshCalculations += 1;
-  const promise = computedCraftPlanResponseFresh(normalizedClaimId, { forceRefresh, planId }).then((plan) => {
+  const promise = computedCraftPlanResponseFresh(normalizedClaimId, {
+    forceRefresh,
+    planId,
+    lastGoodPlan: cached?.workspace?.plan ?? null,
+  }).then((plan) => {
     const workspace = createCraftPlanResponseWorkspace(plan);
     plannerTelemetry.lastDurationMs = Date.now() - startedAt;
     plannerTelemetry.lastCompletedAt = new Date().toISOString();
@@ -2369,6 +2374,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   plannerTelemetry.baselineInflightReuse = baselineStats.inflightReuse;
   plannerTelemetry.baselineEntries = baselineStats.entries;
   plannerTelemetry.baselineBytes = baselineStats.bytes;
+  livePlan.materials = joinCraftPlanBaselineMaterials(livePlan, baselinePlan).materials;
   livePlan.effortProgress = {
     ...calculateCraftPlanEffortProgress({ baselinePlan, currentPlan: livePlan, weights }),
     baselineRevision,
@@ -2405,7 +2411,36 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   );
 
   const capturedAt = new Date().toISOString();
-  if (!sourceFailures.length) {
+  const validation = validateCompletedCraftPlan(livePlan, {
+    requiredSources: sourceStatus,
+    previousPlan: options.lastGoodPlan,
+    baselineRevision,
+  });
+  const validationFailure = validation.valid ? null : {
+    sourceId: "craft-plan-validation",
+    label: "Craft Plan calculation validation",
+    type: "Planner validation",
+    error: `${validation.errors.length} calculation invariant${validation.errors.length === 1 ? "" : "s"} failed.`,
+  };
+  const publicationFailures = validationFailure ? [...sourceFailures, validationFailure] : sourceFailures;
+  const publication = selectCraftPlanPublication({
+    candidatePlan: livePlan,
+    lastGoodPlan: options.lastGoodPlan,
+    validation,
+  });
+  if (validation.valid) {
+    craftPlanCalculationValidationWarnings.delete(planId);
+  } else {
+    craftPlanCalculationValidationWarnings.set(planId, {
+      at: capturedAt,
+      planId,
+      baselineRevision,
+      retainedLastGood: publication.retainedLastGood,
+      errors: validation.errors,
+    });
+  }
+
+  if (!publicationFailures.length) {
     livePlan.effortProgress.lastSuccessfulAt = capturedAt;
     try {
       const auditResult = craftPlanProgressAudit.recordSuccess(buildCraftPlanProgressSnapshot({
@@ -2435,7 +2470,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     }
   } else {
     try {
-      craftPlanProgressAudit.recordFailure(claimId, sourceFailures, capturedAt, planId);
+      craftPlanProgressAudit.recordFailure(claimId, publicationFailures, capturedAt, planId);
       craftPlanProgressAuditWriteWarning = null;
     } catch (error) {
       craftPlanProgressAuditWriteWarning = {
@@ -2454,8 +2489,31 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       };
       console.warn(`Craft Plan progress audit recovery read failed: ${craftPlanProgressAuditWriteWarning.error}`);
     }
+    if (!publication.plan) {
+      throw Object.assign(new Error("Craft Plan calculation validation failed before a complete plan was available."), { statusCode: 502 });
+    }
+    if (publication.retainedLastGood) {
+      const retainedPlan = {
+        ...publication.plan,
+        effortProgress: staleCraftPlanProgress(publication.plan?.effortProgress, publicationFailures, capturedAt),
+        unavailableSources: [
+          ...(Array.isArray(publication.plan?.unavailableSources) ? publication.plan.unavailableSources : []),
+          ...publicationFailures,
+        ],
+        warnings: [
+          ...(Array.isArray(publication.plan?.warnings) ? publication.plan.warnings : []),
+          "Craft Plan calculation validation failed; showing the last successful complete plan.",
+        ],
+      };
+      retainedPlan.effortProgress.baselineChange = craftPlanBaselineChangeSince(
+        claimId,
+        new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        planId,
+      );
+      return retainedPlan;
+    }
     livePlan.effortProgress = lastSuccess?.effortProgress
-      ? staleCraftPlanProgress(lastSuccess.effortProgress, sourceFailures, capturedAt)
+      ? staleCraftPlanProgress(lastSuccess.effortProgress, publicationFailures, capturedAt)
       : unavailableCraftPlanEffortProgress();
     livePlan.effortProgress.baselineChange = craftPlanBaselineChangeSince(
       claimId,
@@ -2463,7 +2521,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     );
     livePlan.unavailableSources = [
       ...(Array.isArray(livePlan.unavailableSources) ? livePlan.unavailableSources : []),
-      ...sourceFailures,
+      ...publicationFailures,
     ];
   }
   return livePlan;
@@ -9516,6 +9574,7 @@ const server = createServer(async (req, res) => {
           status: {
             ...craftPlanProgressAudit.status(claimId, planId),
             writeWarning: craftPlanProgressAuditWriteWarning,
+            validationWarning: craftPlanCalculationValidationWarnings.get(planId) ?? null,
           },
           events: craftPlanProgressAudit.listEvents(claimId, { limit: 100, planId }),
         });

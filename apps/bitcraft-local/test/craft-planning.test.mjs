@@ -49,6 +49,141 @@ const animalHairDetail = {
   craftingRecipes: [],
 };
 
+test("canonical material totals stay fixed while live quantities and typed identities remain compatible", () => {
+  assert.equal(typeof craftPlanning.joinCraftPlanBaselineMaterials, "function");
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [{ id: "1", kind: "items", name: "Plank", quantity: 10 }],
+    sourceRules: { craftPlayerIds: ["player-1"] },
+  });
+  const detailsByKey = new Map([
+    ["items:1", {
+      item: { id: "1", kind: "items", name: "Plank" },
+      craftingRecipes: [{
+        id: "plank-route",
+        name: "Make Plank",
+        craftedItemStacks: [{ item_id: "1", item_type: "item", quantity: 1 }],
+        consumedItemStacks: [{ item_id: "7", item_type: "item", quantity: 1 }],
+        consumedItems: [{ id: "7", itemType: 0, name: "Log" }],
+      }],
+    }],
+    ["items:7", { item: { id: "7", kind: "items", name: "Log" }, craftingRecipes: [] }],
+  ]);
+  const baselinePlan = computeCraftPlan({ config, detailsByKey });
+  const livePlan = computeCraftPlan({
+    config,
+    detailsByKey,
+    storageSources: [{ sourceId: "store-1", label: "Stockpile", items: [{ id: "1", kind: "items", name: "Plank", quantity: 4 }] }],
+    activeCrafts: [{ id: "craft-1", playerId: "player-1", itemId: "1", kind: "items", name: "Plank", quantity: 2, guaranteedQuantity: 2 }],
+  });
+  baselinePlan.materials.push({ key: "cargo:7", id: "7", kind: "cargo", required: 20 });
+  livePlan.materials.push(
+    { key: "cargo:7", id: "7", kind: "cargo", required: 4, missing: 1 },
+    { key: "items:99", id: "99", kind: "items", required: 3, missing: 3 },
+  );
+
+  const joined = craftPlanning.joinCraftPlanBaselineMaterials(livePlan, baselinePlan);
+
+  const values = new Map(joined.materials.map((material) => [material.key, material]));
+  assert.deepEqual(
+    ["items:7", "cargo:7", "items:99"].map((key) => {
+      const { planRequired, requiredNow, missingNow, required, missing } = values.get(key);
+      return { key, planRequired, requiredNow, missingNow, required, missing };
+    }),
+    [
+      { key: "items:7", planRequired: 10, requiredNow: 4, missingNow: 4, required: 4, missing: 4 },
+      { key: "cargo:7", planRequired: 20, requiredNow: 4, missingNow: 1, required: 4, missing: 1 },
+      { key: "items:99", planRequired: 0, requiredNow: 3, missingNow: 3, required: 3, missing: 3 },
+    ],
+  );
+  assert.equal("planRequired" in livePlan.materials.find((material) => material.key === "items:7"), false);
+});
+
+test("completed craft plan validation reports every calculation invariant without throwing", () => {
+  assert.equal(typeof craftPlanning.validateCompletedCraftPlan, "function");
+  const validPlan = () => ({
+    materials: [{
+      key: "items:7",
+      id: "7",
+      kind: "items",
+      planRequired: 10,
+      requiredNow: 6,
+      missingNow: 2,
+      required: 6,
+      missing: 2,
+      available: 4,
+      inProgress: 0,
+      guaranteedInProgress: 0,
+      estimatedInProgress: 0,
+    }],
+    steps: [{ selectedRecipeId: "route-a", alternatives: [{ id: "route-a" }], output: { key: "items:7" } }],
+    config: { routeOverrides: { "items:7": "route-a" } },
+    unavailableSources: [],
+    effortProgress: {
+      baselineRevision: "baseline-1",
+      confirmed: { overall: { completion: 40 }, sections: { Other: { completion: 40 } } },
+      projected: { overall: { completion: 50 }, sections: { Other: { completion: 50 } } },
+    },
+  });
+  const requiredSources = [{ sourceId: "claim:1", label: "Settlement inventories", type: "Settlement storage", available: true }];
+  const previousPlan = validPlan();
+
+  assert.deepEqual(craftPlanning.validateCompletedCraftPlan(validPlan(), { requiredSources, previousPlan }), {
+    valid: true,
+    baselineRevision: "baseline-1",
+    errors: [],
+  });
+
+  const invalidCases = [
+    ["duplicate typed key", "duplicate_material_key", (plan) => plan.materials.push({ ...plan.materials[0] })],
+    ["invalid typed key", "invalid_material_key", (plan) => { plan.materials[0].key = "item:7"; }],
+    ["non-finite quantity", "invalid_material_quantity", (plan) => { plan.materials[0].requiredNow = Number.NaN; }],
+    ["negative quantity", "invalid_material_quantity", (plan) => { plan.materials[0].missingNow = -1; }],
+    ["invalid selected route", "invalid_selected_route", (plan) => { plan.steps[0].selectedRecipeId = "route-b"; }],
+    ["selected route does not satisfy its configured override", "invalid_selected_route", (plan) => { plan.config.routeOverrides["items:7"] = "route-b"; }],
+    ["unavailable required source", "required_source_unavailable", (_plan, sources) => { sources[0].available = false; }],
+    ["incomplete required source", "required_source_incomplete", (_plan, sources) => { delete sources[0].sourceId; }],
+    ["changed canonical total in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials[0].planRequired = 11; }],
+    ["projected overall progress below confirmed", "projected_progress_regression", (plan) => { plan.effortProgress.projected.overall.completion = 39; }],
+    ["projected section progress below confirmed", "projected_progress_regression", (plan) => { plan.effortProgress.projected.sections.Other.completion = 39; }],
+  ];
+
+  for (const [label, expectedCode, mutate] of invalidCases) {
+    const plan = validPlan();
+    const sources = structuredClone(requiredSources);
+    mutate(plan, sources);
+    const result = craftPlanning.validateCompletedCraftPlan(plan, { requiredSources: sources, previousPlan });
+    assert.equal(result.valid, false, label);
+    assert.ok(result.errors.some((error) => error.code === expectedCode), `${label}: ${JSON.stringify(result.errors)}`);
+  }
+});
+
+test("invalid completed craft plans retain the exact last-good publication and otherwise fail closed", () => {
+  assert.equal(typeof craftPlanning.selectCraftPlanPublication, "function");
+  const candidatePlan = { marker: "invalid-live-values" };
+  const lastGoodPlan = { marker: "last-good-complete-plan" };
+  const invalid = {
+    valid: false,
+    baselineRevision: "baseline-1",
+    errors: [{ code: "invalid_material_quantity", path: "materials[0].missingNow", message: "Invalid quantity" }],
+  };
+
+  const retained = craftPlanning.selectCraftPlanPublication({ candidatePlan, lastGoodPlan, validation: invalid });
+  assert.strictEqual(retained.plan, lastGoodPlan);
+  assert.equal(retained.retainedLastGood, true);
+  assert.deepEqual(retained.diagnostic, invalid);
+  assert.deepEqual(craftPlanning.selectCraftPlanPublication({ candidatePlan, validation: invalid }), {
+    plan: null,
+    retainedLastGood: false,
+    diagnostic: invalid,
+  });
+  assert.deepEqual(craftPlanning.selectCraftPlanPublication({ candidatePlan, lastGoodPlan, validation: { valid: true, errors: [] } }), {
+    plan: candidatePlan,
+    retainedLastGood: false,
+    diagnostic: null,
+  });
+});
+
 test("compactCraftPlanResponse keeps live board values without nested drilldown payloads", () => {
   const material = { key: "items:1", name: "Cloth", required: 100, available: 30, inProgress: 20, guaranteedInProgress: 12, estimatedInProgress: 8, plannedOutput: 10, missing: 50, sources: [{ quantity: 30 }], activeCraftSources: [{ quantity: 20 }], sourceRoutes: [{ id: "route" }], recipeUsages: [{ outputKey: "items:2" }] };
   const compact = compactCraftPlanResponse({

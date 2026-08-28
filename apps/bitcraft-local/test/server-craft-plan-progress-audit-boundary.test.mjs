@@ -20,6 +20,19 @@ test("server records complete planner progress and retains last-good progress du
   assert.match(computedCraftPlan, /sourceFailures/);
 });
 
+test("server validates completed planner results and retains the cached last-good complete plan", () => {
+  assert.match(server, /joinCraftPlanBaselineMaterials/);
+  assert.match(server, /validateCompletedCraftPlan/);
+  assert.match(server, /selectCraftPlanPublication/);
+  assert.match(server, /const craftPlanCalculationValidationWarnings = new Map\(\)/);
+  assert.match(computedCraftPlan, /craftPlanCalculationValidationWarnings\.(?:set|delete)\(planId/);
+  assert.match(server, /validationWarning: craftPlanCalculationValidationWarnings\.get\(planId\) \?\? null/);
+  assert.match(computedCraftPlan, /lastGoodPlan/);
+  assert.match(computedCraftPlan, /retainedLastGood/);
+  assert.match(computedCraftPlan, /recordFailure/);
+  assert.match(computedCraftPlan, /staleCraftPlanProgress/);
+});
+
 test("server exposes authenticated progress audit status and gzip export routes", () => {
   assert.match(server, /\/api\/local\/admin\/craft-plan\/progress-audit/);
   assert.match(server, /progress-audit\/export/);
