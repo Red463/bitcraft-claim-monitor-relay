@@ -1,6 +1,13 @@
 import { unavailableCraftPlanEffortProgress } from "./craftPlanEffortProgress.mjs";
 import { staleCraftPlanProgress } from "./craftPlanProgressAudit.mjs";
 
+const pristinePlansByStalePlan = new WeakMap();
+
+function pristinePlan(plan) {
+  if (!plan || typeof plan !== "object") return plan;
+  return pristinePlansByStalePlan.get(plan) ?? plan;
+}
+
 function validationSourceFailure(validation = {}) {
   if (validation?.valid === true) return null;
   const count = Array.isArray(validation?.errors) ? validation.errors.length : 0;
@@ -60,19 +67,21 @@ export function resolveFailedCraftPlanPublication({
   }
 
   if (publication.retainedLastGood) {
+    const lastGoodPlan = pristinePlan(publication.plan);
     const retainedPlan = {
-      ...publication.plan,
-      effortProgress: staleCraftPlanProgress(publication.plan?.effortProgress, publicationFailures, capturedAt),
+      ...lastGoodPlan,
+      effortProgress: staleCraftPlanProgress(lastGoodPlan?.effortProgress, publicationFailures, capturedAt),
       unavailableSources: [
-        ...(Array.isArray(publication.plan?.unavailableSources) ? publication.plan.unavailableSources : []),
+        ...(Array.isArray(lastGoodPlan?.unavailableSources) ? lastGoodPlan.unavailableSources : []),
         ...publicationFailures,
       ],
       warnings: [
-        ...(Array.isArray(publication.plan?.warnings) ? publication.plan.warnings : []),
+        ...(Array.isArray(lastGoodPlan?.warnings) ? lastGoodPlan.warnings : []),
         "Craft Plan calculation validation failed; showing the last successful complete plan.",
       ],
     };
     retainedPlan.effortProgress.baselineChange = baselineChange({ claimId, planId, capturedAt });
+    pristinePlansByStalePlan.set(retainedPlan, lastGoodPlan);
     return { plan: retainedPlan, publicationFailures, auditError };
   }
 

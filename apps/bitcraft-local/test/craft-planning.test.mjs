@@ -207,6 +207,38 @@ test("gather-only invalid materials cannot publish while ordinary gather mirrors
   }
 });
 
+test("noncanonical whitespace typed keys fail validation and cannot publish with a zero canonical total", () => {
+  const candidatePlan = {
+    config: { routeOverrides: {} },
+    materials: [{
+      key: " items:7 ",
+      id: "7",
+      kind: "items",
+      required: 4,
+      missing: 2,
+    }],
+    gatherNext: [],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { baselineRevision: "baseline-1" },
+  };
+  const lastGoodPlan = { marker: "last-good" };
+  const result = craftPlanning.finalizeCraftPlanPublication({
+    candidatePlan,
+    baselinePlan: { materials: [{ key: "items:7", required: 10 }] },
+    lastGoodPlan,
+  });
+
+  assert.equal(result.candidatePlan.materials[0].planRequired, 0);
+  assert.equal(result.validation.valid, false);
+  assert.ok(result.validation.errors.some((error) => (
+    error.code === "invalid_material_key"
+    && error.path === "materials[0].key"
+  )));
+  assert.strictEqual(result.plan, lastGoodPlan);
+  assert.equal(result.retainedLastGood, true);
+});
+
 test("invalid completed craft plans retain the exact last-good publication and otherwise fail closed", () => {
   assert.equal(typeof craftPlanning.selectCraftPlanPublication, "function");
   const candidatePlan = { marker: "invalid-live-values" };

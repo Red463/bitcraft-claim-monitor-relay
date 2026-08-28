@@ -66,6 +66,49 @@ test("server publication failure records diagnostics and returns cached last-goo
   assert.match(result.plan.warnings.at(-1), /last successful complete plan/i);
 });
 
+test("two consecutive failed refreshes keep stale decoration bounded around pristine evidence", () => {
+  const state = harness();
+  const lastGoodPlan = {
+    marker: "last-good",
+    effortProgress: { confirmed: { overall: { completion: 42 } }, lastSuccessfulAt: "2026-08-28T10:00:00.000Z" },
+    unavailableSources: [],
+    warnings: [],
+  };
+  const first = resolveFailedCraftPlanPublication({
+    claimId: "claim-1",
+    planId: "plan-1",
+    candidatePlan: { marker: "invalid-live-1" },
+    publication: { plan: lastGoodPlan, retainedLastGood: true },
+    validation: invalidValidation(),
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    validationWarnings: state.validationWarnings,
+    progressAudit: state.progressAudit,
+  });
+  const firstSnapshot = structuredClone(first.plan);
+  const second = resolveFailedCraftPlanPublication({
+    claimId: "claim-1",
+    planId: "plan-1",
+    candidatePlan: { marker: "invalid-live-2" },
+    publication: { plan: first.plan, retainedLastGood: true },
+    validation: invalidValidation(),
+    capturedAt: "2026-08-28T10:10:00.000Z",
+    validationWarnings: state.validationWarnings,
+    progressAudit: state.progressAudit,
+  });
+
+  assert.deepEqual(first.plan, firstSnapshot);
+  assert.deepEqual(lastGoodPlan.unavailableSources, []);
+  assert.deepEqual(lastGoodPlan.warnings, []);
+  assert.equal(second.plan.marker, "last-good");
+  assert.equal(second.plan.effortProgress.stale, true);
+  assert.equal(second.plan.effortProgress.staleSince, "2026-08-28T10:10:00.000Z");
+  assert.deepEqual(second.plan.unavailableSources, first.plan.unavailableSources);
+  assert.deepEqual(second.plan.warnings, first.plan.warnings);
+  assert.deepEqual(second.plan.effortProgress.unavailableSources, first.plan.effortProgress.unavailableSources);
+  assert.deepEqual(second.plan.effortProgress.warnings, first.plan.effortProgress.warnings);
+  assert.equal(state.recordedFailures.length, 2);
+});
+
 test("server publication failure records diagnostics and fails closed without last-good", () => {
   const state = harness();
   assert.throws(

@@ -1693,9 +1693,11 @@ export function validateCompletedCraftPlan(plan = {}, {
   const materialKeys = new Set();
 
   for (const { material, path } of publishedMaterialRows) {
-    const key = String(material?.key ?? "").trim();
+    const rawKey = String(material?.key ?? "");
+    const key = rawKey.trim();
     const match = CRAFT_PLAN_TYPED_MATERIAL_KEY.exec(key);
-    if (!match
+    if (rawKey !== key
+      || !match
       || (material?.kind != null && String(material.kind) !== match?.[1])
       || (material?.id != null && String(material.id) !== match?.[2])) {
       errors.push(craftPlanValidationError("invalid_material_key", `${path}.key`, "Material keys must be exact items:<id> or cargo:<id> identities.", { key }));
