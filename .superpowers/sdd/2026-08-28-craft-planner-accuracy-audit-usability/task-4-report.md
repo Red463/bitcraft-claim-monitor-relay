@@ -1,0 +1,59 @@
+# Task 4 report: four-workspace manager and read-only item route details
+
+## Commit
+
+`aece139cc014d50730f64b45787f273cc0e99d30` — `feat(craft-plan): focus manager workspaces`
+
+## Implemented behavior
+
+- Replaced the seven-tab manager with `Goals`, `Counted Sources`, `Recipe Review`, and permission-gated `Audit` workspaces while retaining one staged `Save Plan` action.
+- Consolidated storage, player inventory/crafts, deployables, and banks into one searchable source workspace. New empty configurations show an unselected, explicitly confirmed settlement-storage or owner-inventory suggestion; craft, bank, and deployable sources remain opt-in.
+- Connected Recipe Review to Task 3 preview routes, with ambiguous-first typed outputs, accessible route cards, server-safe preselection, staged route/buffer/review state, Task 1 material impact, public ambiguity confirmation, and revision-conflict recovery that preserves the draft.
+- Rendered Task 2 causal groups, server-provided observed/derived/unresolved evidence, dependency paths, filters, pagination, checkpoint comparison, and separate `audit.view`/`data.export` authorization.
+- Updated Needs Board and item detail presentation to prefer `missingNow` as `Needed now` and `planRequired` as `Plan total`, while keeping stock, guaranteed output, estimated output, and building completion separate with legacy aliases only as fallback.
+- Removed immediate route and buffer persistence from item details. Authorized editors now deep-link to the exact typed output in Recipe Review, which receives keyboard focus after preview loading.
+- Added dense desktop and narrow-screen CSS without adding dependencies or changing locked backend/API contracts.
+
+## Main files
+
+- `apps/bitcraft-local/src/pages/CraftPlanManagerDialog.tsx`
+- `apps/bitcraft-local/src/pages/craftPlanManagerModel.ts`
+- `apps/bitcraft-local/src/pages/CraftPlanningPage.tsx`
+- `apps/bitcraft-local/src/pages/craftPlanningNeedsBoard.ts`
+- `apps/bitcraft-local/src/styles/craft-planning.css`
+- Focused manager, item-detail, Needs Board, CSS, and existing boundary tests under `apps/bitcraft-local/test/`
+
+## RED/GREEN evidence
+
+- Manager model RED: the focused test failed with `ERR_MODULE_NOT_FOUND`; initial GREEN passed the workspace, suggestion, typed-route ordering, material mapping, and deep-link cases.
+- Component RED: all three initial manager scenarios failed against the legacy seven-tab UI. GREEN covered one-save staging, explicit suggestions, ambiguous-first preview cards, route/buffer/review persistence, the public gate, revision conflicts, and dirty-refresh preservation.
+- Item-detail RED: immediate route/buffer paths remained and no typed Recipe Review link existed. GREEN removed those paths and verified the exact deep link.
+- Needs Board RED: compatibility aliases won (`99 !== 4`). GREEN made Task 1 fields authoritative.
+- CSS RED: both focused workspace boundary cases failed before the new classes and responsive rules. GREEN passed both desktop/focus and narrow/viewport cases.
+- Self-review RED: the server's safer recommendation lost to the calculated route, and the public confirmation payload did not stage it. GREEN now preserves explicit overrides but otherwise stages the safest recommendation before save.
+- Final post-review focused model/item/CSS set: 9 passed, 0 failed.
+- Final post-review React manager/refresh set: 6 passed, 0 failed.
+- Full boundary/CSS/Needs set: 68 passed, 0 failed.
+- Standalone frontend TypeScript check: passed.
+
+## Final verification
+
+- `corepack pnpm --filter @workspace/bitcraft-local run build` — passed after the final self-review correction, including server/provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
+- `corepack pnpm --filter @workspace/bitcraft-local test` — 2,734 total, 2,731 passed, 0 failed, 3 environment-skipped. This full run completed before the final narrow safest-route staging correction; the affected model, React, TypeScript, and production build checks were rerun afterward and passed.
+- `git diff --cached --check` — passed before the implementation commit; only expected Windows line-ending notices were emitted.
+
+## Browser result
+
+Browser smoke was attempted once after the production build and stopped at the documented 15-second launcher timeout. The local smoke server never became healthy because `exceljs@4.4.0` could not resolve its existing `jszip` dependency (`MODULE_NOT_FOUND`). No browser tab was opened. Dependencies were intentionally left unchanged, and the launcher was not retried.
+
+## Self-review and findings
+
+- Fixed safest-route priority and ensured an unoverridden server recommendation is staged in both Recipe Review and the public-confirmation retry payload.
+- Confirmed the old seven-tab and immediate route/buffer-save paths are absent from production UI code.
+- Confirmed audit/export rendering uses the locked permissions and React displays server causal evidence rather than deriving claims.
+- Confirmed no backend, schema, provider, dependency, changelog, or version change was introduced.
+- No unresolved Task 4 correctness, security, migration, or contract finding remains. Browser-only visual inspection remains blocked by the local missing dependency described above.
+
+## Deployment
+
+No migration or manual VPS action is required.
