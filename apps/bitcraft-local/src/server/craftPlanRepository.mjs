@@ -181,6 +181,12 @@ export function createCraftPlanRepository(db, {
     delete config.name;
     return config;
   };
+  const requireMatchingRouteConfirmations = (state) => {
+    if (!state.rejectedConfirmations?.length) return;
+    const error = problem("Route confirmations must match the calculated selected route", 409, "craft_plan_route_confirmation_mismatch");
+    error.unconfirmedRoutes = state.rejectedConfirmations.map(({ outputKey, fingerprint, selectedRouteId }) => ({ outputKey, fingerprint, selectedRouteId }));
+    throw error;
+  };
   const createPersonal = ({ ownerUserId, name: requestedName, duplicateFromPlanId }, overrides = {}) => {
     const count = Number(db.prepare("SELECT COUNT(*) AS count FROM craft_plans WHERE scope = 'personal' AND owner_user_id = ?").get(ownerUserId).count);
     if (count >= MAX_PERSONAL_CRAFT_PLANS) throw problem(`Personal plans are limited to ${MAX_PERSONAL_CRAFT_PLANS}`, 409, "craft_plan_limit");
@@ -209,12 +215,16 @@ export function createCraftPlanRepository(db, {
     const routeReviewState = options.routeReviewState;
     if (routeReviewState && routeReviews) {
       const state = routeReviews.previewState(entry.id, routeReviewState.routeReviews, routeReviewState.confirmations);
+      requireMatchingRouteConfirmations(state);
       const wasPublic = entry.scope === "shared" && json(entry.config_json).enabled !== false;
       const previousFingerprints = new Map((routeReviewState.previousRouteReviews ?? [])
         .filter((route) => route?.ambiguous)
         .map((route) => [route.outputKey, route.fingerprint]));
+      const storedOutputs = new Set(state.storedReviews.map((route) => route.outputKey));
       const newlyUnconfirmed = state.unconfirmed.filter((route) => (
-        !wasPublic || previousFingerprints.get(route.outputKey) !== route.fingerprint
+        !wasPublic
+        || previousFingerprints.get(route.outputKey) !== route.fingerprint
+        || storedOutputs.has(route.outputKey)
       ));
       if (entry.scope === "shared" && config.enabled !== false && newlyUnconfirmed.length) {
         const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
@@ -283,6 +293,7 @@ export function createCraftPlanRepository(db, {
       const routeReviewState = options.routeReviewState;
       if (routeReviewState && routeReviews && config.enabled !== false) {
         const state = routeReviews.previewState(id, routeReviewState.routeReviews, routeReviewState.confirmations);
+        requireMatchingRouteConfirmations(state);
         if (state.unconfirmed.length) {
           const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
           error.unconfirmedRoutes = state.unconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));

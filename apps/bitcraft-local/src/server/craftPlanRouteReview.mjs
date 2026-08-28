@@ -28,18 +28,55 @@ function inputIdentity(input = {}) {
   return TYPED_OUTPUT_KEY.test(derived) ? derived : "";
 }
 
+function nullableNumber(value) {
+  return value == null ? null : Number(value);
+}
+
+function normalizedProducer(producer = null) {
+  const key = inputIdentity(producer ?? {});
+  return key || null;
+}
+
+function normalizedProducerRecipe(recipe = null) {
+  if (!recipe || typeof recipe !== "object") return null;
+  const id = String(recipe.id ?? "").trim();
+  return id ? {
+    id,
+    skillName: recipe.skillName == null ? null : String(recipe.skillName),
+  } : null;
+}
+
+function normalizedGatheringSource(source = null) {
+  if (!source || typeof source !== "object") return null;
+  const tag = source.tag == null ? null : String(source.tag);
+  const skill = source.skill == null ? null : String(source.skill);
+  return tag || skill ? { tag, skill } : null;
+}
+
 function normalizedAlternative(alternative = {}) {
   return {
     id: String(alternative.id ?? "").trim(),
     label: String(alternative.label ?? alternative.recipeName ?? alternative.id ?? "").trim(),
     routeType: String(alternative.routeType ?? "craft"),
+    gatheringMode: alternative.gatheringMode == null ? null : String(alternative.gatheringMode),
+    gatheringSkill: alternative.gatheringSkill == null ? null : String(alternative.gatheringSkill),
+    producer: normalizedProducer(alternative.producer),
+    producerRecipe: normalizedProducerRecipe(alternative.producerRecipe),
     probabilityStatus: String(alternative.probabilityStatus ?? (alternative.isProbabilistic ? "expected" : "guaranteed")),
     isProbabilistic: alternative.isProbabilistic === true,
     isTransportRoute: alternative.isTransportRoute === true,
     buildingName: alternative.buildingName == null ? null : String(alternative.buildingName),
-    expectedYield: alternative.expectedYield == null ? null : Number(alternative.expectedYield),
-    guaranteedYield: alternative.guaranteedYield == null ? null : Number(alternative.guaranteedYield),
-    actionsRequired: alternative.actionsRequired == null ? null : Number(alternative.actionsRequired),
+    expectedYield: nullableNumber(alternative.expectedYield),
+    yieldBasis: alternative.yieldBasis == null ? null : String(alternative.yieldBasis),
+    expectedPerCraft: nullableNumber(alternative.expectedPerCraft),
+    expectedPerProgress: nullableNumber(alternative.expectedPerProgress),
+    expectedPerResource: nullableNumber(alternative.expectedPerResource),
+    resourceHealth: nullableNumber(alternative.resourceHealth),
+    actionsRequired: nullableNumber(alternative.actionsRequired),
+    dropChance: nullableNumber(alternative.dropChance),
+    dropQuantity: nullableNumber(alternative.dropQuantity),
+    guaranteedYield: nullableNumber(alternative.guaranteedYield),
+    gatheringSource: normalizedGatheringSource(alternative.gatheringSource),
     inputs: (Array.isArray(alternative.inputs) ? alternative.inputs : [])
       .map((input) => ({ key: inputIdentity(input), quantity: Number(input.quantity ?? 0) }))
       .filter((input) => input.key)
@@ -63,7 +100,11 @@ function safestAlternative(alternatives) {
 }
 
 export function routeReviewFingerprint(route = {}) {
-  const alternatives = validProductionAlternatives(route).map(({ label: _displayLabel, ...materialSignature }) => materialSignature);
+  const alternatives = validProductionAlternatives(route).map(({
+    label: _displayLabel,
+    buildingName: _displayBuildingName,
+    ...materialSignature
+  }) => materialSignature);
   return fingerprint({ outputKey: outputKey(route), alternatives });
 }
 
@@ -150,9 +191,11 @@ function parsedReview(row) {
 
 function matchingConfirmation(routeReview, confirmation) {
   const selectedRouteId = String(confirmation?.selectedRouteId ?? "").trim();
+  const calculatedSelectedRouteId = String(routeReview?.selectedRouteId ?? "").trim();
   return confirmation
     && String(confirmation.outputKey ?? "") === routeReview.outputKey
     && String(confirmation.fingerprint ?? "") === routeReview.fingerprint
+    && selectedRouteId === calculatedSelectedRouteId
     && routeReview.alternatives.some((alternative) => alternative.id === selectedRouteId);
 }
 
@@ -165,6 +208,7 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
     const submitted = new Map(confirmations.map((entry) => [String(entry?.outputKey ?? ""), entry]));
     const confirmed = [];
     const unconfirmed = [];
+    const rejectedConfirmations = [];
     for (const route of normalizedRoutes) {
       const current = stored.get(route.outputKey);
       const submission = submitted.get(route.outputKey);
@@ -172,11 +216,13 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
         && current.confirmedFingerprint
         && current.confirmedFingerprint === route.fingerprint
         && current.fingerprint === route.fingerprint
+        && current.selectedRouteId === route.selectedRouteId
         && route.alternatives.some((alternative) => alternative.id === current.selectedRouteId);
+      if (submission && !matchingConfirmation(route, submission)) rejectedConfirmations.push(route);
       if (storedCurrent || matchingConfirmation(route, submission)) confirmed.push(route);
       else if (route.ambiguous) unconfirmed.push(route);
     }
-    return { routeReviews: normalizedRoutes, confirmed, unconfirmed };
+    return { routeReviews: normalizedRoutes, confirmed, unconfirmed, storedReviews: [...stored.values()], rejectedConfirmations };
   };
   return {
     listForPlan,

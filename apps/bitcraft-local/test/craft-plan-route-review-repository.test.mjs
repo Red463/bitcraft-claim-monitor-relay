@@ -5,7 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "../src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "../src/server/craftPlanConfigAudit.mjs";
-import { createCraftPlanRouteReviewRepository } from "../src/server/craftPlanRouteReview.mjs";
+import { computeCraftPlan, normalizeCraftPlanConfig } from "../src/server/craftPlanning.mjs";
+import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "../src/server/craftPlanRouteReview.mjs";
 
 const now = () => "2026-08-28T12:00:00.000Z";
 const actor = { type: "admin_user", id: "4", displayName: "Reviewer" };
@@ -15,6 +16,7 @@ function review(outputKey, fingerprint, { ambiguous = true, selectedRouteId = "s
     outputKey,
     fingerprint,
     ambiguous,
+    selectedRouteId,
     preselectedRouteId: selectedRouteId,
     alternatives: [{ id: "safe" }, { id: "other" }],
   };
@@ -78,6 +80,35 @@ test("route-review schema stores exact typed keys and current confirmation metad
     { outputKey: "cargo:7", fingerprint: "cargo-fingerprint", selectedRouteId: "safe", configurationRevision: 1, reviewer: actor },
     { outputKey: "items:7", fingerprint: "item-fingerprint", selectedRouteId: "safe", configurationRevision: 1, reviewer: actor },
   ]);
+  db.close();
+});
+
+test("submitted and stored confirmations bind to the calculated selected route", () => {
+  const { db, plans, routeReviews } = fixture();
+  const plan = plans.primary();
+  const selectedSafe = review("items:7", "fingerprint-a", { selectedRouteId: "safe" });
+  const wrongSubmission = { outputKey: "items:7", fingerprint: "fingerprint-a", selectedRouteId: "other" };
+
+  assert.deepEqual(routeReviews.previewState(plan.id, [selectedSafe], [wrongSubmission]).unconfirmed.map(({ outputKey }) => outputKey), ["items:7"]);
+  routeReviews.reconcile({
+    planId: plan.id,
+    configurationRevision: 1,
+    routeReviews: [selectedSafe],
+    confirmations: [wrongSubmission],
+    reviewer: actor,
+  });
+  assert.equal(routeReviews.listForPlan(plan.id).length, 0);
+
+  routeReviews.reconcile({
+    planId: plan.id,
+    configurationRevision: 1,
+    routeReviews: [selectedSafe],
+    confirmations: [{ ...wrongSubmission, selectedRouteId: "safe" }],
+    reviewer: actor,
+  });
+  const selectedOther = review("items:7", "fingerprint-a", { selectedRouteId: "other" });
+  assert.deepEqual(routeReviews.previewState(plan.id, [selectedOther], []).unconfirmed.map(({ outputKey }) => outputKey), ["items:7"]);
+  assert.equal(routeReviews.listForPlan(plan.id)[0].selectedRouteId, "safe");
   db.close();
 });
 
@@ -164,6 +195,122 @@ test("legacy public ambiguity is grandfathered until its alternative fingerprint
   }), (error) => error.code === "craft_plan_route_review_required");
   assert.equal(plans.getAdmin(plan.id).revision, 2);
   assert.equal(configAudit.listForPlan(plan.id).length, 1);
+  db.close();
+});
+
+test("public saves gate stale persisted evidence even when previous and candidate previews agree", () => {
+  const { db, plans, routeReviews, configAudit } = fixture();
+  const plan = plans.primary();
+  const oldRoute = review("items:7", "catalog-old");
+  routeReviews.reconcile({
+    planId: plan.id,
+    configurationRevision: 1,
+    routeReviews: [oldRoute],
+    confirmations: [{ outputKey: oldRoute.outputKey, fingerprint: oldRoute.fingerprint, selectedRouteId: oldRoute.selectedRouteId }],
+    reviewer: actor,
+  });
+  const currentRoute = review("items:7", "catalog-current");
+
+  assert.throws(() => plans.update(plan.id, { config: { enabled: true, multipliers: { "items:7": 2 } } }, {
+    expectedRevision: 1,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [currentRoute],
+      previousRouteReviews: [currentRoute],
+      confirmations: [],
+      reviewer: actor,
+    },
+  }), (error) => error.code === "craft_plan_route_review_required");
+  assert.equal(plans.getAdmin(plan.id).revision, 1);
+  assert.equal(configAudit.listForPlan(plan.id).length, 0);
+  assert.equal(routeReviews.listForPlan(plan.id)[0].fingerprint, "catalog-old");
+  db.close();
+});
+
+test("legacy public ambiguity is grandfathered only when no prior review evidence exists", () => {
+  const { db, plans, routeReviews } = fixture();
+  const plan = plans.primary();
+  const currentRoute = review("items:7", "legacy-null");
+  routeReviews.reconcile({
+    planId: plan.id,
+    configurationRevision: 1,
+    routeReviews: [currentRoute],
+    confirmations: [{ outputKey: currentRoute.outputKey, fingerprint: currentRoute.fingerprint, selectedRouteId: currentRoute.selectedRouteId }],
+    reviewer: actor,
+  });
+  db.prepare("UPDATE craft_plan_route_reviews SET confirmed_fingerprint = NULL WHERE plan_id = ?").run(plan.id);
+
+  assert.throws(() => plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 1,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [currentRoute],
+      previousRouteReviews: [currentRoute],
+      confirmations: [],
+      reviewer: actor,
+    },
+  }), (error) => error.code === "craft_plan_route_review_required");
+  assert.equal(plans.getAdmin(plan.id).revision, 1);
+  db.close();
+});
+
+test("real calculated ambiguous routes require confirmation of the calculated selection on public creation", () => {
+  const { db, plans, routeReviews } = fixture();
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [{ id: "70", kind: "items", name: "Alloy", quantity: 4 }],
+  });
+  const detailsByKey = new Map([["items:70", {
+    item: { id: "70", kind: "items", name: "Alloy" },
+    craftingRecipes: [
+      {
+        id: "calculated-safe",
+        name: "Safe alloy",
+        craftedItemStacks: [{ item_id: "70", item_type: "item", quantity: 1 }],
+        consumedItemStacks: [{ item_id: "71", item_type: "item", quantity: 2 }],
+      },
+      {
+        id: "calculated-other",
+        name: "Other alloy",
+        craftedItemStacks: [{ item_id: "70", item_type: "item", quantity: 1 }],
+        consumedItemStacks: [{ item_id: "72", item_type: "item", quantity: 3 }],
+      },
+    ],
+  }]]);
+  const calculated = computeCraftPlan({ config, detailsByKey });
+  const preview = buildCraftPlanPreview({
+    plan: calculated,
+    scope: "shared",
+    configurationRevision: 1,
+    baselineRevision: "calculated-baseline",
+    validation: { valid: true, errors: [] },
+  });
+  const routeState = preview.routeReviews.find(({ outputKey }) => outputKey === "items:70");
+  assert.equal(routeState.ambiguous, true);
+  assert.equal(routeState.selectedRouteId, "calculated-safe");
+
+  assert.throws(() => plans.createShared({ name: "Wrong route", duplicateFromPlanId: plans.primary().id }, {
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [routeState],
+      confirmations: [{ outputKey: routeState.outputKey, fingerprint: routeState.fingerprint, selectedRouteId: "calculated-other" }],
+      reviewer: actor,
+    },
+  }), (error) => error.code === "craft_plan_route_confirmation_mismatch");
+
+  const created = plans.createShared({ name: "Calculated route", duplicateFromPlanId: plans.primary().id }, {
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [routeState],
+      confirmations: [{ outputKey: routeState.outputKey, fingerprint: routeState.fingerprint, selectedRouteId: routeState.selectedRouteId }],
+      reviewer: actor,
+    },
+  });
+  assert.equal(routeReviews.listForPlan(created.id)[0].selectedRouteId, "calculated-safe");
   db.close();
 });
 

@@ -119,3 +119,62 @@ test("route-review fingerprints ignore display-only labels but detect material r
   assert.equal(routeReviewFingerprint(original), routeReviewFingerprint(renamed));
   assert.notEqual(routeReviewFingerprint(original), routeReviewFingerprint(changedInput));
 });
+
+test("route-review fingerprints cover calculation semantics while ignoring display metadata", () => {
+  const materialAlternative = {
+    id: "gather-route",
+    label: "Gather original label",
+    buildingName: "Original building",
+    routeType: "gathering",
+    gatheringMode: "ordinary",
+    gatheringSkill: "Mining",
+    producer: { key: "items:20", kind: "items", id: "20", name: "Display producer" },
+    producerRecipe: { id: "producer-route", name: "Display recipe", buildingName: "Display station", skillName: "Mining" },
+    probabilityStatus: "expected",
+    isProbabilistic: true,
+    isTransportRoute: false,
+    expectedYield: 2,
+    yieldBasis: "per_progress",
+    expectedPerCraft: null,
+    expectedPerProgress: 2,
+    expectedPerResource: 20,
+    resourceHealth: 10,
+    actionsRequired: 3,
+    dropChance: 0.5,
+    dropQuantity: 4,
+    guaranteedYield: 1,
+    gatheringSource: { tag: "Ore", label: "Display source", skill: "Mining" },
+    inputs: [{ key: "items:2", kind: "items", id: "2", quantity: 3 }],
+  };
+  const original = route("items:7", "gather-route", [materialAlternative]);
+  const renamed = structuredClone(original);
+  Object.assign(renamed.alternatives[0], { label: "Renamed label", buildingName: "Renamed building" });
+  Object.assign(renamed.alternatives[0].producer, { name: "Renamed producer" });
+  Object.assign(renamed.alternatives[0].producerRecipe, { name: "Renamed recipe", buildingName: "Renamed station" });
+  Object.assign(renamed.alternatives[0].gatheringSource, { label: "Renamed source" });
+  assert.equal(routeReviewFingerprint(original), routeReviewFingerprint(renamed));
+
+  const mutations = {
+    gatheringMode: (value) => { value.gatheringMode = "prospecting"; },
+    gatheringSkill: (value) => { value.gatheringSkill = "Forestry"; },
+    producer: (value) => { value.producer.id = "21"; value.producer.key = "items:21"; },
+    producerRecipe: (value) => { value.producerRecipe.id = "other-producer-route"; },
+    producerSkill: (value) => { value.producerRecipe.skillName = "Forestry"; },
+    yieldBasis: (value) => { value.yieldBasis = "per_craft"; },
+    expectedPerCraft: (value) => { value.expectedPerCraft = 2; },
+    expectedPerProgress: (value) => { value.expectedPerProgress = 3; },
+    expectedPerResource: (value) => { value.expectedPerResource = 30; },
+    resourceHealth: (value) => { value.resourceHealth = 15; },
+    dropChance: (value) => { value.dropChance = 0.25; },
+    dropQuantity: (value) => { value.dropQuantity = 8; },
+    gatheringSourceTag: (value) => { value.gatheringSource.tag = "Tree"; },
+    gatheringSourceSkill: (value) => { value.gatheringSource.skill = "Forestry"; },
+  };
+  const unchanged = [];
+  for (const [field, mutate] of Object.entries(mutations)) {
+    const changed = structuredClone(original);
+    mutate(changed.alternatives[0]);
+    if (routeReviewFingerprint(original) === routeReviewFingerprint(changed)) unchanged.push(field);
+  }
+  assert.deepEqual(unchanged, []);
+});
