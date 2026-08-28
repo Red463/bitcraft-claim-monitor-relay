@@ -4,6 +4,8 @@
 
 `72d375237f19a027aa8d4e9552416bc31d2136e6` — `feat(craft-plan): add preview route review`
 
+`963017866a86ac0e7500f976717ee59da26da916` — `fix(craft-plan): bind route review evidence`
+
 ## Files changed
 
 - `apps/bitcraft-local/server.mjs`
@@ -40,15 +42,16 @@
 - Server-boundary RED failed all 3 initial route/wiring assertions; implementation passed 3/3.
 - Executable HTTP RED first exposed the absent behavior and later reproduced stale source validation returning `400` before conflict handling. Revision preflight changed that case to the required `409`; final HTTP route test passed 1/1 while exercising owner/admin success, unauthenticated, cross-owner, missing-CSRF, cross-origin, rate-limit, no-persistence, stale conflict, and exact revision increment behavior.
 - Account-deletion RED exposed missing retained-reviewer anonymization, and admin-permission RED exposed the prior `status.view` fallback. Their focused suites passed after the additive fixes.
-- Final focused planner/preview/repository/schema/auth/server set: 138 passed, 0 failed.
+- Independent-review RED produced one signature-domain failure and four repository/orchestration failures: display-only building/name drift and omitted calculation metadata; submitted/stored selected-route mismatches; stale persisted catalog evidence; legacy-null evidence grandfathering; and a real calculated ambiguous route accepting confirmation of a different alternative.
+- The independent-review GREEN runs passed 4/4 signature tests and 11/11 repository/orchestration tests. The real route case uses `computeCraftPlan` to produce two non-empty production alternatives, proves the calculated selection, rejects a different selected route, and persists only the exact calculated selection.
+- Final focused planner/preview/repository/schema/auth/server set: 143 passed, 0 failed.
 
 ## Final verification
 
-- `node --test` focused planner/preview/repository/schema/auth/server files — 138 passed, 0 failed.
-- `corepack pnpm --filter @workspace/bitcraft-local test` — 2704 passed, 0 failed, 3 skipped (2707 total).
+- `node --test` focused planner/preview/repository/schema/auth/server files — 143 passed, 0 failed.
+- `corepack pnpm --filter @workspace/bitcraft-local test` — 2710 passed, 0 failed, 3 skipped (2713 total).
 - `corepack pnpm --filter @workspace/bitcraft-local run build` — passed server/provider/bindings builds, 1462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
-- `git diff --cached --check` — passed before the implementation commit; only expected Windows line-ending notices were emitted while staging.
-- The final label-only signature correction was confined to normalized signature projection plus its focused test. Per the task checkpoint, the immediately preceding fresh full-suite and production-build evidence was retained after the final 138-test focused run.
+- `git diff --cached --check` — passed before both implementation commits; only expected Windows line-ending notices were emitted while staging.
 
 ## Migration notes
 
@@ -71,5 +74,6 @@
 
 - Standards review: the implementation stays in the requested backend seams, uses additive SQLite schema and existing repository transactions, keeps route orchestration in `server.mjs`, and leaves the locked Task 1 calculation/Task 2 audit contracts intact.
 - Spec review found and fixed five issues before handoff: a personal update variable temporal-dead-zone error, an unsafe attempt to alter locked byproduct route selection, stale validation preceding `409`, missing shared-create ambiguity gating, and display labels participating in material fingerprints.
+- Independent review corrections bind submitted and stored evidence to the preview's exact calculated selection; make any stale or legacy-null persisted evidence defeat grandfathering; and include route type, gathering mode/skill/source, producer identity, producer-recipe identity/skill, all expected/drop/guaranteed yield fields, resource health, action count, probability state, and typed inputs in the material signature while excluding display-only names and building labels.
 - Preview routes have executable behavioral coverage at the HTTP seam; authorization and atomic gating have executable coverage at the HTTP/repository seams. Static boundary tests supplement rather than replace them.
 - No unresolved correctness, security, migration, privacy, or compatibility finding remains in the Task 3 diff.
