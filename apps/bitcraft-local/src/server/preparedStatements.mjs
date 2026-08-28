@@ -38,6 +38,23 @@ export function createPreparedStatements(db) {
     VALUES (?, ?, ?, ?)
     ON CONFLICT(plan_key) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at
   `),
+  insertCraftPlanConfigAudit: db.prepare(`
+    INSERT INTO craft_plan_config_audit (
+      plan_id, claim_id, actor_type, actor_id, actor_display_name, occurred_at,
+      previous_revision, new_revision, action, changes_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  listCraftPlanConfigAudit: db.prepare(`
+    SELECT * FROM craft_plan_config_audit
+    WHERE plan_id = ?
+    ORDER BY occurred_at ASC, id ASC
+  `),
+  deleteCraftPlanConfigAudit: db.prepare("DELETE FROM craft_plan_config_audit WHERE plan_id = ?"),
+  anonymizeCraftPlanConfigAuditActor: db.prepare(`
+    UPDATE craft_plan_config_audit
+    SET actor_id = NULL, actor_display_name = ?
+    WHERE actor_type = 'user_account' AND actor_id = ?
+  `),
   insertCraftPlanProgressSnapshot: db.prepare(`
     INSERT INTO craft_plan_progress_audit_snapshots (
       claim_id, plan_id, captured_at, baseline_revision, fingerprint, full_snapshot,
@@ -56,6 +73,12 @@ export function createPreparedStatements(db) {
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
+  craftPlanProgressSnapshotAt: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_snapshots
+    WHERE claim_id = ? AND plan_id = ? AND captured_at = ?
+    ORDER BY id DESC
+    LIMIT 1
+  `),
   listLatestCraftPlanProgressSnapshots: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
     WHERE claim_id = ? AND plan_id = ?
@@ -71,6 +94,22 @@ export function createPreparedStatements(db) {
     INSERT INTO craft_plan_progress_audit_events (
       claim_id, plan_id, captured_at, baseline_revision, event_type, summary, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
+  insertCraftPlanProgressCausalGroup: db.prepare(`
+    INSERT OR IGNORE INTO craft_plan_progress_audit_causal_groups (
+      claim_id, plan_id, group_id, from_captured_at, to_captured_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  listCraftPlanProgressCausalGroups: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_causal_groups
+    WHERE claim_id = ? AND plan_id = ? AND to_captured_at >= ? AND to_captured_at <= ?
+    ORDER BY to_captured_at DESC, id DESC
+    LIMIT 10000
+  `),
+  exportCraftPlanProgressCausalGroups: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_causal_groups
+    WHERE claim_id = ? AND plan_id = ? AND to_captured_at >= ? AND to_captured_at <= ?
+    ORDER BY to_captured_at DESC, id DESC
   `),
   listCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
@@ -125,6 +164,15 @@ export function createPreparedStatements(db) {
     WHERE id IN (
       SELECT id FROM craft_plan_progress_audit_events
       WHERE captured_at < ?
+      ORDER BY id ASC
+      LIMIT ?
+    )
+  `),
+  pruneCraftPlanProgressCausalGroups: db.prepare(`
+    DELETE FROM craft_plan_progress_audit_causal_groups
+    WHERE id IN (
+      SELECT id FROM craft_plan_progress_audit_causal_groups
+      WHERE to_captured_at < ?
       ORDER BY id ASC
       LIMIT ?
     )

@@ -13,6 +13,7 @@ test("server records complete planner progress and retains last-good progress du
   assert.match(computedCraftPlan, /craftPlanBaselineConfig\(config\)/);
   assert.match(computedCraftPlan, /craftPlanBaselineRevision/);
   assert.match(computedCraftPlan, /buildCraftPlanProgressSnapshot/);
+  assert.match(computedCraftPlan, /plan: \{ \.\.\.livePlan, validation \}/);
   assert.match(computedCraftPlan, /recordSuccess/);
   assert.match(server, /resolveFailedCraftPlanPublication/);
   assert.match(computedCraftPlan, /resolveFailedCraftPlanPublication/);
@@ -42,4 +43,14 @@ test("server exposes authenticated progress audit status and gzip export routes"
   assert.match(server, /application\/gzip/);
   assert.match(server, /content-disposition/);
   assert.match(server, /craft-plan-progress-audit-/);
+  assert.match(server, /progress-audit\/compare/);
+  assert.match(server, /compareCheckpoints/);
+  assert.match(server, /queryCausalGroups/);
+  for (const filter of ["page", "pageSize", "since", "until", "triggerCategory", "effectCategory", "materialKey", "unresolvedOnly"]) {
+    assert.match(server, new RegExp(`searchParams\\.get\\(\"${filter}\"\\)`), filter);
+  }
+  assert.match(server, /retentionDays: 30/);
+  assert.match(server, /createCraftPlanConfigAuditRepository/);
+  assert.match(server, /type: "admin"/);
+  assert.match(server, /type: "user_account"/);
 });

@@ -268,7 +268,7 @@ test("audit ranges are explicit and bounded by retention", () => {
   );
   assert.equal(
     normalizeCraftPlanAuditRange("all", "2026-07-24T12:00:00.000Z").since,
-    "2026-07-10T12:00:00.000Z",
+    "2026-06-24T12:00:00.000Z",
   );
   assert.throws(
     () => normalizeCraftPlanAuditRange("30d", "2026-07-24T12:00:00.000Z"),

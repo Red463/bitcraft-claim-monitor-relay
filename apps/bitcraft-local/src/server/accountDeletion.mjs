@@ -175,10 +175,12 @@ export function deleteUserAccount(db, {
     deleted.craft_plan_progress_audit_events = 0;
     deleted.craft_plan_progress_audit_snapshots = 0;
     deleted.craft_plan_progress_audit_state = 0;
+    deleted.craft_plan_config_audit = 0;
     for (const planId of ownedPlanIds) {
       deleted.craft_plan_progress_audit_events += count(db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(planId));
       deleted.craft_plan_progress_audit_snapshots += count(db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(planId));
       deleted.craft_plan_progress_audit_state += count(db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(planId));
+      deleted.craft_plan_config_audit += count(db.prepare("DELETE FROM craft_plan_config_audit WHERE plan_id = ?").run(planId));
     }
     deleted.access_control_allowlist_entries = removeAccessControlAllowlistEntries(db, discordId, deletedAt);
 
@@ -186,6 +188,11 @@ export function deleteUserAccount(db, {
       discord_mod_cases: anonymizeModerationCases(db, current, anonymizedSubject),
       admin_audit_log: scrubAuditRows(db, current, anonymizedSubject),
       discord_delivery_log: scrubDeliveryRows(db, current),
+      craft_plan_config_audit: count(db.prepare(`
+        UPDATE craft_plan_config_audit
+        SET actor_id = NULL, actor_display_name = ?
+        WHERE actor_type = 'user_account' AND actor_id = ?
+      `).run(anonymizedSubject, String(userId))),
     };
     deleted.user_accounts = count(db.prepare("DELETE FROM user_accounts WHERE id = ? AND discord_id = ?").run(userId, discordId));
     if (manageTransaction) db.exec("COMMIT");

@@ -127,7 +127,11 @@ export function applyCraftPlanRecordsMigration(db, { now = () => new Date().toIS
   }
 }
 
-export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, now = () => new Date().toISOString() } = {}) {
+export function createCraftPlanRepository(db, {
+  randomUUID = cryptoRandomUUID,
+  now = () => new Date().toISOString(),
+  configAudit = null,
+} = {}) {
   const row = (id) => db.prepare("SELECT * FROM craft_plans WHERE id = ?").get(String(id));
   const ownerCharacter = (ownerUserId) => db.prepare("SELECT character_player_id FROM user_accounts WHERE id = ? AND character_status = 'approved'").get(ownerUserId)?.character_player_id;
   const visible = (entry, subject = {}) => entry && (entry.scope === "shared" || subject.admin || Number(entry.owner_user_id) === Number(subject.userId));
@@ -138,6 +142,25 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
     const entry = row(id);
     return visible(entry, subject) ? publicPlan(entry) : null;
   };
+  const auditValue = (plan) => plan ? ({
+    id: plan.id,
+    name: plan.name,
+    scope: plan.scope,
+    ownerUserId: plan.ownerUserId,
+    primary: plan.primary,
+    config: plan.config,
+  }) : null;
+  const recordConfigAudit = (before, after, action, options, timestamp) => configAudit?.record({
+    planId: after?.id ?? before?.id,
+    claimId: options.claimId ?? null,
+    actor: options.actor,
+    occurredAt: timestamp,
+    previousRevision: before?.revision ?? null,
+    newRevision: after?.revision ?? before?.revision,
+    action,
+    before: auditValue(before),
+    after: auditValue(after),
+  });
   const createPersonal = ({ ownerUserId, name: requestedName, duplicateFromPlanId }, overrides = {}) => {
     const count = Number(db.prepare("SELECT COUNT(*) AS count FROM craft_plans WHERE scope = 'personal' AND owner_user_id = ?").get(ownerUserId).count);
     if (count >= MAX_PERSONAL_CRAFT_PLANS) throw problem(`Personal plans are limited to ${MAX_PERSONAL_CRAFT_PLANS}`, 409, "craft_plan_limit");
@@ -146,12 +169,19 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
     const sanitized = personalConfig(source?.config ?? { enabled: true, targets: [] }, ownerCharacter(ownerUserId));
     const timestamp = now();
     const id = (overrides.randomUUID ?? randomUUID)();
-    db.prepare(`INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
-      VALUES (?, ?, 'personal', ?, 0, 1, ?, ?, ?)`)
-      .run(id, name(requestedName), ownerUserId, JSON.stringify({ ...sanitized.config, name: undefined }), timestamp, timestamp);
-    return { plan: publicPlan(row(id)), warnings: sanitized.changed ? ["Character sources that do not belong to the plan owner were removed."] : [] };
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(`INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
+        VALUES (?, ?, 'personal', ?, 0, 1, ?, ?, ?)`)
+        .run(id, name(requestedName), ownerUserId, JSON.stringify({ ...sanitized.config, name: undefined }), timestamp, timestamp);
+      const plan = publicPlan(row(id));
+      recordConfigAudit(null, plan, "create", overrides, timestamp);
+      db.exec("COMMIT");
+      return { plan, warnings: sanitized.changed ? ["Character sources that do not belong to the plan owner were removed."] : [] };
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
-  const update = (id, changes, { expectedRevision, admin = false, userId = null } = {}) => {
+  const update = (id, changes, options = {}) => {
+    const { expectedRevision, admin = false, userId = null } = options;
     const entry = row(id);
     if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
     requireRevision(entry, expectedRevision);
@@ -163,8 +193,15 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
     }
     delete config.name;
     const timestamp = now();
-    db.prepare("UPDATE craft_plans SET name = ?, config_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?").run(name(changes.name ?? entry.name), JSON.stringify(config), timestamp, entry.id);
-    return publicPlan(row(entry.id));
+    const before = publicPlan(entry);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("UPDATE craft_plans SET name = ?, config_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?").run(name(changes.name ?? entry.name), JSON.stringify(config), timestamp, entry.id);
+      const after = publicPlan(row(entry.id));
+      recordConfigAudit(before, after, "update", options, timestamp);
+      db.exec("COMMIT");
+      return after;
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
   const remove = (id, { expectedRevision, admin = false, userId = null } = {}) => {
     const entry = row(id);
@@ -176,6 +213,7 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
       db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(entry.id);
+      configAudit?.deleteForPlan(entry.id);
       db.prepare("DELETE FROM craft_plans WHERE id = ?").run(entry.id);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
@@ -187,7 +225,8 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
     listVisible: ({ userId = null } = {}) => db.prepare("SELECT * FROM craft_plans WHERE scope = 'shared' OR owner_user_id = ? ORDER BY scope = 'personal', is_primary DESC, updated_at DESC").all(userId).map(planSummary),
     listAdmin: ({ scope = "", query = "" } = {}) => db.prepare("SELECT * FROM craft_plans WHERE (? = '' OR scope = ?) AND name LIKE ? ORDER BY is_primary DESC, updated_at DESC LIMIT 200").all(scope, scope, `%${query}%`).map(planSummary),
     createPersonal,
-    createShared({ name: requestedName, duplicateFromPlanId }, { admin = false } = {}) {
+    createShared({ name: requestedName, duplicateFromPlanId }, options = {}) {
+      const { admin = false } = options;
       if (!admin) throw problem("Administrator access required", 403, "admin_required");
       const count = Number(db.prepare("SELECT COUNT(*) AS count FROM craft_plans WHERE scope = 'shared'").get().count);
       if (count >= MAX_SHARED_CRAFT_PLANS) throw problem(`Shared plans are limited to ${MAX_SHARED_CRAFT_PLANS}`, 409, "craft_plan_limit");
@@ -197,24 +236,36 @@ export function createCraftPlanRepository(db, { randomUUID = cryptoRandomUUID, n
       const id = randomUUID();
       const config = { ...(source?.config ?? { enabled: true, targets: [] }) };
       delete config.name;
-      db.prepare(`INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
-        VALUES (?, ?, 'shared', NULL, 0, 1, ?, ?, ?)`)
-        .run(id, name(requestedName), JSON.stringify(config), timestamp, timestamp);
-      return publicPlan(row(id));
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare(`INSERT INTO craft_plans (id, name, scope, owner_user_id, is_primary, revision, config_json, created_at, updated_at)
+          VALUES (?, ?, 'shared', NULL, 0, 1, ?, ?, ?)`)
+          .run(id, name(requestedName), JSON.stringify(config), timestamp, timestamp);
+        const plan = publicPlan(row(id));
+        recordConfigAudit(null, plan, "create", options, timestamp);
+        db.exec("COMMIT");
+        return plan;
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
     },
     update,
     remove,
-    setPrimary(id, { expectedRevision, admin = false } = {}) {
+    setPrimary(id, options = {}) {
+      const { expectedRevision, admin = false } = options;
       if (!admin) throw problem("Administrator access required", 403, "admin_required");
       const entry = row(id);
       if (!entry || entry.scope !== "shared") throw problem("Craft plan not found", 404, "craft_plan_not_found");
       requireRevision(entry, expectedRevision);
       if (entry.is_primary) return publicPlan(entry);
       const timestamp = now();
+      const beforeTarget = publicPlan(entry);
+      const previousPrimaryRow = db.prepare("SELECT * FROM craft_plans WHERE is_primary = 1 LIMIT 1").get();
+      const beforePreviousPrimary = publicPlan(previousPrimaryRow);
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare("UPDATE craft_plans SET is_primary = 0, revision = revision + 1, updated_at = ? WHERE is_primary = 1").run(timestamp);
         db.prepare("UPDATE craft_plans SET is_primary = 1, revision = revision + 1, updated_at = ? WHERE id = ?").run(timestamp, entry.id);
+        recordConfigAudit(beforeTarget, publicPlan(row(entry.id)), "primary", options, timestamp);
+        if (beforePreviousPrimary) recordConfigAudit(beforePreviousPrimary, publicPlan(row(beforePreviousPrimary.id)), "primary", options, timestamp);
         db.exec("COMMIT");
       } catch (error) { db.exec("ROLLBACK"); throw error; }
       return publicPlan(row(entry.id));

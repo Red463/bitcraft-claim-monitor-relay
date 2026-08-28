@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
-const AUDIT_RETENTION_DAYS = 14;
+const AUDIT_RETENTION_DAYS = 30;
 const SENSITIVE_KEYS = /(authorization|cookie|password|secret|session|token)/i;
 
 function redactSensitiveText(value) {
@@ -81,6 +81,7 @@ function normalizePlanInputs(config = {}) {
   return {
     targets: normalizeTargets(config.targets),
     routeOverrides: stable(sanitized(config.routeOverrides ?? {})),
+    routeReviews: stable(sanitized(config.routeReviews ?? {})),
     gatheredItemKeys: sortedStrings(config.gatheredItemKeys),
     multipliers: normalizeMultipliers(config.multipliers),
     sourceRules: normalizeSourceRules(config.sourceRules),
@@ -146,6 +147,47 @@ function normalizeEffortProgress(progress = {}) {
   return sanitized(progress);
 }
 
+function capturedMaterialKey(value = {}) {
+  const explicit = text(value.key);
+  if (explicit) return explicit;
+  const id = text(value.id ?? value.itemId ?? value.entityId);
+  if (!id) return "";
+  const rawKind = text(value.kind ?? value.itemType ?? value.item_type).toLowerCase();
+  const kind = rawKind === "cargo" || rawKind === "1" ? "cargo" : rawKind === "building" ? "building" : "items";
+  return `${kind}:${id}`;
+}
+
+function capturedDependencyPaths(plan = {}, config = {}) {
+  const childrenByOutput = new Map();
+  for (const step of Array.isArray(plan.steps) ? plan.steps : []) {
+    const outputKey = capturedMaterialKey(step?.output);
+    if (!outputKey) continue;
+    const children = childrenByOutput.get(outputKey) ?? new Set();
+    for (const input of Array.isArray(step?.inputs) ? step.inputs : []) {
+      const inputKey = capturedMaterialKey(input);
+      if (inputKey) children.add(inputKey);
+    }
+    childrenByOutput.set(outputKey, children);
+  }
+  const pathsByMaterial = new Map();
+  const roots = normalizeTargets(config.targets).map(capturedMaterialKey).filter(Boolean);
+  function visit(key, path, visited) {
+    if (visited.has(key) || path.length > 16) return;
+    const nextPath = [...path, key];
+    const existing = pathsByMaterial.get(key) ?? [];
+    existing.push(nextPath);
+    pathsByMaterial.set(key, existing);
+    const nextVisited = new Set(visited).add(key);
+    for (const child of [...(childrenByOutput.get(key) ?? [])].sort()) visit(child, nextPath, nextVisited);
+  }
+  for (const root of roots) visit(root, [], new Set());
+  return new Map([...pathsByMaterial].map(([key, paths]) => [
+    key,
+    [...new Map(paths.map((path) => [path.join("\u0000"), path])).values()]
+      .sort((left, right) => left.join("\u0000").localeCompare(right.join("\u0000"))),
+  ]));
+}
+
 export function buildCraftPlanProgressSnapshot({
   claimId,
   plan = {},
@@ -156,20 +198,38 @@ export function buildCraftPlanProgressSnapshot({
   const config = plan.config ?? {};
   const effortProgress = normalizeEffortProgress(plan.effortProgress ?? {});
   const planInputs = normalizePlanInputs(config);
+  const selectedDependencyPaths = capturedDependencyPaths(plan, config);
   const baselineInputs = normalizeBaselineInputs(config, {
     catalogRevision: metadata.catalogRevision,
     modelVersion: metadata.modelVersion ?? effortProgress.modelVersion,
   });
   const materials = (Array.isArray(plan.materials) ? plan.materials : []).map((material) => {
     const key = text(material?.key);
+    const planRequired = number(material?.planRequired ?? material?.bufferedRequired ?? material?.required);
+    const requiredNow = number(material?.requiredNow ?? material?.bufferedRequired ?? material?.required);
+    const missingNow = number(material?.missingNow ?? material?.missing);
+    const visibleStock = number(material?.visibleStock ?? material?.available);
+    const guaranteedCraftOutput = number(material?.guaranteedCraftOutput ?? material?.guaranteedInProgress ?? material?.guaranteedActiveOutput);
+    const estimatedCraftOutput = number(material?.estimatedCraftOutput ?? material?.estimatedInProgress ?? material?.estimatedActiveOutput);
     return {
       key,
       name: text(material?.name ?? material?.label),
-      required: number(material?.bufferedRequired ?? material?.required),
-      missing: number(material?.missing),
-      available: number(material?.available),
-      guaranteedInProgress: number(material?.guaranteedInProgress ?? material?.guaranteedActiveOutput),
-      estimatedInProgress: number(material?.estimatedInProgress ?? material?.estimatedActiveOutput),
+      planRequired,
+      requiredNow,
+      missingNow,
+      required: number(material?.required ?? requiredNow),
+      missing: number(material?.missing ?? missingNow),
+      visibleStock,
+      available: number(material?.available ?? visibleStock),
+      guaranteedCraftOutput,
+      estimatedCraftOutput,
+      guaranteedInProgress: number(material?.guaranteedInProgress ?? guaranteedCraftOutput),
+      estimatedInProgress: number(material?.estimatedInProgress ?? estimatedCraftOutput),
+      dependencyPaths: ((Array.isArray(material?.dependencyPaths) && material.dependencyPaths.length)
+        ? material.dependencyPaths
+        : selectedDependencyPaths.get(key) ?? [])
+        .map((path) => (Array.isArray(path) ? path.map(text).filter(Boolean) : []))
+        .filter((path) => path.length > 0),
       effortWeight: weightFor(weights, key),
       sources: (Array.isArray(material?.sources) ? material.sources : [])
         .map(normalizeStockSource)
@@ -188,7 +248,7 @@ export function buildCraftPlanProgressSnapshot({
   })).sort((left, right) => sourceSortKey(left).localeCompare(sourceSortKey(right)));
   const baselineRevision = text(effortProgress.baselineRevision);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     claimId: text(claimId),
     planId: text(metadata.planId || plan?.plan?.id || "legacy-primary"),
     capturedAt: text(metadata.capturedAt || new Date().toISOString()),
@@ -201,6 +261,8 @@ export function buildCraftPlanProgressSnapshot({
       projected: number(effortProgress?.projected?.overall?.completion ?? effortProgress?.overall?.completion),
     },
     effortProgress,
+    buildingCompletion: stable(sanitized(plan.buildingCompletion ?? config.buildingProgress ?? {})),
+    validation: stable(sanitized(plan.validation ?? plan.validationResult ?? { valid: true, errors: [] })),
     materials,
     sourceStatus: normalizedSourceStatus,
     metadata: {
@@ -316,10 +378,11 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
     const before = beforeMaterials.get(itemKey);
     const after = afterMaterials.get(itemKey);
     for (const [type, field] of [
-      ["requirement_delta", "required"],
-      ["guaranteed_output_delta", "guaranteedInProgress"],
-      ["estimated_output_delta", "estimatedInProgress"],
-      ["missing_quantity_delta", "missing"],
+      ["requirement_delta", evidenceField(before, after, "planRequired", "required")],
+      ["required_now_delta", evidenceField(before, after, "requiredNow", "required")],
+      ["guaranteed_output_delta", evidenceField(before, after, "guaranteedCraftOutput", "guaranteedInProgress")],
+      ["estimated_output_delta", evidenceField(before, after, "estimatedCraftOutput", "estimatedInProgress")],
+      ["missing_quantity_delta", evidenceField(before, after, "missingNow", "missing")],
     ]) {
       const event = valueDeltaEvent(type, itemKey, before, after, field);
       if (event) events.push(event);
@@ -454,6 +517,126 @@ function gunzipJson(value) {
   return JSON.parse(gunzipSync(Buffer.from(value)).toString("utf8"));
 }
 
+function evidenceField(before, after, currentField, legacyField) {
+  return Object.prototype.hasOwnProperty.call(before ?? {}, currentField)
+    || Object.prototype.hasOwnProperty.call(after ?? {}, currentField)
+    ? currentField
+    : legacyField;
+}
+
+function dependencyPathsFor(previous, current, materialKey) {
+  const material = materialMap(current).get(materialKey) ?? materialMap(previous).get(materialKey);
+  const paths = (Array.isArray(material?.dependencyPaths) ? material.dependencyPaths : [])
+    .map((path) => (Array.isArray(path) ? path.map(text).filter(Boolean) : []))
+    .filter((path) => path.length > 0);
+  return paths;
+}
+
+function observedTrigger(event) {
+  if (["stock_delta", "stock_source_added", "stock_source_removed"].includes(event.type)) return "stock_movement";
+  if (["craft_added", "craft_removed", "craft_changed"].includes(event.type)) return "craft_transition";
+  if (["source_failure", "source_recovered", "source_unavailable", "source_restored", "source_removed"].includes(event.type)) return "source_health";
+  if (["source_configured", "source_unconfigured", "building_progress_changed"].includes(event.type)) return "plan_config_save";
+  return null;
+}
+
+function derivedEffect(event) {
+  if (["requirement_delta", "required_now_delta"].includes(event.type)) return "demand_change";
+  if (event.type === "missing_quantity_delta") return "shortage_change";
+  if (event.type === "progress_delta") return "progress_change";
+  if (["guaranteed_output_delta", "estimated_output_delta"].includes(event.type)) return "craft_output_change";
+  return null;
+}
+
+export function buildCraftPlanCausalGroup(previous, current, events = []) {
+  const observedTriggers = [];
+  const derivedEffects = [];
+  for (const event of events) {
+    const triggerCategory = observedTrigger(event);
+    if (triggerCategory) observedTriggers.push({ category: triggerCategory, type: event.type, materialKey: text(event.itemKey) || null });
+    const effectCategory = derivedEffect(event);
+    if (effectCategory) derivedEffects.push({ category: effectCategory, type: event.type, materialKey: text(event.itemKey) || null, before: event.before, after: event.after, delta: event.delta });
+    if (event.type === "baseline_change") {
+      const reasons = Array.isArray(event.reasons) ? event.reasons : [];
+      if (reasons.some((reason) => /catalogue|model version/i.test(reason))) {
+        observedTriggers.push({ category: "catalogue_baseline_change", type: event.type, materialKey: null });
+      }
+      if (reasons.some((reason) => !/catalogue|model version/i.test(reason))) {
+        observedTriggers.push({ category: "plan_config_save", type: event.type, materialKey: null });
+      }
+    }
+  }
+  const affectedMaterialKeys = [...new Set(events.map((event) => text(event.itemKey)).filter(Boolean))].sort();
+  const dependencyPaths = affectedMaterialKeys.map((materialKey) => ({
+    materialKey,
+    paths: dependencyPathsFor(previous, current, materialKey),
+  })).filter((entry) => entry.paths.length > 0);
+  const knownPathKeys = new Set(dependencyPaths.map((entry) => entry.materialKey));
+  const unresolvedRelationships = derivedEffects.filter((effect) => effect.materialKey && !knownPathKeys.has(effect.materialKey))
+    .map((effect) => ({
+      materialKey: effect.materialKey,
+      effectType: effect.type,
+      reason: observedTriggers.length
+        ? "Captured evidence does not include a selected recipe dependency path for this relationship."
+        : "Captured evidence does not prove which observed trigger caused this effect.",
+    }));
+  const core = {
+    planId: text(current?.planId || previous?.planId || "legacy-primary"),
+    span: { from: text(previous?.capturedAt), to: text(current?.capturedAt) },
+    checkpoints: {
+      from: { capturedAt: text(previous?.capturedAt), baselineRevision: text(previous?.baselineRevision) },
+      to: { capturedAt: text(current?.capturedAt), baselineRevision: text(current?.baselineRevision) },
+    },
+    observedTriggers,
+    derivedEffects,
+    dependencyPaths,
+    unresolvedRelationships,
+    materialKeys: affectedMaterialKeys,
+    events: sanitized(events),
+  };
+  return { groupId: hash(core), ...core };
+}
+
+function parseCausalGroupRow(row) {
+  try { return JSON.parse(String(row?.payload_json ?? "{}")); } catch {
+    return {
+      groupId: text(row?.group_id),
+      span: { from: text(row?.from_captured_at), to: text(row?.to_captured_at) },
+      observedTriggers: [], derivedEffects: [], dependencyPaths: [], unresolvedRelationships: [], materialKeys: [], events: [], corrupt: true,
+    };
+  }
+}
+
+function compatibilityForSnapshots(snapshots) {
+  const legacyEvidence = snapshots.some((snapshot) => number(snapshot?.schemaVersion) === 1);
+  return {
+    legacyEvidence,
+    limitations: legacyEvidence
+      ? ["Schema version 1 evidence does not contain stable planRequired/requiredNow/missingNow totals, explicit visible stock, selected dependency paths, or building completion. Historical values are not reconstructed from the current catalogue."]
+      : [],
+  };
+}
+
+function changed(before, after) {
+  const safeBefore = stable(sanitized(before));
+  const safeAfter = stable(sanitized(after));
+  return { changed: JSON.stringify(safeBefore) !== JSON.stringify(safeAfter), before: safeBefore, after: safeAfter };
+}
+
+function comparisonDifferences(before, after) {
+  const materialSources = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, sources: material.sources ?? [] }));
+  const crafts = (snapshot) => (snapshot?.materials ?? []).map((material) => ({ key: material.key, activeCraftSources: material.activeCraftSources ?? [] }));
+  return {
+    baseline: changed({ baselineRevision: before?.baselineRevision, baselineInputs: before?.baselineInputs }, { baselineRevision: after?.baselineRevision, baselineInputs: after?.baselineInputs }),
+    routeConfig: changed({ planInputs: before?.planInputs, fingerprint: before?.planConfigFingerprint }, { planInputs: after?.planInputs, fingerprint: after?.planConfigFingerprint }),
+    materials: changed(before?.materials ?? [], after?.materials ?? []),
+    sources: changed({ sourceStatus: before?.sourceStatus ?? [], materials: materialSources(before) }, { sourceStatus: after?.sourceStatus ?? [], materials: materialSources(after) }),
+    craft: changed(crafts(before), crafts(after)),
+    buildingProgress: changed({ buildingCompletion: before?.buildingCompletion, progress: before?.progress }, { buildingCompletion: after?.buildingCompletion, progress: after?.progress }),
+    validation: changed(before?.validation ?? null, after?.validation ?? null),
+  };
+}
+
 function parseEventRow(row) {
   let payload = {};
   try {
@@ -566,10 +749,12 @@ export function createCraftPlanProgressAuditRepository(db, {
     const cutoff = new Date(timestamp.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const snapshotResult = statements.pruneCraftPlanProgressSnapshots.run(cutoff, pruneBatchSize);
     const eventResult = statements.pruneCraftPlanProgressEvents.run(cutoff, pruneBatchSize);
+    const causalResult = statements.pruneCraftPlanProgressCausalGroups.run(cutoff, pruneBatchSize);
     return {
       cutoff,
       snapshotsDeleted: number(snapshotResult.changes),
       eventsDeleted: number(eventResult.changes),
+      causalGroupsDeleted: number(causalResult.changes),
     };
   }
 
@@ -643,6 +828,12 @@ export function createCraftPlanProgressAuditRepository(db, {
         lastFullSnapshotAt = capturedAt;
       }
       for (const event of events) insertEvent(claimId, planId, capturedAt, snapshot.baselineRevision, event);
+      if (previous && events.length) {
+        const group = buildCraftPlanCausalGroup(previous, snapshot, events);
+        statements.insertCraftPlanProgressCausalGroup.run(
+          claimId, planId, group.groupId, group.span.from, group.span.to, JSON.stringify(group),
+        );
+      }
       updateState(claimId, planId, {
         lastFingerprint: fingerprint,
         lastPayloadGzip: payloadGzip,
@@ -746,6 +937,74 @@ export function createCraftPlanProgressAuditRepository(db, {
     return row ? parseEventRow(row) : null;
   }
 
+  function matchingCausalGroups(claimId, {
+    planId = "legacy-primary",
+    since = "0000-01-01T00:00:00.000Z",
+    until = "9999-12-31T23:59:59.999Z",
+    triggerCategory = "",
+    effectCategory = "",
+    materialKey = "",
+    unresolvedOnly = false,
+    unbounded = false,
+  } = {}) {
+    const statement = unbounded
+      ? statements.exportCraftPlanProgressCausalGroups
+      : statements.listCraftPlanProgressCausalGroups;
+    return statement
+      .all(text(claimId), text(planId), text(since), text(until))
+      .map(parseCausalGroupRow)
+      .filter((group) => !triggerCategory || group.observedTriggers?.some((entry) => entry.category === triggerCategory))
+      .filter((group) => !effectCategory || group.derivedEffects?.some((entry) => entry.category === effectCategory))
+      .filter((group) => !materialKey || group.materialKeys?.includes(materialKey))
+      .filter((group) => !unresolvedOnly || (group.unresolvedRelationships?.length ?? 0) > 0);
+  }
+
+  function queryCausalGroups(claimId, {
+    page = 1,
+    pageSize = 50,
+    ...filters
+  } = {}) {
+    const boundedPageSize = Math.min(200, Math.max(1, Math.trunc(number(pageSize) || 50)));
+    const boundedPage = Math.max(1, Math.trunc(number(page) || 1));
+    const filtered = matchingCausalGroups(claimId, filters);
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / boundedPageSize));
+    const offset = (boundedPage - 1) * boundedPageSize;
+    return {
+      causalGroups: filtered.slice(offset, offset + boundedPageSize),
+      pagination: {
+        page: boundedPage, pageSize: boundedPageSize, total, totalPages,
+        hasNext: offset + boundedPageSize < total,
+        hasPrevious: boundedPage > 1,
+      },
+    };
+  }
+
+  function storedCheckpoint(claimId, planId, capturedAt) {
+    const row = statements.craftPlanProgressSnapshotAt.get(text(claimId), text(planId), text(capturedAt));
+    if (!row) return { error: { code: "missing_evidence", message: `No stored checkpoint exists at ${text(capturedAt)}.` } };
+    try { return { snapshot: gunzipJson(row.payload_gzip) }; } catch {
+      return { error: { code: "corrupt_evidence", message: `Stored checkpoint ${text(capturedAt)} is corrupt.` } };
+    }
+  }
+
+  function compareCheckpoints(claimId, { planId = "legacy-primary", from, to } = {}) {
+    const before = storedCheckpoint(claimId, planId, from);
+    const after = storedCheckpoint(claimId, planId, to);
+    if (before.error || after.error) return { ok: false, error: before.error ?? after.error, limitations: [] };
+    const snapshots = [before.snapshot, after.snapshot];
+    return {
+      ok: true,
+      planId: text(planId),
+      checkpoints: {
+        from: { capturedAt: text(before.snapshot.capturedAt), schemaVersion: number(before.snapshot.schemaVersion) || 1 },
+        to: { capturedAt: text(after.snapshot.capturedAt), schemaVersion: number(after.snapshot.schemaVersion) || 1 },
+      },
+      differences: comparisonDifferences(before.snapshot, after.snapshot),
+      compatibility: compatibilityForSnapshots(snapshots),
+    };
+  }
+
   function exportRange(claimId, range, planId = "legacy-primary") {
     const warnings = [];
     const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(planId), text(range.since));
@@ -767,7 +1026,7 @@ export function createCraftPlanProgressAuditRepository(db, {
       warnings.push("No valid checkpoint predates the requested range; reconstruction starts at the first retained full snapshot.");
     }
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: text(now()),
       retentionDays,
       claimId: text(claimId),
@@ -777,6 +1036,18 @@ export function createCraftPlanProgressAuditRepository(db, {
       status: status(claimId, planId),
       snapshots,
       events: listEvents(claimId, { since: effectiveSince, limit: 10_000, planId }),
+      configHistory: statements.listCraftPlanConfigAudit.all(text(planId)).map((row) => {
+        let changes = { corrupt: true };
+        try { changes = JSON.parse(String(row.changes_json)); } catch {}
+        return {
+          id: number(row.id), planId: text(row.plan_id), claimId: row.claim_id == null ? null : text(row.claim_id),
+          actor: { type: text(row.actor_type), id: row.actor_id == null ? null : text(row.actor_id), displayName: text(row.actor_display_name) },
+          occurredAt: text(row.occurred_at), previousRevision: row.previous_revision == null ? null : number(row.previous_revision),
+          newRevision: number(row.new_revision), action: text(row.action), changes,
+        };
+      }).filter((row) => row.occurredAt >= text(range.since)),
+      causalGroups: matchingCausalGroups(claimId, { planId, since: effectiveSince, unbounded: true }),
+      compatibility: compatibilityForSnapshots(snapshots),
       warnings,
     };
   }
@@ -788,6 +1059,8 @@ export function createCraftPlanProgressAuditRepository(db, {
     status,
     listEvents,
     latestBaselineChange,
+    queryCausalGroups,
+    compareCheckpoints,
     exportRange,
     prune,
   };

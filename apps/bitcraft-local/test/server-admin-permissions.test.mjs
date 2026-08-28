@@ -41,6 +41,7 @@ test("adminPermissionFor maps admin routes to the existing least-privilege permi
   assert.equal(adminPermissionFor("GET", "/api/local/admin/settings"), "settings.view");
   assert.equal(adminPermissionFor("GET", "/api/local/admin/craft-plan/audit"), "audit.view");
   assert.equal(adminPermissionFor("GET", "/api/local/admin/craft-plan/progress-audit"), "audit.view");
+  assert.equal(adminPermissionFor("GET", "/api/local/admin/craft-plan/progress-audit/compare"), "audit.view");
   assert.equal(adminPermissionFor("GET", "/api/local/admin/craft-plan/progress-audit/export"), "data.export");
   assert.equal(adminPermissionFor("GET", "/api/local/admin/craft-plan/player-banks"), "settings.view");
   assert.equal(adminPermissionFor("POST", "/api/local/admin/jobs/run"), "data.manage");
