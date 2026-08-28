@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.64.2-beta.1] - 2026-08-28
+
+### Fixed
+
+- Fixed backgrounded browser tabs becoming stuck on page-loading errors after a deployment or interrupted page download.
+
 ## [0.64.1-beta.1] - 2026-08-28
 
 ### Fixed
