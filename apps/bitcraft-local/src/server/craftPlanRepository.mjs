@@ -212,6 +212,7 @@ export function createCraftPlanRepository(db, {
     try {
       db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(entry.id);
+      db.prepare("DELETE FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(entry.id);
       configAudit?.deleteForPlan(entry.id);
       db.prepare("DELETE FROM craft_plans WHERE id = ?").run(entry.id);

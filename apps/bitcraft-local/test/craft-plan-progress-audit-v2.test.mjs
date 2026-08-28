@@ -154,6 +154,81 @@ test("causal replay attributes craft disappearance and stock arrival without inv
   db.close();
 });
 
+test("dependency topology does not hide unsupported demand and progress relationships", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  repository.recordSuccess(v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    required: 120,
+    requiredNow: 120,
+    missing: 60,
+    completion: 55,
+  }));
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary" }).causalGroups[0];
+  assert.deepEqual(group.dependencyPaths, [{ materialKey: "items:1", paths: [["items:9", "items:1"]] }]);
+  assert.ok(group.unresolvedRelationships.some((entry) => entry.effectType === "requirement_delta"));
+  assert.ok(group.unresolvedRelationships.some((entry) => entry.effectType === "progress_delta"));
+  db.close();
+});
+
+test("craft collection inference requires an exact captured output-to-stock relationship", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  repository.recordSuccess(v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    craftPresent: false,
+    available: 41,
+    guaranteed: 0,
+    estimated: 0,
+  }));
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary" }).causalGroups[0];
+  const removal = group.events.find((event) => event.type === "craft_removed");
+  assert.equal(removal.inference, undefined);
+  assert.ok(group.unresolvedRelationships.some((entry) => entry.effectType === "craft_removed"));
+  db.close();
+});
+
+test("baseline changes retain simultaneous progress effects", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  repository.recordSuccess(v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    baselineRevision: "baseline-b",
+    catalogRevision: "catalog-b",
+    completion: 55,
+  }));
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary" }).causalGroups[0];
+  assert.ok(group.events.some((event) => event.type === "baseline_change"));
+  assert.ok(group.events.some((event) => event.type === "progress_delta"));
+  assert.ok(group.derivedEffects.some((effect) => effect.category === "progress_change"));
+  db.close();
+});
+
+test("source failures create immediate deterministic causal evidence", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  const failure = [{ sourceId: "storage-1", label: "Storage", type: "Settlement storage", error: "timed out" }];
+
+  repository.recordFailure("42", failure, "2026-08-28T10:05:00.000Z", "legacy-primary");
+  repository.recordFailure("42", failure, "2026-08-28T10:06:00.000Z", "legacy-primary");
+
+  const result = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" });
+  assert.equal(result.pagination.total, 1);
+  const group = result.causalGroups[0];
+  assert.deepEqual(group.span, { from: "2026-08-28T10:00:00.000Z", to: "2026-08-28T10:05:00.000Z" });
+  assert.ok(group.observedTriggers.some((entry) => entry.type === "source_failure"));
+  assert.ok(group.unresolvedRelationships.some((entry) => entry.triggerType === "source_failure"));
+  assert.deepEqual(group.events.map((event) => event.type), ["source_failure"]);
+  db.close();
+});
+
 test("causal groups preserve typed identities, unresolved evidence, bounded pagination, and every filter", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });
@@ -276,7 +351,30 @@ test("v2 export matches snapshots, events, config history, causal groups, and co
   db.close();
 });
 
-test("v2 export never truncates matching causal groups at internal query bounds", () => {
+test("interactive causal pagination and filters account for every retained group beyond 10000", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  for (let index = 0; index < 10_005; index += 1) {
+    const capturedAt = "2026-08-28T10:00:00.000Z";
+    const sourceHealth = index < 5;
+    const group = {
+      groupId: `group-${index}`,
+      span: { from: capturedAt, to: capturedAt },
+      observedTriggers: [{ category: sourceHealth ? "source_health" : "stock_movement", type: sourceHealth ? "source_failure" : "stock_delta", materialKey: sourceHealth ? null : "items:1" }],
+      derivedEffects: [], dependencyPaths: [], unresolvedRelationships: sourceHealth ? [{ triggerType: "source_failure" }] : [], materialKeys: sourceHealth ? [] : ["items:1"], events: [],
+    };
+    statements.insertCraftPlanProgressCausalGroup.run("42", "legacy-primary", group.groupId, capturedAt, capturedAt, JSON.stringify(group));
+  }
+
+  const lastPage = repository.queryCausalGroups("42", { planId: "legacy-primary", page: 51, pageSize: 200 });
+  assert.deepEqual(lastPage.pagination, { page: 51, pageSize: 200, total: 10_005, totalPages: 51, hasNext: false, hasPrevious: true });
+  assert.equal(lastPage.causalGroups.length, 5);
+  assert.equal(repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" }).pagination.total, 5);
+  assert.equal(repository.queryCausalGroups("42", { planId: "legacy-primary", unresolvedOnly: true }).pagination.total, 5);
+  db.close();
+});
+
+test("v2 export includes every matching causal group and event beyond 10000", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });
   for (let index = 0; index < 10_005; index += 1) {
@@ -284,13 +382,14 @@ test("v2 export never truncates matching causal groups at internal query bounds"
     const group = {
       groupId: `group-${index}`,
       span: { from: capturedAt, to: capturedAt },
-      observedTriggers: [{ category: "stock_movement", type: "stock_delta", materialKey: "items:1" }],
-      derivedEffects: [], dependencyPaths: [], unresolvedRelationships: [], materialKeys: ["items:1"], events: [],
+      observedTriggers: [], derivedEffects: [], dependencyPaths: [], unresolvedRelationships: [], materialKeys: [], events: [],
     };
     statements.insertCraftPlanProgressCausalGroup.run("42", "legacy-primary", group.groupId, capturedAt, capturedAt, JSON.stringify(group));
+    statements.insertCraftPlanProgressEvent.run("42", "legacy-primary", capturedAt, "baseline-a", "test_event", `event ${index}`, JSON.stringify({ type: "test_event", index }));
   }
 
   const bundle = repository.exportRange("42", { label: "24h", since: "2026-08-28T00:00:00.000Z" }, "legacy-primary");
   assert.equal(bundle.causalGroups.length, 10_005);
+  assert.equal(bundle.events.length, 10_005);
   db.close();
 });

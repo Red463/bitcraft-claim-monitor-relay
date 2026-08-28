@@ -355,21 +355,20 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
       beforeProgress: sanitized(previous.progress ?? {}),
       afterProgress: sanitized(current.progress ?? {}),
     });
-  } else {
-    const confirmedDelta = number(current?.progress?.confirmed) - number(previous?.progress?.confirmed);
-    const projectedDelta = number(current?.progress?.projected) - number(previous?.progress?.projected);
-    if (confirmedDelta !== 0 || projectedDelta !== 0) {
-      events.push({
-        type: "progress_delta",
-        confirmedBefore: number(previous?.progress?.confirmed),
-        confirmedAfter: number(current?.progress?.confirmed),
-        confirmedDelta,
-        projectedBefore: number(previous?.progress?.projected),
-        projectedAfter: number(current?.progress?.projected),
-        projectedDelta,
-        contributors: effortContributors(previous, current),
-      });
-    }
+  }
+  const confirmedDelta = number(current?.progress?.confirmed) - number(previous?.progress?.confirmed);
+  const projectedDelta = number(current?.progress?.projected) - number(previous?.progress?.projected);
+  if (confirmedDelta !== 0 || projectedDelta !== 0) {
+    events.push({
+      type: "progress_delta",
+      confirmedBefore: number(previous?.progress?.confirmed),
+      confirmedAfter: number(current?.progress?.confirmed),
+      confirmedDelta,
+      projectedBefore: number(previous?.progress?.projected),
+      projectedAfter: number(current?.progress?.projected),
+      projectedDelta,
+      contributors: effortContributors(previous, current),
+    });
   }
 
   const beforeMaterials = materialMap(previous);
@@ -418,15 +417,20 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
       if (!oldCraft && newCraft) {
         events.push({ type: "craft_added", itemKey, ...newCraft });
       } else if (oldCraft && !newCraft) {
+        const capturedOutputQuantities = [
+          number(oldCraft.guaranteedQuantity),
+          number(oldCraft.estimatedQuantity),
+        ].filter((quantity) => quantity > 0);
+        const exactCollectionMatch = capturedOutputQuantities.includes(matchingStockIncrease);
         events.push({
           type: "craft_removed",
           itemKey,
           ...oldCraft,
-          ...(matchingStockIncrease > 0 ? {
+          ...(exactCollectionMatch ? {
             inference: {
               cause: "collected",
-              confidence: "medium",
-              evidence: [`Matching stock increased by ${matchingStockIncrease}`],
+              confidence: "high",
+              evidence: [`Captured craft output and stock increase both equal ${matchingStockIncrease}`],
             },
           } : {}),
         });
@@ -548,14 +552,40 @@ function derivedEffect(event) {
   return null;
 }
 
+function effectHasSupportedRelationship(event, events) {
+  const materialKey = text(event.itemKey);
+  if (events.some((candidate) => candidate.type === "baseline_change")) {
+    return ["requirement_delta", "required_now_delta", "missing_quantity_delta", "progress_delta"].includes(event.type);
+  }
+  if (["guaranteed_output_delta", "estimated_output_delta"].includes(event.type)) {
+    return events.some((candidate) => text(candidate.itemKey) === materialKey
+      && ["craft_added", "craft_removed", "craft_changed"].includes(candidate.type));
+  }
+  if (event.type === "missing_quantity_delta") {
+    return events.some((candidate) => text(candidate.itemKey) === materialKey
+      && ["stock_delta", "stock_source_added", "stock_source_removed"].includes(candidate.type)
+      && number(candidate.delta) === -number(event.delta));
+  }
+  if (event.type === "progress_delta") {
+    const contributorKeys = new Set((event.contributors ?? []).map((entry) => text(entry.itemKey)).filter(Boolean));
+    return events.some((candidate) => contributorKeys.has(text(candidate.itemKey))
+      && ["stock_delta", "stock_source_added", "stock_source_removed", "craft_added", "craft_removed", "craft_changed"].includes(candidate.type));
+  }
+  return false;
+}
+
 export function buildCraftPlanCausalGroup(previous, current, events = []) {
   const observedTriggers = [];
   const derivedEffects = [];
+  const derivedEffectEvents = [];
   for (const event of events) {
     const triggerCategory = observedTrigger(event);
     if (triggerCategory) observedTriggers.push({ category: triggerCategory, type: event.type, materialKey: text(event.itemKey) || null });
     const effectCategory = derivedEffect(event);
-    if (effectCategory) derivedEffects.push({ category: effectCategory, type: event.type, materialKey: text(event.itemKey) || null, before: event.before, after: event.after, delta: event.delta });
+    if (effectCategory) {
+      derivedEffects.push({ category: effectCategory, type: event.type, materialKey: text(event.itemKey) || null, before: event.before, after: event.after, delta: event.delta });
+      derivedEffectEvents.push(event);
+    }
     if (event.type === "baseline_change") {
       const reasons = Array.isArray(event.reasons) ? event.reasons : [];
       if (reasons.some((reason) => /catalogue|model version/i.test(reason))) {
@@ -571,15 +601,27 @@ export function buildCraftPlanCausalGroup(previous, current, events = []) {
     materialKey,
     paths: dependencyPathsFor(previous, current, materialKey),
   })).filter((entry) => entry.paths.length > 0);
-  const knownPathKeys = new Set(dependencyPaths.map((entry) => entry.materialKey));
-  const unresolvedRelationships = derivedEffects.filter((effect) => effect.materialKey && !knownPathKeys.has(effect.materialKey))
-    .map((effect) => ({
-      materialKey: effect.materialKey,
-      effectType: effect.type,
-      reason: observedTriggers.length
-        ? "Captured evidence does not include a selected recipe dependency path for this relationship."
-        : "Captured evidence does not prove which observed trigger caused this effect.",
+  const unresolvedRelationships = derivedEffectEvents
+    .filter((event) => !effectHasSupportedRelationship(event, events))
+    .map((event) => ({
+      materialKey: text(event.itemKey) || null,
+      effectType: event.type,
+      reason: "Captured evidence does not prove which observed trigger caused this effect.",
     }));
+  for (const event of events.filter((entry) => entry.type === "craft_removed" && entry.inference?.cause !== "collected")) {
+    unresolvedRelationships.push({
+      materialKey: text(event.itemKey) || null,
+      effectType: event.type,
+      reason: "Captured stock movement does not exactly match the disappearing craft output, so collection is unproven.",
+    });
+  }
+  for (const event of events.filter((entry) => entry.type === "source_failure")) {
+    unresolvedRelationships.push({
+      materialKey: null,
+      triggerType: event.type,
+      reason: "The source failure is observed, but its downstream demand, shortage, and progress effects have not yet been observed.",
+    });
+  }
   const core = {
     planId: text(current?.planId || previous?.planId || "legacy-primary"),
     span: { from: text(previous?.capturedAt), to: text(current?.capturedAt) },
@@ -866,13 +908,23 @@ export function createCraftPlanProgressAuditRepository(db, {
     const current = stateFor(claimId, planId);
     const error = normalized.map((failure) => `${failure.label}: ${failure.error}`).join("; ").slice(0, 1000);
     const changed = text(current?.last_failure_fingerprint) !== failureFingerprint;
+    const previous = current?.last_payload_gzip ? gunzipJson(current.last_payload_gzip) : null;
     db.exec("BEGIN IMMEDIATE");
     try {
       if (changed) {
-        insertEvent(claimId, planId, capturedAt, current?.last_fingerprint ? latestSuccess(claimId, planId)?.baselineRevision : "", {
+        const event = {
           type: "source_failure",
           failures: normalized,
-        });
+        };
+        insertEvent(claimId, planId, capturedAt, text(previous?.baselineRevision), event);
+        const group = buildCraftPlanCausalGroup(
+          previous ?? { planId, capturedAt, baselineRevision: "" },
+          { planId, capturedAt, baselineRevision: text(previous?.baselineRevision) },
+          [event],
+        );
+        statements.insertCraftPlanProgressCausalGroup.run(
+          text(claimId), text(planId), group.groupId, group.span.from, group.span.to, JSON.stringify(group),
+        );
       }
       updateState(claimId, planId, {
         lastFingerprint: current?.last_fingerprint,
@@ -937,7 +989,7 @@ export function createCraftPlanProgressAuditRepository(db, {
     return row ? parseEventRow(row) : null;
   }
 
-  function matchingCausalGroups(claimId, {
+  function causalFilterArguments(claimId, {
     planId = "legacy-primary",
     since = "0000-01-01T00:00:00.000Z",
     until = "9999-12-31T23:59:59.999Z",
@@ -945,18 +997,14 @@ export function createCraftPlanProgressAuditRepository(db, {
     effectCategory = "",
     materialKey = "",
     unresolvedOnly = false,
-    unbounded = false,
   } = {}) {
-    const statement = unbounded
-      ? statements.exportCraftPlanProgressCausalGroups
-      : statements.listCraftPlanProgressCausalGroups;
-    return statement
-      .all(text(claimId), text(planId), text(since), text(until))
-      .map(parseCausalGroupRow)
-      .filter((group) => !triggerCategory || group.observedTriggers?.some((entry) => entry.category === triggerCategory))
-      .filter((group) => !effectCategory || group.derivedEffects?.some((entry) => entry.category === effectCategory))
-      .filter((group) => !materialKey || group.materialKeys?.includes(materialKey))
-      .filter((group) => !unresolvedOnly || (group.unresolvedRelationships?.length ?? 0) > 0);
+    return [
+      text(claimId), text(planId), text(since), text(until),
+      text(triggerCategory), text(triggerCategory),
+      text(effectCategory), text(effectCategory),
+      text(materialKey), text(materialKey),
+      unresolvedOnly ? 1 : 0,
+    ];
   }
 
   function queryCausalGroups(claimId, {
@@ -966,12 +1014,14 @@ export function createCraftPlanProgressAuditRepository(db, {
   } = {}) {
     const boundedPageSize = Math.min(200, Math.max(1, Math.trunc(number(pageSize) || 50)));
     const boundedPage = Math.max(1, Math.trunc(number(page) || 1));
-    const filtered = matchingCausalGroups(claimId, filters);
-    const total = filtered.length;
+    const filterArguments = causalFilterArguments(claimId, filters);
+    const total = number(statements.countCraftPlanProgressCausalGroupsFiltered.get(...filterArguments)?.count);
     const totalPages = Math.max(1, Math.ceil(total / boundedPageSize));
     const offset = (boundedPage - 1) * boundedPageSize;
     return {
-      causalGroups: filtered.slice(offset, offset + boundedPageSize),
+      causalGroups: statements.pageCraftPlanProgressCausalGroupsFiltered
+        .all(...filterArguments, boundedPageSize, offset)
+        .map(parseCausalGroupRow),
       pagination: {
         page: boundedPage, pageSize: boundedPageSize, total, totalPages,
         hasNext: offset + boundedPageSize < total,
@@ -1035,7 +1085,9 @@ export function createCraftPlanProgressAuditRepository(db, {
       planId: text(planId),
       status: status(claimId, planId),
       snapshots,
-      events: listEvents(claimId, { since: effectiveSince, limit: 10_000, planId }),
+      events: statements.exportCraftPlanProgressEvents
+        .all(text(claimId), text(planId), effectiveSince)
+        .map(parseEventRow),
       configHistory: statements.listCraftPlanConfigAudit.all(text(planId)).map((row) => {
         let changes = { corrupt: true };
         try { changes = JSON.parse(String(row.changes_json)); } catch {}
@@ -1046,7 +1098,9 @@ export function createCraftPlanProgressAuditRepository(db, {
           newRevision: number(row.new_revision), action: text(row.action), changes,
         };
       }).filter((row) => row.occurredAt >= text(range.since)),
-      causalGroups: matchingCausalGroups(claimId, { planId, since: effectiveSince, unbounded: true }),
+      causalGroups: statements.exportCraftPlanProgressCausalGroups
+        .all(text(claimId), text(planId), effectiveSince, "9999-12-31T23:59:59.999Z")
+        .map(parseCausalGroupRow),
       compatibility: compatibilityForSnapshots(snapshots),
       warnings,
     };

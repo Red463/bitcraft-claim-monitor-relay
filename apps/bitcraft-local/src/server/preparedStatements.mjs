@@ -100,22 +100,67 @@ export function createPreparedStatements(db) {
       claim_id, plan_id, group_id, from_captured_at, to_captured_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?)
   `),
-  listCraftPlanProgressCausalGroups: db.prepare(`
-    SELECT * FROM craft_plan_progress_audit_causal_groups
-    WHERE claim_id = ? AND plan_id = ? AND to_captured_at >= ? AND to_captured_at <= ?
-    ORDER BY to_captured_at DESC, id DESC
-    LIMIT 10000
-  `),
   exportCraftPlanProgressCausalGroups: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_causal_groups
     WHERE claim_id = ? AND plan_id = ? AND to_captured_at >= ? AND to_captured_at <= ?
     ORDER BY to_captured_at DESC, id DESC
+  `),
+  countCraftPlanProgressCausalGroupsFiltered: db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM craft_plan_progress_audit_causal_groups AS causal
+    WHERE causal.claim_id = ? AND causal.plan_id = ?
+      AND causal.to_captured_at >= ? AND causal.to_captured_at <= ?
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.observedTriggers')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.derivedEffects')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.materialKeys')
+        WHERE value = ?
+      ))
+      AND (? = 0 OR COALESCE(json_array_length(json_extract(
+        CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END,
+        '$.unresolvedRelationships'
+      )), 0) > 0)
+  `),
+  pageCraftPlanProgressCausalGroupsFiltered: db.prepare(`
+    SELECT causal.*
+    FROM craft_plan_progress_audit_causal_groups AS causal
+    WHERE causal.claim_id = ? AND causal.plan_id = ?
+      AND causal.to_captured_at >= ? AND causal.to_captured_at <= ?
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.observedTriggers')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.derivedEffects')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.materialKeys')
+        WHERE value = ?
+      ))
+      AND (? = 0 OR COALESCE(json_array_length(json_extract(
+        CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END,
+        '$.unresolvedRelationships'
+      )), 0) > 0)
+    ORDER BY causal.to_captured_at DESC, causal.id DESC
+    LIMIT ? OFFSET ?
   `),
   listCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
     WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
     ORDER BY captured_at ASC, id ASC
     LIMIT ?
+  `),
+  exportCraftPlanProgressEvents: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_events
+    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
+    ORDER BY captured_at ASC, id ASC
   `),
   latestCraftPlanBaselineChange: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events

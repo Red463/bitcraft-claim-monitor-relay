@@ -23,7 +23,7 @@ function fixture() {
     randomUUID: () => `plan-created-${++planSequence}`,
     now: () => "2026-08-28T10:00:00.000Z",
   });
-  return { db, configAudit, repository };
+  return { db, statements, configAudit, repository };
 }
 
 test("legacy schema bootstrap adds lifetime config audit without changing existing plans", () => {
@@ -42,6 +42,7 @@ test("legacy schema bootstrap adds lifetime config audit without changing existi
 
   assert.equal(db.prepare("SELECT revision FROM craft_plans WHERE id = 'kept'").get().revision, 7);
   assert.ok(db.prepare("PRAGMA table_info(craft_plan_config_audit)").all().some((row) => row.name === "changes_json"));
+  assert.ok(db.prepare("PRAGMA table_info(craft_plan_progress_audit_causal_groups)").all().some((row) => row.name === "group_id"));
   db.close();
 });
 
@@ -106,8 +107,8 @@ test("shared and personal saves append exact redacted configuration changes only
   db.close();
 });
 
-test("plan deletion removes its configuration lifetime and account deletion anonymizes surviving actor evidence", () => {
-  const { db, configAudit, repository } = fixture();
+test("plan and account deletion remove owned causal evidence while preserving surviving plan history", () => {
+  const { db, statements, configAudit, repository } = fixture();
   db.prepare("INSERT INTO user_accounts (discord_id, discord_username, character_status, settings_json, created_at) VALUES ('77', 'player', 'unlinked', '{}', 'now')").run();
   const owner = db.prepare("SELECT id FROM user_accounts WHERE discord_id = '77'").get().id;
   const actor = { type: "user_account", id: String(owner), displayName: "player" };
@@ -123,8 +124,19 @@ test("plan deletion removes its configuration lifetime and account deletion anon
     claimId: "42",
   });
 
+  const causalGroup = (planId) => ({
+    groupId: `group-${planId}`,
+    span: { from: "2026-08-28T10:00:00.000Z", to: "2026-08-28T10:05:00.000Z" },
+    observedTriggers: [], derivedEffects: [], dependencyPaths: [], unresolvedRelationships: [], materialKeys: [], events: [],
+  });
+  for (const planId of [personal.id, shared.id, removable.id]) {
+    const group = causalGroup(planId);
+    statements.insertCraftPlanProgressCausalGroup.run("42", planId, group.groupId, group.span.from, group.span.to, JSON.stringify(group));
+  }
+
   repository.remove(removable.id, { expectedRevision: 1, admin: true });
   assert.equal(configAudit.listForPlan(removable.id).length, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").get(removable.id).count, 0);
 
   deleteUserAccount(db, {
     userId: owner,
@@ -135,6 +147,8 @@ test("plan deletion removes its configuration lifetime and account deletion anon
   });
 
   assert.equal(configAudit.listForPlan(personal.id).length, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").get(personal.id).count, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").get(shared.id).count, 1);
   const surviving = configAudit.listForPlan(shared.id)[0];
   assert.equal(surviving.actor.id, null);
   assert.match(surviving.actor.displayName, /^deleted:/);

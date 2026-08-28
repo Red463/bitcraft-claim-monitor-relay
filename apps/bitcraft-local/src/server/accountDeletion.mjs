@@ -174,11 +174,13 @@ export function deleteUserAccount(db, {
     const ownedPlanIds = db.prepare("SELECT id FROM craft_plans WHERE owner_user_id = ?").all(userId).map((row) => String(row.id));
     deleted.craft_plan_progress_audit_events = 0;
     deleted.craft_plan_progress_audit_snapshots = 0;
+    deleted.craft_plan_progress_audit_causal_groups = 0;
     deleted.craft_plan_progress_audit_state = 0;
     deleted.craft_plan_config_audit = 0;
     for (const planId of ownedPlanIds) {
       deleted.craft_plan_progress_audit_events += count(db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(planId));
       deleted.craft_plan_progress_audit_snapshots += count(db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(planId));
+      deleted.craft_plan_progress_audit_causal_groups += count(db.prepare("DELETE FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").run(planId));
       deleted.craft_plan_progress_audit_state += count(db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(planId));
       deleted.craft_plan_config_audit += count(db.prepare("DELETE FROM craft_plan_config_audit WHERE plan_id = ?").run(planId));
     }

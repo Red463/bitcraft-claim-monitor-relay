@@ -217,23 +217,23 @@ test("diff attributes stock, craft, requirement, output, and progress changes", 
   assert.ok(result.events.some((event) => event.type === "guaranteed_output_delta" && event.delta === -15));
 });
 
-test("collection is inferred only when matching stock appears", () => {
+test("collection is inferred only when stock exactly matches captured craft output", () => {
   const result = diffCraftPlanProgressSnapshots(
-    fixtureSnapshot({ craftPresent: true, sourceQuantity: 0 }),
+    fixtureSnapshot({ craftPresent: true, sourceQuantity: 0, material: { guaranteed: 10 } }),
     fixtureSnapshot({ craftPresent: false, sourceQuantity: 10 }),
   );
   const removed = result.events.find((event) => event.type === "craft_removed");
   assert.equal(removed.inference?.cause, "collected");
-  assert.equal(removed.inference?.confidence, "medium");
-  assert.match(removed.inference?.evidence.join(" "), /matching stock increase/i);
+  assert.equal(removed.inference?.confidence, "high");
+  assert.match(removed.inference?.evidence.join(" "), /both equal 10/i);
 });
 
-test("baseline changes are not reported as ordinary progress deltas", () => {
+test("baseline changes retain simultaneous progress deltas", () => {
   const previous = fixtureSnapshot({ confirmed: 75, baselineRevision: "rev-a" });
   const current = fixtureSnapshot({ confirmed: 65, baselineRevision: "rev-b" });
   current.baselineInputs.config.targets[0].quantity = 120;
   const result = diffCraftPlanProgressSnapshots(previous, current);
-  assert.equal(result.events.some((event) => event.type === "progress_delta"), false);
+  assert.equal(result.events.some((event) => event.type === "progress_delta"), true);
   assert.equal(result.events.some((event) => event.type === "baseline_change"), true);
   assert.match(result.baselineChange.reasons.join(" "), /target/i);
 });
@@ -340,7 +340,7 @@ test("repository records one baseline event and uses the new comparison epoch", 
   const result = repository.recordSuccess(next);
   assert.equal(result.fullSnapshot, true);
   assert.equal(result.baselineChanged, true);
-  assert.equal(result.events.some((event) => event.type === "progress_delta"), false);
+  assert.equal(result.events.some((event) => event.type === "progress_delta"), true);
   assert.match(result.baselineChange.reasons.join(" "), /target/i);
 });
 
