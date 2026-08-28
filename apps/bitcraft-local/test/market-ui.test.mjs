@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   availabilityFlags,
+  initialMarketAvailability,
+  marketAvailabilityQueryState,
   marketChartPoints,
   marketDetailLoadingState,
   marketDetailRequestPlan,
@@ -80,9 +82,32 @@ test("market requests cannot commit after their scope changes or they are aborte
 
 test("market availability modes map to the existing catalog contract", () => {
   assert.deepEqual(availabilityFlags("any"), { availableOnly: false, hasSell: false, hasBuy: false });
+  assert.deepEqual(availabilityFlags("listed"), { availableOnly: true, hasSell: false, hasBuy: false });
   assert.deepEqual(availabilityFlags("sell"), { availableOnly: true, hasSell: true, hasBuy: false });
   assert.deepEqual(availabilityFlags("buy"), { availableOnly: true, hasSell: false, hasBuy: true });
   assert.deepEqual(availabilityFlags("both"), { availableOnly: true, hasSell: true, hasBuy: true });
+});
+
+test("market browse defaults to listings with either buy or sell orders", () => {
+  assert.equal(initialMarketAvailability(new URLSearchParams(), "browse"), "listed");
+  assert.equal(initialMarketAvailability(new URLSearchParams("available=false"), "browse"), "any");
+  assert.equal(initialMarketAvailability(new URLSearchParams("sell=true"), "browse"), "sell");
+  assert.equal(initialMarketAvailability(new URLSearchParams("buy=true"), "browse"), "buy");
+  assert.equal(initialMarketAvailability(new URLSearchParams("sell=true&buy=true"), "browse"), "both");
+  assert.equal(initialMarketAvailability(new URLSearchParams(), "buy"), "buy");
+});
+
+test("market availability URL state preserves listed and complete-catalog choices", () => {
+  assert.deepEqual(marketAvailabilityQueryState("listed"), {
+    available: "true",
+    sell: null,
+    buy: null,
+  });
+  assert.deepEqual(marketAvailabilityQueryState("any"), {
+    available: "false",
+    sell: null,
+    buy: null,
+  });
 });
 
 test("market tab navigation wraps and supports boundary keys", () => {

@@ -9,6 +9,16 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.64.2-beta.2] - 2026-08-28
+
+### Changed
+
+- Limited the default Market catalogue to items with current buy or sell orders while retaining an explicit complete-catalogue option.
+
+### Fixed
+
+- Fixed Craft Planning values waiting for a manual refresh instead of updating when relevant Relay data changes.
+
 ## [0.64.2-beta.1] - 2026-08-28
 
 ### Fixed

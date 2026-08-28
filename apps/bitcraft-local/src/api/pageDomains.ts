@@ -66,3 +66,10 @@ export function pageDomains(activePanel: ActivePanel): DomainKey[] {
       return [];
   }
 }
+
+export function pageGenerationDomains(activePanel: ActivePanel): DomainKey[] {
+  if (activePanel === "planning") {
+    return ["members", "inventories", "crafts", "construction", "catalogs"];
+  }
+  return usesProviderNeutralGameData(activePanel) ? pageDomains(activePanel) : [];
+}

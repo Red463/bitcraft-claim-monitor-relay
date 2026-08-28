@@ -1,6 +1,27 @@
 import type React from "react";
 
-export type MarketAvailability = "any" | "sell" | "buy" | "both";
+export type MarketAvailability = "any" | "listed" | "sell" | "buy" | "both";
+
+export function initialMarketAvailability(
+  params: URLSearchParams,
+  mode: "browse" | "buy",
+): MarketAvailability {
+  if (mode === "buy") return "buy";
+  const sell = params.get("sell") === "true";
+  const buy = params.get("buy") === "true";
+  if (sell && buy) return "both";
+  if (sell) return "sell";
+  if (buy) return "buy";
+  return params.get("available") === "false" ? "any" : "listed";
+}
+
+export function marketAvailabilityQueryState(value: MarketAvailability) {
+  return {
+    available: value === "any" ? "false" : "true",
+    sell: value === "sell" || value === "both" ? "true" : null,
+    buy: value === "buy" || value === "both" ? "true" : null,
+  };
+}
 
 export type MarketPriceRole = "ask" | "bid" | "profit" | "neutral";
 

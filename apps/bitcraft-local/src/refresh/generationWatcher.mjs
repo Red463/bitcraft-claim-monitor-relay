@@ -1,5 +1,5 @@
 import { PAGE_REFRESH_POLL_MS } from "./pageRefresh.mjs";
-import { pageDomains, usesProviderNeutralGameData } from "../api/pageDomains.ts";
+import { pageGenerationDomains } from "../api/pageDomains.ts";
 
 export const INTERVAL_PAGE_GENERATION_POLL_MS = 30_000;
 
@@ -69,11 +69,12 @@ export function createGameDataGenerationWatcher(options) {
 export function createPageGameDataGenerationWatcher(options) {
   const { activePanel, ...watcherOptions } = options;
   const claimId = String(options.claimId ?? "");
-  if (!claimId || !usesProviderNeutralGameData(activePanel)) return null;
+  const domains = pageGenerationDomains(activePanel);
+  if (!claimId || domains.length === 0) return null;
   return createGameDataGenerationWatcher({
     ...watcherOptions,
     claimId,
-    domains: pageDomains(activePanel),
+    domains,
     pollMs: activePanel === "craft-monitor" ? PAGE_REFRESH_POLL_MS : INTERVAL_PAGE_GENERATION_POLL_MS,
   });
 }

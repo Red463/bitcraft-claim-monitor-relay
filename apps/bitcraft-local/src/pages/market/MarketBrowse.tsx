@@ -19,7 +19,7 @@ import {
   marketItemType,
   normalizeMarketOrders,
 } from "./globalMarket";
-import { availabilityFlags, exactMarketInteger, marketDetailLoadingState, marketDetailRequestPlan, marketPriceClass, marketRequestCanCommit, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
+import { availabilityFlags, exactMarketInteger, initialMarketAvailability, marketAvailabilityQueryState, marketDetailLoadingState, marketDetailRequestPlan, marketPriceClass, marketRequestCanCommit, marketSuggestionResults, nextOptionIndex, regionalMarketQuotes, type MarketAvailability } from "./marketUi";
 import { MarketPriceChart } from "./MarketPriceChart";
 
 type Props = MarketRefreshProps & {
@@ -68,12 +68,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const [catalogState, setCatalogState] = React.useState<{ loading: boolean; error: string; categories: string[] }>({ loading: false, error: "", categories: [] });
   const [detailState, setDetailState] = React.useState<{ loading: boolean; error: string; historyLoading: boolean; historyRequestKey: string; historyError: string; detail: AnyRecord | null; history: AnyRecord | null }>({ loading: false, error: "", historyLoading: false, historyRequestKey: "", historyError: "", detail: null, history: null });
   const [category, setCategory] = React.useState(params.get("category") ?? "");
-  const [availability, setAvailability] = React.useState<MarketAvailability>(() => {
-    if (mode === "buy") return "buy";
-    const sell = params.get("sell") === "true";
-    const buy = params.get("buy") === "true";
-    return sell && buy ? "both" : sell ? "sell" : buy ? "buy" : "any";
-  });
+  const [availability, setAvailability] = React.useState<MarketAvailability>(() => initialMarketAvailability(params, mode));
   const [catalogSort, setCatalogSort] = React.useState<"relevance" | "name" | "orders" | "lowest-sell" | "highest-buy" | "spread">(() => {
     const saved = params.get("sort");
     return saved === "relevance" || saved === "orders" || saved === "lowest-sell" || saved === "highest-buy" || saved === "spread" ? saved : "name";
@@ -148,9 +143,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
       updateQueryState(mode === "browse" ? {
         q: query || null,
         category: category || null,
-        available: availabilityFilter.availableOnly ? "true" : null,
-        sell: availabilityFilter.hasSell ? "true" : null,
-        buy: availabilityFilter.hasBuy ? "true" : null,
+        ...marketAvailabilityQueryState(availability),
         sort: catalogSort === "name" ? null : catalogSort,
       } : {
         buyQ: query || null,
@@ -265,7 +258,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   function clearCatalogFilters() {
     setQuery("");
     setCategory("");
-    setAvailability(mode === "buy" ? "buy" : "any");
+    setAvailability(mode === "buy" ? "buy" : "listed");
     setCatalogSort("name");
     showResults();
   }
@@ -326,7 +319,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
   const recentTrades: AnyRecord[] = Array.isArray(detailState.history?.recentTrades) ? detailState.history.recentTrades : [];
   const historyPending = detailRequestPlan.priceHistory
     && (detailState.historyLoading || detailState.historyRequestKey !== priceHistoryRequestKey);
-  const hasCatalogFilters = Boolean(query || category || availability !== (mode === "buy" ? "buy" : "any") || catalogSort !== "name");
+  const hasCatalogFilters = Boolean(query || category || availability !== (mode === "buy" ? "buy" : "listed") || catalogSort !== "name");
 
   return (
     <section className={`global-market-workspace market-workspace market-browse ${selectedItem ? "has-selection" : ""}`}>
@@ -348,7 +341,7 @@ export function MarketBrowse({ claimId, mode, regionId, favorites, onToggleFavor
         {mode === "browse" ? <>
           <label className="field"><span>Category</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{catalogState.categories.map((entry) => <option key={entry}>{entry}</option>)}</select></label>
           <label className="field"><span>Sort</span><select value={catalogSort} onChange={(event) => setCatalogSort(event.target.value as typeof catalogSort)}><option value="relevance">Relevance</option><option value="name">Item name</option><option value="orders">Order count</option><option value="lowest-sell">Lowest sell order</option><option value="highest-buy">Highest buy order</option><option value="spread">Smallest spread</option></select></label>
-          <label className="field market-availability-field"><span>Availability</span><select value={availability} onChange={(event) => setAvailability(event.target.value as MarketAvailability)}><option value="any">Any</option><option value="sell">For sale</option><option value="buy">Wanted</option><option value="both">Both</option></select></label>
+          <label className="field market-availability-field"><span>Availability</span><select value={availability} onChange={(event) => setAvailability(event.target.value as MarketAvailability)}><option value="listed">Listed</option><option value="any">Any</option><option value="sell">For sale</option><option value="buy">Wanted</option><option value="both">Both</option></select></label>
           <div className="market-filter-actions"><button className="toolbar-button" type="button" disabled={!hasCatalogFilters} onClick={clearCatalogFilters}><X size={14} /> Clear filters</button></div>
         </> : null}
       </div>
