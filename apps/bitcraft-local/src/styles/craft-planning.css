@@ -258,6 +258,54 @@
 .craft-plan-route-overview-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .craft-plan-route-overview-card small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .craft-plan-route-overview-card .legend { align-self: center; justify-self: end; }
+.craft-plan-goal-settings { display: grid; grid-template-columns: minmax(280px, 1fr) auto; gap: 12px; align-items: end; }
+.craft-plan-source-search { width: min(620px, 100%); max-width: none; }
+.craft-plan-source-suggestion { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid rgba(101, 183, 250, 0.35); border-radius: 9px; background: rgba(101, 183, 250, 0.08); }
+.craft-plan-source-suggestion > div { display: grid; gap: 3px; min-width: 0; }
+.craft-plan-source-suggestion strong { color: #9dcfff; }
+.craft-plan-source-suggestion span, .craft-plan-source-suggestion small { color: var(--muted); overflow-wrap: anywhere; }
+.craft-plan-source-suggestion-confirm, .craft-plan-public-gate, .craft-plan-conflict { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.craft-plan-source-suggestion-confirm > div, .craft-plan-public-gate > div, .craft-plan-conflict > div { display: flex; gap: 8px; }
+.craft-plan-source-suggestion-confirm > div:first-child, .craft-plan-public-gate > div:first-child, .craft-plan-conflict > div:first-child { display: grid; gap: 3px; }
+.craft-plan-review-list { display: grid; gap: 12px; }
+.craft-plan-review-entry { display: grid; gap: 12px; min-width: 0; padding: 13px; border: 1px solid rgba(139, 159, 184, 0.24); border-radius: 9px; background: rgba(8, 13, 20, 0.62); scroll-margin: 12px; }
+.craft-plan-review-entry.is-ambiguous { border-color: rgba(240, 198, 79, 0.42); box-shadow: inset 3px 0 0 rgba(240, 198, 79, 0.56); }
+.craft-plan-review-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.craft-plan-review-entry > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.craft-plan-review-entry > header > div { display: grid; gap: 3px; min-width: 0; }
+.craft-plan-review-entry > header small, .craft-plan-review-entry > header .legend { color: var(--muted); }
+.craft-plan-review-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 9px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.craft-plan-review-options legend { grid-column: 1 / -1; margin-bottom: 2px; color: var(--muted); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
+.craft-plan-review-route { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; min-width: 0; padding: 10px; border: 1px solid rgba(139, 159, 184, 0.24); border-radius: 8px; background: rgba(5, 9, 14, 0.72); cursor: pointer; }
+.craft-plan-review-route:hover { border-color: rgba(240, 198, 79, 0.48); }
+.craft-plan-review-route:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.craft-plan-review-route.is-selected { border-color: rgba(240, 198, 79, 0.72); background: rgba(240, 198, 79, 0.1); }
+.craft-plan-review-route input { margin-top: 2px; accent-color: var(--accent); }
+.craft-plan-review-route > span { display: grid; gap: 4px; min-width: 0; }
+.craft-plan-review-route strong, .craft-plan-review-route small, .craft-plan-review-route em { overflow-wrap: anywhere; }
+.craft-plan-review-route small, .craft-plan-review-route em { color: var(--muted); font-size: 0.75rem; font-style: normal; }
+.craft-plan-review-footer { display: grid; grid-template-columns: minmax(190px, 240px) minmax(260px, 1fr) auto; gap: 12px; align-items: end; }
+.craft-plan-material-impact { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
+.craft-plan-material-impact > span { display: grid; gap: 2px; padding: 8px 10px; border-radius: 7px; background: rgba(101, 183, 250, 0.08); }
+.craft-plan-material-impact strong { color: var(--text); }
+.craft-plan-material-impact small { color: var(--muted); }
+.craft-plan-audit-filters { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)) auto; gap: 9px; align-items: end; }
+.craft-plan-causal-list { display: grid; gap: 9px; }
+.craft-plan-causal-entry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 11px; border: 1px solid rgba(139, 159, 184, 0.2); border-radius: 8px; background: rgba(8, 13, 20, 0.54); }
+.craft-plan-causal-entry > header, .craft-plan-causal-entry > details { grid-column: 1 / -1; }
+.craft-plan-causal-entry > header { display: flex; justify-content: space-between; gap: 10px; }
+.craft-plan-causal-entry > div { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.craft-plan-causal-entry h5 { margin: 0; color: var(--muted); text-transform: uppercase; }
+.craft-plan-causal-entry span { overflow-wrap: anywhere; }
+.craft-plan-causal-unresolved { display: inline-flex; align-items: center; gap: 5px; color: #ffb547; }
+.craft-plan-audit-pagination { display: flex; justify-content: center; align-items: center; gap: 10px; }
+.craft-plan-checkpoint-comparison { display: grid; gap: 10px; padding: 12px; border: 1px solid rgba(139, 159, 184, 0.2); border-radius: 8px; }
+.craft-plan-checkpoint-comparison > div { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)) auto; gap: 9px; align-items: end; }
+.craft-plan-comparison-results { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; }
+.craft-plan-comparison-results span { display: grid; gap: 2px; padding: 8px; border-radius: 6px; background: rgba(139, 159, 184, 0.08); }
+.craft-plan-route-readonly { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid rgba(101, 183, 250, 0.22); border-radius: 7px; background: rgba(101, 183, 250, 0.06); }
+.craft-plan-route-readonly span { color: var(--muted); font-size: 0.8rem; }
+.craft-plan-cell-coverage { display: block; max-width: 72px; overflow: hidden; color: var(--muted); font-size: 0.58rem; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 900px) {
   .craft-plan-manager-backdrop { padding: 0; }
   .craft-plan-manager { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
@@ -270,12 +318,20 @@
   .craft-plan-manager-buttons, .craft-plan-tier-presets-header { justify-content: start; flex-wrap: wrap; }
   .craft-plan-refresh-confirmation { align-items: stretch; flex-direction: column; }
   .craft-plan-refresh-confirmation > div:last-child { flex-wrap: wrap; }
+  .craft-plan-goal-settings, .craft-plan-review-footer { grid-template-columns: 1fr; }
+  .craft-plan-source-suggestion-confirm, .craft-plan-public-gate, .craft-plan-conflict { align-items: stretch; flex-direction: column; }
+  .craft-plan-audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .craft-plan-checkpoint-comparison > div { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .craft-plan-bank-grid { grid-template-columns: 1fr; }
   .craft-plan-bank-toolbar { grid-template-columns: 1fr; }
   .craft-plan-bank-progress { grid-column: auto; }
   .craft-plan-bank-state.is-error { align-items: stretch; flex-direction: column; }
+  .craft-plan-source-suggestion { grid-template-columns: 1fr; }
+  .craft-plan-review-footer { grid-template-columns: 1fr; }
+  .craft-plan-audit-filters { grid-template-columns: 1fr; }
+  .craft-plan-causal-entry { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .craft-plan-player-source-toggles { grid-template-columns: 1fr; }

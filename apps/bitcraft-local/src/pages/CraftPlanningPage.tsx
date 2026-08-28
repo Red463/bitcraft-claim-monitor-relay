@@ -14,7 +14,7 @@ import { CraftPlanManagerDialog } from "./CraftPlanManagerDialog";
 import { CraftPlansDialog } from "./CraftPlansDialog";
 import { resolveCraftPlanSelection } from "./craftPlanSelection.mjs";
 import type { UserAuthState } from "../types/settings";
-import { CraftPlanningRouteChooser } from "./CraftPlanningRouteChooser";
+import { craftPlanRecipeReviewHref, craftPlanMaterialPresentation } from "./craftPlanManagerModel";
 import { applyPersonalFishingView, normalizeFishingRoutePreference, type FishingRoutePreference } from "./craftPlanningFishingView";
 import { selectCraftPlanningEffortView } from "./craftPlanningEffortView";
 import { buildNeedsBoard, filterNeedsBoard, itemKey, itemName, NEED_COLUMNS, NEED_SECTIONS, type NeedCell, type NeedRow } from "./craftPlanningNeedsBoard";
@@ -22,12 +22,6 @@ import { groupNeedCellActiveCrafts, groupNeedCellRecipeUsages, groupNeedCellSour
 import { acquisitionRouteLabel, acquisitionRouteMetrics, formatProbabilityRate } from "./craftPlanningRoutePresentation.mjs";
 
 const LOCAL_API = "/api/local";
-
-type ItemDetailFeedback = {
-  itemKey: string;
-  tone: "success" | "error";
-  message: string;
-};
 
 function itemNode(item: AnyRecord) {
   return (
@@ -80,9 +74,10 @@ function needCellNode(cell: NeedCell | undefined, onSelect: (cell: NeedCell) => 
   const planningSupplied = cell.available + cell.guaranteedInProgress + cell.estimatedInProgress;
   const blocked = !satisfied && cell.items.some((item) => item.hasSourceRoutes || (Array.isArray(item.sourceRoutes) && item.sourceRoutes.length > 0)) && planningSupplied <= 0;
   return (
-    <button className={`craft-plan-need-cell${satisfied ? " is-satisfied" : " is-shortage"}${hasGuaranteedActive ? " has-active" : ""}${hasIndicators ? " has-indicators" : ""}${blocked ? " is-blocked" : ""}`} type="button" title={`${cell.name}: ${quantity(cell.missing)} needed, ${quantity(cell.available)} in stock, ${quantity(cell.guaranteedInProgress)} guaranteed active output${hasEstimatedActive ? `, ${quantity(cell.estimatedInProgress)} estimated craft output (counted for material planning only)` : ""}, ${quantity(cell.required)} required${hasApproximateRequirement ? "; requirement estimated from expected processing yield" : ""}`} onClick={() => onSelect(cell)}>
-      <strong>{quantity(satisfied ? planningSupplied : cell.missing)}</strong>
-      <small>{quantity(planningSupplied)} / {quantity(cell.required)}</small>
+    <button className={`craft-plan-need-cell${satisfied ? " is-satisfied" : " is-shortage"}${hasGuaranteedActive ? " has-active" : ""}${hasIndicators ? " has-indicators" : ""}${blocked ? " is-blocked" : ""}`} type="button" aria-label={`${cell.name}: Needed now ${quantity(cell.missing)}; Plan total ${quantity(cell.required)}; Stock ${quantity(cell.available)}; Guaranteed craft output ${quantity(cell.guaranteedInProgress)}; Estimated craft output ${quantity(cell.estimatedInProgress)}`} title={`${cell.name}: Needed now ${quantity(cell.missing)}, Plan total ${quantity(cell.required)}, Stock ${quantity(cell.available)}, Guaranteed craft output ${quantity(cell.guaranteedInProgress)}, Estimated craft output ${quantity(cell.estimatedInProgress)}${hasApproximateRequirement ? "; requirement estimated from expected processing yield" : ""}`} onClick={() => onSelect(cell)}>
+      <strong>{quantity(cell.missing)}<span className="dialog-sr-only"> Needed now</span></strong>
+      <small>Plan total {quantity(cell.required)}</small>
+      <span className="craft-plan-cell-coverage" aria-hidden="true">Stock {quantity(cell.available)} · Guaranteed {quantity(cell.guaranteedInProgress)} · Estimated {quantity(cell.estimatedInProgress)}</span>
       {hasIndicators ? <span className="craft-plan-cell-indicators">
         {hasGuaranteedActive ? <Factory className="is-guaranteed" size={11} role="img" aria-label="Actively being crafted" /> : null}
         {hasEstimatedActive ? <Factory className="is-estimated" size={11} role="img" aria-label="Estimated craft output; counted for material planning" /> : null}
@@ -113,6 +108,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const [loading, setLoading] = React.useState(true);
   const [adminAuth, setAdminAuth] = React.useState<AnyRecord | null>(null);
   const [managerOpen, setManagerOpen] = React.useState(false);
+  const [managerOutputKey, setManagerOutputKey] = React.useState("");
   const [plansOpen, setPlansOpen] = React.useState(false);
   const [plans, setPlans] = React.useState<AnyRecord[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
@@ -131,10 +127,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const [detailError, setDetailError] = React.useState<string | null>(null);
   const detailRequestRef = React.useRef(0);
   const detailAbortControllerRef = React.useRef<AbortController | null>(null);
-  const [itemDetailFeedback, setItemDetailFeedback] = React.useState<ItemDetailFeedback | null>(null);
   const [rowOverrideError, setRowOverrideError] = React.useState<string | null>(null);
-  const [routeSavePendingId, setRouteSavePendingId] = React.useState<string | null>(null);
-  const [bufferPercent, setBufferPercent] = React.useState("0");
   const [selectedSectionOverride, setSelectedSectionOverride] = React.useState<{ row: NeedRow; section: string; name: string } | null>(null);
 
   React.useEffect(() => {
@@ -200,8 +193,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     setManagerOpen(false);
     setSelectedSectionOverride(null);
     setRowOverrideError(null);
-    setItemDetailFeedback(null);
-    setRouteSavePendingId(null);
+    setManagerOutputKey("");
     setSelectedSections([]);
     setShortagesOnly(false);
     setNeedsSearch("");
@@ -240,7 +232,6 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     detailAbortControllerRef.current = controller;
     const requestId = ++detailRequestRef.current;
     const nextItemKey = cell.items?.[0]?.key ?? itemKey(cell.item);
-    setItemDetailFeedback((current) => current?.itemKey === nextItemKey ? current : null);
     setSelectedNeed(cell);
     setDetailSteps([]);
     setDetailError(null);
@@ -277,7 +268,6 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     setDetailSteps([]);
     setDetailError(null);
     setDetailLoading(false);
-    setItemDetailFeedback(null);
   }
 
   const config = plan?.config ?? {};
@@ -321,11 +311,34 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const selectedNeedSourceRoutes = selectedNeed ? groupNeedCellSourceRoutes(selectedNeed, detailSteps) : [];
   const selectedNeedUsages = selectedNeed ? groupNeedCellRecipeUsages(selectedNeed) : [];
   const selectedNeedKey = selectedNeed?.items?.[0]?.key ?? (selectedNeed ? itemKey(selectedNeed.item) : "");
-  const visibleItemFeedback = itemDetailFeedback?.itemKey === selectedNeedKey ? itemDetailFeedback : null;
   const selectedMultiplier = Number(config.multipliers?.[selectedNeedKey]?.multiplier) || 1;
+  const selectedMaterialPresentation = selectedNeed ? craftPlanMaterialPresentation(selectedNeed.item ?? selectedNeed) : null;
   React.useEffect(() => {
-    setBufferPercent(String(Math.max(0, Math.round((selectedMultiplier - 1) * 1000) / 10)));
-  }, [selectedNeedKey, selectedMultiplier]);
+    const params = new URLSearchParams(locationSearch);
+    const outputKey = params.get("output") ?? "";
+    if (!canEditSelectedPlan || params.get("manager") !== "recipe-review" || !outputKey) return;
+    setManagerOutputKey(outputKey);
+    setManagerOpen(true);
+  }, [canEditSelectedPlan, locationSearch]);
+
+  function openRecipeReview(outputKey: string) {
+    const href = craftPlanRecipeReviewHref({ planId: selectedPlanId, outputKey });
+    window.history.replaceState({}, "", href);
+    setManagerOutputKey(outputKey);
+    setManagerOpen(true);
+    closeNeedDetail();
+    onQueryStateChange();
+  }
+
+  function closeManager() {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("manager");
+    params.delete("output");
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+    setManagerOpen(false);
+    setManagerOutputKey("");
+    onQueryStateChange();
+  }
   const sectionOverrideDialog = selectedSectionOverride ? (
     <Dialog open title="Override needs board row" closeOnBackdrop={false} onClose={() => { setSelectedSectionOverride(null); setRowOverrideError(null); }} className="modal craft-plan-section-override" backdropClassName="modal-backdrop craft-plan-section-override-backdrop">
         <header className="modal-header">
@@ -360,7 +373,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
         <header className="modal-header">
           <div>
             <h2>{itemNode(selectedNeed.item)}</h2>
-            <p>{quantity(selectedNeed.missing)} still needed, {quantity(selectedNeed.available)} available, {quantity(selectedNeed.guaranteedInProgress)} guaranteed active output, {quantity(selectedNeed.estimatedInProgress)} estimated craft output counted for material planning.</p>
+            <p>Needed now {quantity(selectedMaterialPresentation?.neededNow)} · Plan total {quantity(selectedMaterialPresentation?.planTotal)} · Stock {quantity(selectedMaterialPresentation?.stock)} · Guaranteed craft output {quantity(selectedMaterialPresentation?.guaranteedCraftOutput)} · Estimated craft output {quantity(selectedMaterialPresentation?.estimatedCraftOutput)}{Number(selectedMaterialPresentation?.buildingCompletion) > 0 ? ` · Building completion ${quantity(selectedMaterialPresentation?.buildingCompletion)}%` : ""}.</p>
           </div>
           <button className="icon-button" type="button" onClick={closeNeedDetail} aria-label="Close item details"><X size={18} /></button>
         </header>
@@ -417,7 +430,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
           </section>
           <div className="craft-plan-need-detail-side">
             <section className="form-card nested-card">
-              <h3><Factory size={16} /> How to get this</h3>
+              <div className="split-header"><h3><Factory size={16} /> How to get this</h3>{canEditSelectedPlan ? <a className="toolbar-button" href={craftPlanRecipeReviewHref({ planId: selectedPlanId, outputKey: selectedNeedKey })} onClick={(event) => { event.preventDefault(); openRecipeReview(selectedNeedKey); }}>Open in Recipe Review</a> : null}</div>
               {selectedNeedSourceRoutes.length ? selectedNeedSourceRoutes.map((route, index) => {
                 const alternatives = Array.isArray(route.alternatives) ? route.alternatives : [];
                 const routeType = String(route.routeType ?? "craft");
@@ -445,16 +458,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                 const expectedPerCraft = Number(route.expectedPerCraft ?? route.expectedYield ?? route.guaranteedYield) || 0;
                 return (
                   <React.Fragment key={String(route.selectedRecipeId ?? route.id ?? route.key ?? index) + "-" + index}>
-                    <CraftPlanningRouteChooser
-                      routes={alternatives}
-                      selectedRecipeId={String(route.selectedRecipeId ?? "")}
-                      output={route.output ?? selectedNeed.item}
-                      missingQuantity={Number(selectedNeed.missing) || 0}
-                      multiplier={routeMultiplier}
-                      canManage={canEditSelectedPlan}
-                      pendingRecipeId={routeSavePendingId}
-                      onSelect={(recipeId) => void saveRouteOverride(String(route.key ?? itemKey(route.output ?? {})), recipeId)}
-                    />
+                    {alternatives.length > 1 ? <div className="craft-plan-route-readonly" aria-label={`${alternatives.length} available routes; selected route ${displayedRecipeName}`}><strong>{alternatives.length} routes available</strong><span>Route selection is read-only here. Authorized editors can compare and stage changes in Recipe Review.</span></div> : null}
                     <div className={`craft-plan-route-detail is-${gatheringRoute ? "gathering" : "craft"}`}>
                     <div className="craft-plan-route-heading">
                       <span className={`craft-plan-route-kind is-${gatheringRoute ? "gathering" : "craft"}`}>{routeKindLabel}</span>
@@ -504,7 +508,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                               {guaranteedYield > 0 ? <span>Guaranteed output <strong>{formatProbabilityRate(guaranteedYield)} {outputLabel} {yieldUnit}</strong></span> : null}
                               {route.dropChance != null ? <span>Drop chance <strong>{formatNumber(Number(route.dropChance) * 100, 3)}% for {formatNumber(Number(route.dropQuantity) || 0, 2)}</strong></span> : null}
                               {prospectingRoute ? <p>Full-node estimates are unavailable for prospecting because node exhaustion is unknown; displayed health is not treated as finite progress.</p> : null}
-                              {route.isProbabilistic && canEditSelectedPlan ? <div className="craft-plan-buffer-settings"><label htmlFor={`craft-plan-buffer-${index}`}>Safety buffer (% extra)</label><div className="craft-plan-buffer-control"><input id={`craft-plan-buffer-${index}`} type="number" min="0" max="1900" step="5" value={bufferPercent} onChange={(event) => setBufferPercent(event.target.value)} /><button className="toolbar-button primary" type="button" onClick={() => void saveMultiplier(selectedNeedKey, Number(bufferPercent))}>Save</button>{selectedMultiplier > 1 ? <button className="toolbar-button" type="button" onClick={() => void saveMultiplier(selectedNeedKey, 0)}>Reset</button> : null}</div><small>This adds producer actions and source-item requirements. It does not increase the item goal, change the API drop rate, or modify counted stock.</small></div> : null}
+                              {route.isProbabilistic ? <div className="craft-plan-buffer-settings"><strong>Saved material buffer</strong><span>{formatNumber((selectedMultiplier - 1) * 100, 1)}% extra</span><small>Buffer changes are staged in Recipe Review and persist only through Save Plan.</small></div> : null}
                             </div>
                           </details>
                         </div>
@@ -554,18 +558,10 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                         </div>
                       </details>
                     ) : null}
-                    {canEditSelectedPlan && alternatives.length > 1 ? (
-                      <label className="field compact-field">
-                        <span>Recipe route</span>
-                        <select value={usage.selectedRecipeId ?? ""} onChange={(event) => void saveRouteOverride(String(usage.key ?? ""), event.target.value)}>
-                          {alternatives.map((recipe: AnyRecord) => <option value={recipe.id} key={recipe.id}>{acquisitionRouteLabel(recipe, usage.output)}</option>)}
-                        </select>
-                      </label>
-                    ) : alternatives.length > 1 ? <p className="legend">{alternatives.length} routes available.</p> : null}
+                    {alternatives.length > 1 ? <p className="legend">{alternatives.length} routes available. Selected: {selectedRecipe ? acquisitionRouteLabel(selectedRecipe, usage.output) : String(usage.selectedRecipeId ?? "saved route")}.</p> : null}
                   </div>
                 );
               }) : <p className="legend">No downstream recipe context was found. This is likely a final target, base gathered item, or vendor material.</p>}
-              {visibleItemFeedback ? <p className={`alert ${visibleItemFeedback.tone}`} role={visibleItemFeedback.tone === "error" ? "alert" : "status"}>{visibleItemFeedback.message}</p> : null}
             </section>
           </div>
         </div>
@@ -609,45 +605,6 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
       setRowOverrideError(err instanceof Error ? err.message : String(err));
     }
   }
-  async function saveRouteOverride(outputKey: string, recipeId: string) {
-    if (!canEditSelectedPlan || !outputKey || !recipeId) return;
-    const openCell = selectedNeed;
-    setItemDetailFeedback(null);
-    setRouteSavePendingId(recipeId);
-    try {
-      const nextConfig = {
-        ...config,
-        routeOverrides: {
-          ...(config.routeOverrides ?? {}),
-          [outputKey]: recipeId,
-        },
-      };
-      await saveSelectedConfig(nextConfig);
-      setManagerRefreshToken((value) => value + 1);
-      if (openCell) await openNeedDetail(openCell);
-      setItemDetailFeedback({ itemKey: outputKey, tone: "success", message: "Acquisition route updated." });
-    } catch (err) {
-      setItemDetailFeedback({ itemKey: outputKey, tone: "error", message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setRouteSavePendingId(null);
-    }
-  }
-  async function saveMultiplier(outputKey: string, percent: number) {
-    if (!canEditSelectedPlan || !outputKey) return;
-    setItemDetailFeedback(null);
-    try {
-      const multipliers = { ...(config.multipliers ?? {}) };
-      const safePercent = Math.max(0, Math.min(1900, Number.isFinite(percent) ? percent : 0));
-      if (safePercent > 0) multipliers[outputKey] = { multiplier: 1 + safePercent / 100, note: `${safePercent}% gathering safety buffer` };
-      else delete multipliers[outputKey];
-      await saveSelectedConfig({ ...config, multipliers });
-      setItemDetailFeedback({ itemKey: outputKey, tone: "success", message: safePercent > 0 ? `Safety buffer saved at ${safePercent}%.` : "Safety buffer removed." });
-      setManagerRefreshToken((value) => value + 1);
-    } catch (err) {
-      setItemDetailFeedback({ itemKey: outputKey, tone: "error", message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
   async function saveSelectedConfig(nextConfig: AnyRecord) {
     const csrfToken = ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken;
     if (!csrfToken || !selectedPlanId) throw new Error("You no longer have permission to edit this plan.");
@@ -694,7 +651,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
           <label className="craft-plan-header-selector"><span className="dialog-sr-only">Current plan</span><select value={selectedPlanId} onChange={(event) => selectPlan(event.target.value)}>{plans.some((entry) => entry.scope === "shared") ? <optgroup label="Shared plans">{plans.filter((entry) => entry.scope === "shared").map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · Shared{entry.primary ? " · Primary" : ""}</option>)}</optgroup> : null}{plans.some((entry) => entry.scope === "personal") ? <optgroup label="My plans">{plans.filter((entry) => entry.scope === "personal").map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · Personal</option>)}</optgroup> : null}{selectedPlan && !plans.some((entry) => String(entry.id) === String(selectedPlan.id)) ? <optgroup label="Admin inspection"><option value={selectedPlan.id}>{selectedPlan.name} · Personal</option></optgroup> : null}</select></label>
           <button className="toolbar-button" type="button" onClick={() => setPlansOpen(true)}>Plans</button>
           <a className="toolbar-button" href={`${LOCAL_API}/catalog/probabilities.xlsx`}><Download size={15} aria-hidden="true" /> Download probabilities</a>
-          {canEditSelectedPlan ? <button className="toolbar-button primary" type="button" onClick={() => setManagerOpen(true)}>Manage Plan</button> : null}
+          {canEditSelectedPlan ? <button className="toolbar-button primary" type="button" onClick={() => { setManagerOutputKey(""); setManagerOpen(true); }}>Manage Plan</button> : null}
           <span>{quantity(totals.missingItems)} materials still short</span>
           <span>{quantity(totals.activeCraftQuantity)} in tracked crafts</span>
         </div>
@@ -852,7 +809,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
       )}
       {needDetailDialog}
       {sectionOverrideDialog}
-      {canEditSelectedPlan ? <CraftPlanManagerDialog open={managerOpen} onClose={() => setManagerOpen(false)} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null}
+      {canEditSelectedPlan ? <CraftPlanManagerDialog open={managerOpen} onClose={closeManager} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} permissions={Array.isArray(adminAuth?.user?.permissions) ? adminAuth.user.permissions : []} initialWorkspace={managerOutputKey ? "recipes" : "goals"} initialOutputKey={managerOutputKey} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null}
       <CraftPlansDialog open={plansOpen} plans={plans} selectedPlanId={selectedPlanId} userCsrfToken={auth.csrfToken} adminCsrfToken={adminAuth?.csrfToken} currentUserId={auth.user?.id} onClose={() => setPlansOpen(false)} onSelect={selectPlan} onChanged={(planId) => void refreshPlans(planId).then((resolved) => { if (resolved) selectPlan(resolved); })} />
     </div>
   );
