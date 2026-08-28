@@ -9,6 +9,16 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.65.0-beta.1] - 2026-08-28
+
+### Removed
+
+- Removed the Featurebase in-app messenger and signed account identity integration.
+
+### Security
+
+- Removed the obsolete Featurebase signing secret and external browser permissions from the application deployment.
+
 ## [0.64.2-beta.2] - 2026-08-28
 
 ### Changed
