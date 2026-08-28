@@ -1633,7 +1633,7 @@ test("server collection paginates listings and protects production mutations", a
   assert.equal(typeof bootstrap.config.claimName, "string");
   assert.equal(bootstrap.config.refreshSeconds, initialConfig.refreshSeconds);
   assert.equal(bootstrap.auth.authenticated, false);
-  assert.equal(bootstrap.auth.featurebaseJwt, null);
+  assert.deepEqual(Object.keys(bootstrap.auth).sort(), ["authenticated", "csrfToken", "discordLoginEnabled", "legal", "user"]);
   assert.equal(bootstrap.legal.acceptanceRequired, false);
   const publicHealth = await fetch(`${origin}/api/local/health`).then((response) => response.json());
   assert.equal(bootstrap.build.version, publicHealth.version);

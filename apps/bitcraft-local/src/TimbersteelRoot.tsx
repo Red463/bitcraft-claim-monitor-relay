@@ -1,5 +1,4 @@
 import React from "react";
-import { FeaturebaseProvider } from "featurebase-js/react";
 import { loadBootstrap, type BootstrapPayload } from "./api/bootstrap";
 import { RouteLoadingState } from "./components/main/RouteLoadingState";
 
@@ -59,15 +58,5 @@ export default function TimbersteelRoot() {
     </main>
   ) : <main className="route-entry-state"><RouteLoadingState label="Starting application" /></main>;
 
-  return (
-    <FeaturebaseProvider
-      appId="6a78ff10ace030d1aa7582f2"
-      featurebaseJwt={bootstrap?.auth.featurebaseJwt ?? undefined}
-      theme="dark"
-      language="en"
-      alignment="right"
-    >
-      <RouteErrorBoundary>{entry}</RouteErrorBoundary>
-    </FeaturebaseProvider>
-  );
+  return <RouteErrorBoundary>{entry}</RouteErrorBoundary>;
 }

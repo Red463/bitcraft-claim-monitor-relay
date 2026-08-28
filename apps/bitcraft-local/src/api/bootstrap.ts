@@ -4,7 +4,7 @@ import type { AppSettings, UserAuthState } from "../types/settings";
 export type BootstrapConfig = Partial<AppSettings> & Pick<AppSettings, "claimId" | "refreshSeconds"> & {
   claimName?: string;
 };
-export type BootstrapAuth = Omit<UserAuthState, "featurebaseJwt"> & { authenticated: boolean; featurebaseJwt: string | null };
+export type BootstrapAuth = UserAuthState & { authenticated: boolean };
 export type BootstrapLegal = PublicLegalPolicy & {
   acceptanceRequired: boolean;
   termsDigest?: string;
@@ -46,7 +46,6 @@ export function normalizeBootstrap(value: unknown): BootstrapPayload {
       user: auth.user && typeof auth.user === "object" ? auth.user as BootstrapAuth["user"] : null,
       csrfToken: typeof auth.csrfToken === "string" ? auth.csrfToken : null,
       discordLoginEnabled: auth.discordLoginEnabled === true,
-      featurebaseJwt: typeof auth.featurebaseJwt === "string" ? auth.featurebaseJwt : null,
       legal: {
         version: String(authLegal.version ?? legal.version ?? ""),
         termsDigest: String(authLegal.termsDigest ?? legal.termsDigest ?? ""),

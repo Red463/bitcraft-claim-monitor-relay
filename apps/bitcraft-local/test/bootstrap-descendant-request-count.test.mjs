@@ -15,7 +15,6 @@ const bootstrapFixture = {
     user: { id: 1, discordId: "2", username: "tester", globalName: "Tester", avatarUrl: null, characterPlayerId: "", characterName: "", characterStatus: "unlinked", settings: {} },
     csrfToken: "bootstrap-csrf",
     discordLoginEnabled: true,
-    featurebaseJwt: null,
     legal: { version: "v1", termsDigest: "terms", privacyDigest: "privacy", acceptedAt: "now", requiresAcceptance: false },
   },
   legal: { version: "v1", effectiveDate: "2026-01-01", acceptanceRequired: false, operator: {} },
