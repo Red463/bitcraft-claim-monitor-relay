@@ -229,6 +229,84 @@ test("source failures create immediate deterministic causal evidence", () => {
   db.close();
 });
 
+test("ordinary five-minute causal checkpoints compare from stored evidence", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  const changed = repository.recordSuccess(v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    available: 50,
+    missing: 30,
+    completion: 70,
+  }));
+
+  assert.equal(changed.fullSnapshot, false);
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary" }).causalGroups[0];
+  const comparison = repository.compareCheckpoints("42", {
+    planId: "legacy-primary",
+    from: group.span.from,
+    to: group.span.to,
+  });
+  assert.equal(comparison.ok, true);
+  assert.equal(comparison.checkpoints.to.capturedAt, "2026-08-28T10:05:00.000Z");
+  assert.equal(comparison.differences.materials.changed, true);
+  assert.equal(comparison.differences.buildingProgress.changed, true);
+  db.close();
+});
+
+test("one stock increase cannot collect two simultaneous equal-output crafts", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const previous = v2Snapshot({ guaranteed: 20, estimated: 0 });
+  const craft = previous.materials[0].activeCraftSources[0];
+  previous.materials[0].activeCraftSources = [
+    { ...craft, craftId: "craft-a", guaranteedQuantity: 10, estimatedQuantity: 0 },
+    { ...craft, craftId: "craft-b", guaranteedQuantity: 10, estimatedQuantity: 0 },
+  ];
+  repository.recordSuccess(previous);
+  repository.recordSuccess(v2Snapshot({
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    available: 50,
+    guaranteed: 0,
+    estimated: 0,
+    craftPresent: false,
+  }));
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary" }).causalGroups[0];
+  const removals = group.events.filter((event) => event.type === "craft_removed");
+  assert.equal(removals.length, 2);
+  assert.deepEqual(removals.map((event) => event.inference), [undefined, undefined]);
+  assert.equal(group.unresolvedRelationships.filter((entry) => entry.effectType === "craft_removed").length, 2);
+  db.close();
+});
+
+test("export keeps event and causal ranges anchored to the request before the first snapshot", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T10:10:00.000Z" }));
+
+  const bundle = repository.exportRange("42", { label: "24h", since: "2026-08-28T10:00:00.000Z" }, "legacy-primary");
+  assert.equal(bundle.effectiveSince, "2026-08-28T10:10:00.000Z");
+  assert.ok(bundle.events.some((event) => event.type === "source_failure" && event.capturedAt === "2026-08-28T10:05:00.000Z"));
+  assert.ok(bundle.causalGroups.some((group) => group.observedTriggers.some((entry) => entry.type === "source_failure")));
+  db.close();
+});
+
+test("first successful capture after failure creates a recovery causal group", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T10:10:00.000Z" }));
+
+  const result = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" });
+  assert.equal(result.pagination.total, 2);
+  const recovered = result.causalGroups.find((group) => group.observedTriggers.some((entry) => entry.type === "source_recovered"));
+  assert.deepEqual(recovered.span, { from: "2026-08-28T10:05:00.000Z", to: "2026-08-28T10:10:00.000Z" });
+  assert.ok(recovered.unresolvedRelationships.some((entry) => entry.triggerType === "source_recovered"));
+  db.close();
+});
+
 test("causal groups preserve typed identities, unresolved evidence, bounded pagination, and every filter", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });

@@ -225,7 +225,7 @@ test("collection is inferred only when stock exactly matches captured craft outp
   const removed = result.events.find((event) => event.type === "craft_removed");
   assert.equal(removed.inference?.cause, "collected");
   assert.equal(removed.inference?.confidence, "high");
-  assert.match(removed.inference?.evidence.join(" "), /both equal 10/i);
+  assert.match(removed.inference?.evidence.join(" "), /uniquely allocate.*10/i);
 });
 
 test("baseline changes retain simultaneous progress deltas", () => {

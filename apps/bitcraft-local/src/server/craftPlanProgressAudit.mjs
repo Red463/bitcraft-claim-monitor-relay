@@ -389,12 +389,12 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
 
     const beforeStock = stockMap(before);
     const afterStock = stockMap(after);
-    let matchingStockIncrease = 0;
+    let netStockIncrease = 0;
     for (const key of [...new Set([...beforeStock.keys(), ...afterStock.keys()])].sort()) {
       const oldSource = beforeStock.get(key);
       const newSource = afterStock.get(key);
       const delta = number(newSource?.quantity) - number(oldSource?.quantity);
-      if (delta > 0) matchingStockIncrease += delta;
+      netStockIncrease += delta;
       if (delta !== 0 || !oldSource || !newSource) {
         events.push({
           type: !oldSource ? "stock_source_added" : !newSource ? "stock_source_removed" : "stock_delta",
@@ -411,33 +411,33 @@ export function diffCraftPlanProgressSnapshots(previous = {}, current = {}) {
 
     const beforeCrafts = craftMap(before);
     const afterCrafts = craftMap(after);
+    const craftEvents = [];
     for (const key of [...new Set([...beforeCrafts.keys(), ...afterCrafts.keys()])].sort()) {
       const oldCraft = beforeCrafts.get(key);
       const newCraft = afterCrafts.get(key);
       if (!oldCraft && newCraft) {
-        events.push({ type: "craft_added", itemKey, ...newCraft });
+        craftEvents.push({ type: "craft_added", itemKey, ...newCraft });
       } else if (oldCraft && !newCraft) {
-        const capturedOutputQuantities = [
-          number(oldCraft.guaranteedQuantity),
-          number(oldCraft.estimatedQuantity),
-        ].filter((quantity) => quantity > 0);
-        const exactCollectionMatch = capturedOutputQuantities.includes(matchingStockIncrease);
-        events.push({
+        craftEvents.push({
           type: "craft_removed",
           itemKey,
           ...oldCraft,
-          ...(exactCollectionMatch ? {
-            inference: {
-              cause: "collected",
-              confidence: "high",
-              evidence: [`Captured craft output and stock increase both equal ${matchingStockIncrease}`],
-            },
-          } : {}),
         });
       } else if (JSON.stringify(stable(oldCraft)) !== JSON.stringify(stable(newCraft))) {
-        events.push({ type: "craft_changed", itemKey, before: oldCraft, after: newCraft });
+        craftEvents.push({ type: "craft_changed", itemKey, before: oldCraft, after: newCraft });
       }
     }
+    const removals = craftEvents.filter((event) => event.type === "craft_removed");
+    const collectedIndexes = uniquelyCollectedCraftIndexes(removals, Math.max(0, netStockIncrease));
+    for (const [index, event] of removals.entries()) {
+      if (!collectedIndexes.has(index)) continue;
+      event.inference = {
+        cause: "collected",
+        confidence: "high",
+        evidence: [`Captured craft outputs uniquely allocate the stock increase of ${netStockIncrease}`],
+      };
+    }
+    events.push(...craftEvents);
   }
 
   const beforeRules = previous?.planInputs?.sourceRules ?? {};
@@ -622,6 +622,13 @@ export function buildCraftPlanCausalGroup(previous, current, events = []) {
       reason: "The source failure is observed, but its downstream demand, shortage, and progress effects have not yet been observed.",
     });
   }
+  for (const event of events.filter((entry) => entry.type === "source_recovered")) {
+    unresolvedRelationships.push({
+      materialKey: null,
+      triggerType: event.type,
+      reason: "Source recovery is observed, but captured evidence does not uniquely attribute downstream changes to that recovery.",
+    });
+  }
   const core = {
     planId: text(current?.planId || previous?.planId || "legacy-primary"),
     span: { from: text(previous?.capturedAt), to: text(current?.capturedAt) },
@@ -657,6 +664,35 @@ function compatibilityForSnapshots(snapshots) {
       ? ["Schema version 1 evidence does not contain stable planRequired/requiredNow/missingNow totals, explicit visible stock, selected dependency paths, or building completion. Historical values are not reconstructed from the current catalogue."]
       : [],
   };
+}
+
+function uniquelyCollectedCraftIndexes(crafts, stockIncrease) {
+  if (stockIncrease <= 0 || crafts.length === 0 || crafts.length > 20) return new Set();
+  const solutions = new Set();
+  const selected = [];
+  const visit = (index, remaining) => {
+    if (solutions.size > 1) return;
+    if (remaining === 0) {
+      solutions.add(selected.join(","));
+      return;
+    }
+    if (index >= crafts.length || remaining < 0) return;
+    visit(index + 1, remaining);
+    const candidates = [...new Set([
+      number(crafts[index]?.guaranteedQuantity),
+      number(crafts[index]?.estimatedQuantity),
+      number(crafts[index]?.quantity),
+    ].filter((quantity) => quantity > 0))];
+    for (const quantity of candidates) {
+      selected.push(index);
+      visit(index + 1, remaining - quantity);
+      selected.pop();
+    }
+  };
+  visit(0, stockIncrease);
+  if (solutions.size !== 1) return new Set();
+  const [solution] = solutions;
+  return new Set(solution ? solution.split(",").map(Number) : []);
 }
 
 function changed(before, after) {
@@ -854,24 +890,27 @@ export function createCraftPlanProgressAuditRepository(db, {
     try {
       let lastSnapshotId = state?.last_snapshot_id ?? null;
       let lastFullSnapshotAt = state?.last_full_snapshot_at ?? null;
-      if (fullSnapshot) {
-        const result = statements.insertCraftPlanProgressSnapshot.run(
-          claimId,
-          planId,
-          capturedAt,
-          text(snapshot.baselineRevision),
-          fingerprint,
-          1,
-          payloadGzip,
-          text(snapshot?.metadata?.appVersion),
-          text(snapshot?.metadata?.buildId),
-        );
-        lastSnapshotId = result.lastInsertRowid;
-        lastFullSnapshotAt = capturedAt;
-      }
+      const result = statements.insertCraftPlanProgressSnapshot.run(
+        claimId,
+        planId,
+        capturedAt,
+        text(snapshot.baselineRevision),
+        fingerprint,
+        fullSnapshot ? 1 : 0,
+        payloadGzip,
+        text(snapshot?.metadata?.appVersion),
+        text(snapshot?.metadata?.buildId),
+      );
+      lastSnapshotId = result.lastInsertRowid;
+      if (fullSnapshot) lastFullSnapshotAt = capturedAt;
       for (const event of events) insertEvent(claimId, planId, capturedAt, snapshot.baselineRevision, event);
-      if (previous && events.length) {
-        const group = buildCraftPlanCausalGroup(previous, snapshot, events);
+      const groupPrevious = previous ?? (state?.last_failure_fingerprint ? {
+        planId,
+        capturedAt: text(state.updated_at),
+        baselineRevision: text(snapshot.baselineRevision),
+      } : null);
+      if (groupPrevious && events.length) {
+        const group = buildCraftPlanCausalGroup(groupPrevious, snapshot, events);
         statements.insertCraftPlanProgressCausalGroup.run(
           claimId, planId, group.groupId, group.span.from, group.span.to, JSON.stringify(group),
         );
@@ -1057,8 +1096,9 @@ export function createCraftPlanProgressAuditRepository(db, {
 
   function exportRange(claimId, range, planId = "legacy-primary") {
     const warnings = [];
-    const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(planId), text(range.since));
-    const rows = statements.listCraftPlanProgressSnapshotsSince.all(text(claimId), text(planId), text(range.since));
+    const requestedSince = text(range.since);
+    const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(planId), requestedSince);
+    const rows = statements.listCraftPlanProgressSnapshotsSince.all(text(claimId), text(planId), requestedSince);
     const uniqueRows = new Map();
     if (checkpoint) uniqueRows.set(number(checkpoint.id), checkpoint);
     for (const row of rows) uniqueRows.set(number(row.id), row);
@@ -1070,7 +1110,7 @@ export function createCraftPlanProgressAuditRepository(db, {
         warnings.push(`Skipped corrupt snapshot ${row.id}.`);
       }
     }
-    let effectiveSince = text(range.since);
+    let effectiveSince = requestedSince;
     if (!checkpoint && snapshots.length) {
       effectiveSince = text(snapshots[0].capturedAt);
       warnings.push("No valid checkpoint predates the requested range; reconstruction starts at the first retained full snapshot.");
@@ -1086,7 +1126,7 @@ export function createCraftPlanProgressAuditRepository(db, {
       status: status(claimId, planId),
       snapshots,
       events: statements.exportCraftPlanProgressEvents
-        .all(text(claimId), text(planId), effectiveSince)
+        .all(text(claimId), text(planId), requestedSince)
         .map(parseEventRow),
       configHistory: statements.listCraftPlanConfigAudit.all(text(planId)).map((row) => {
         let changes = { corrupt: true };
@@ -1099,7 +1139,7 @@ export function createCraftPlanProgressAuditRepository(db, {
         };
       }).filter((row) => row.occurredAt >= text(range.since)),
       causalGroups: statements.exportCraftPlanProgressCausalGroups
-        .all(text(claimId), text(planId), effectiveSince, "9999-12-31T23:59:59.999Z")
+        .all(text(claimId), text(planId), requestedSince, "9999-12-31T23:59:59.999Z")
         .map(parseCausalGroupRow),
       compatibility: compatibilityForSnapshots(snapshots),
       warnings,
