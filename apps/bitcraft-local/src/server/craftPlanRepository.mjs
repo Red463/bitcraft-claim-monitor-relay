@@ -213,37 +213,38 @@ export function createCraftPlanRepository(db, {
   };
   const update = (id, changes, options = {}) => {
     const { expectedRevision, admin = false, userId = null } = options;
-    const entry = row(id);
-    if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
-    requireRevision(entry, expectedRevision);
-    const config = authorizedConfig(entry, changes.config);
-    const routeReviewState = options.routeReviewState;
-    let grandfatheredOutputKeys = [];
-    if (routeReviewState && routeReviews) {
-      const state = routeReviews.previewState(entry.id, routeReviewState.routeReviews, routeReviewState.confirmations);
-      requireMatchingRouteConfirmations(state);
-      const wasPublic = entry.scope === "shared" && json(entry.config_json).enabled !== false;
-      const previousFingerprints = new Map((routeReviewState.previousRouteReviews ?? [])
-        .filter((route) => route?.ambiguous)
-        .map((route) => [route.outputKey, route.fingerprint]));
-      const storedOutputs = new Set(state.storedReviews.map((route) => route.outputKey));
-      grandfatheredOutputKeys = state.unconfirmed
-        .filter((route) => wasPublic
-          && previousFingerprints.get(route.outputKey) === route.fingerprint
-          && !storedOutputs.has(route.outputKey))
-        .map((route) => route.outputKey);
-      const grandfatheredOutputs = new Set(grandfatheredOutputKeys);
-      const newlyUnconfirmed = state.unconfirmed.filter((route) => !grandfatheredOutputs.has(route.outputKey));
-      if (entry.scope === "shared" && config.enabled !== false && newlyUnconfirmed.length) {
-        const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
-        error.unconfirmedRoutes = newlyUnconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));
-        throw error;
-      }
-    }
-    const timestamp = now();
-    const before = publicPlan(entry);
     db.exec("BEGIN IMMEDIATE");
     try {
+      const entry = row(id);
+      if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
+      requireRevision(entry, expectedRevision);
+      const config = authorizedConfig(entry, changes.config);
+      const routeReviewState = options.routeReviewState;
+      let grandfatheredOutputKeys = [];
+      if (routeReviewState && routeReviews) {
+        const state = routeReviews.previewState(entry.id, routeReviewState.routeReviews, routeReviewState.confirmations);
+        requireMatchingRouteConfirmations(state);
+        const wasPublic = entry.scope === "shared" && json(entry.config_json).enabled !== false;
+        const previousRoutes = new Map((routeReviewState.previousRouteReviews ?? [])
+          .filter((route) => route?.ambiguous)
+          .map((route) => [route.outputKey, route]));
+        const storedOutputs = new Set(state.storedReviews.map((route) => route.outputKey));
+        grandfatheredOutputKeys = state.unconfirmed
+          .filter((route) => wasPublic
+            && previousRoutes.get(route.outputKey)?.fingerprint === route.fingerprint
+            && previousRoutes.get(route.outputKey)?.selectedRouteId === route.selectedRouteId
+            && !storedOutputs.has(route.outputKey))
+          .map((route) => route.outputKey);
+        const grandfatheredOutputs = new Set(grandfatheredOutputKeys);
+        const newlyUnconfirmed = state.unconfirmed.filter((route) => !grandfatheredOutputs.has(route.outputKey));
+        if (entry.scope === "shared" && config.enabled !== false && newlyUnconfirmed.length) {
+          const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
+          error.unconfirmedRoutes = newlyUnconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));
+          throw error;
+        }
+      }
+      const timestamp = now();
+      const before = publicPlan(entry);
       db.prepare("UPDATE craft_plans SET name = ?, config_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?").run(name(changes.name ?? entry.name), JSON.stringify(config), timestamp, entry.id);
       const after = publicPlan(row(entry.id));
       if (routeReviewState && routeReviews) routeReviews.reconcile({
@@ -260,12 +261,12 @@ export function createCraftPlanRepository(db, {
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
   const remove = (id, { expectedRevision, admin = false, userId = null } = {}) => {
-    const entry = row(id);
-    if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
-    requireRevision(entry, expectedRevision);
-    if (entry.is_primary) throw problem("Choose another primary shared plan before deleting this plan", 409, "craft_plan_primary_delete");
     db.exec("BEGIN IMMEDIATE");
     try {
+      const entry = row(id);
+      if (!visible(entry, { admin, userId }) || (entry?.scope === "shared" && !admin)) throw problem("Craft plan not found", 404, "craft_plan_not_found");
+      requireRevision(entry, expectedRevision);
+      if (entry.is_primary) throw problem("Choose another primary shared plan before deleting this plan", 409, "craft_plan_primary_delete");
       db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").run(entry.id);
@@ -332,23 +333,27 @@ export function createCraftPlanRepository(db, {
     setPrimary(id, options = {}) {
       const { expectedRevision, admin = false } = options;
       if (!admin) throw problem("Administrator access required", 403, "admin_required");
-      const entry = row(id);
-      if (!entry || entry.scope !== "shared") throw problem("Craft plan not found", 404, "craft_plan_not_found");
-      requireRevision(entry, expectedRevision);
-      if (entry.is_primary) return publicPlan(entry);
-      const timestamp = now();
-      const beforeTarget = publicPlan(entry);
-      const previousPrimaryRow = db.prepare("SELECT * FROM craft_plans WHERE is_primary = 1 LIMIT 1").get();
-      const beforePreviousPrimary = publicPlan(previousPrimaryRow);
       db.exec("BEGIN IMMEDIATE");
       try {
+        const entry = row(id);
+        if (!entry || entry.scope !== "shared") throw problem("Craft plan not found", 404, "craft_plan_not_found");
+        requireRevision(entry, expectedRevision);
+        if (entry.is_primary) {
+          const current = publicPlan(entry);
+          db.exec("COMMIT");
+          return current;
+        }
+        const timestamp = now();
+        const beforeTarget = publicPlan(entry);
+        const previousPrimaryRow = db.prepare("SELECT * FROM craft_plans WHERE is_primary = 1 LIMIT 1").get();
+        const beforePreviousPrimary = publicPlan(previousPrimaryRow);
         db.prepare("UPDATE craft_plans SET is_primary = 0, revision = revision + 1, updated_at = ? WHERE is_primary = 1").run(timestamp);
         db.prepare("UPDATE craft_plans SET is_primary = 1, revision = revision + 1, updated_at = ? WHERE id = ?").run(timestamp, entry.id);
         recordConfigAudit(beforeTarget, publicPlan(row(entry.id)), "primary", options, timestamp);
         if (beforePreviousPrimary) recordConfigAudit(beforePreviousPrimary, publicPlan(row(beforePreviousPrimary.id)), "primary", options, timestamp);
         db.exec("COMMIT");
+        return publicPlan(row(entry.id));
       } catch (error) { db.exec("ROLLBACK"); throw error; }
-      return publicPlan(row(entry.id));
     },
   };
 }

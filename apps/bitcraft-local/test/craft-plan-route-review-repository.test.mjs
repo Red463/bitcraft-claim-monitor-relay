@@ -217,6 +217,61 @@ test("legacy public ambiguity is grandfathered until its alternative fingerprint
   db.close();
 });
 
+test("legacy grandfathering binds the selected route as well as the fingerprint", () => {
+  const { db, plans, routeReviews, configAudit } = fixture();
+  const plan = plans.primary();
+  const selectedA = review("items:7", "same-fingerprint", { selectedRouteId: "safe" });
+  const selectedB = review("items:7", "same-fingerprint", { selectedRouteId: "other" });
+
+  assert.throws(() => plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 1,
+    admin: true,
+    actor,
+    routeReviewState: { routeReviews: [selectedB], previousRouteReviews: [selectedA], confirmations: [], reviewer: actor },
+  }), (error) => error.code === "craft_plan_route_review_required");
+  assert.equal(plans.getAdmin(plan.id).revision, 1);
+  assert.equal(routeReviews.listForPlan(plan.id).length, 0);
+  assert.equal(configAudit.listForPlan(plan.id).length, 0);
+
+  const baseline = plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 1,
+    admin: true,
+    actor,
+    routeReviewState: { routeReviews: [selectedA], previousRouteReviews: [selectedA], confirmations: [], reviewer: actor },
+  });
+  assert.equal(baseline.revision, 2);
+  const continued = plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 2,
+    admin: true,
+    actor,
+    routeReviewState: { routeReviews: [selectedA], previousRouteReviews: [selectedA], confirmations: [], reviewer: actor },
+  });
+  assert.equal(continued.revision, 3);
+  assert.throws(() => plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 3,
+    admin: true,
+    actor,
+    routeReviewState: { routeReviews: [selectedB], previousRouteReviews: [selectedA], confirmations: [], reviewer: actor },
+  }), (error) => error.code === "craft_plan_route_review_required");
+
+  const confirmed = plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 3,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [selectedB],
+      previousRouteReviews: [selectedA],
+      confirmations: [{ outputKey: selectedB.outputKey, fingerprint: selectedB.fingerprint, selectedRouteId: selectedB.selectedRouteId }],
+      reviewer: actor,
+    },
+  });
+  assert.equal(confirmed.revision, 4);
+  assert.deepEqual(routeReviews.listForPlan(plan.id).map(({ selectedRouteId, status }) => ({ selectedRouteId, status })), [
+    { selectedRouteId: "other", status: "confirmed" },
+  ]);
+  db.close();
+});
+
 test("existing route-review tables migrate confirmed rows to explicit evidence status", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = OFF");
@@ -405,6 +460,57 @@ test("real calculated cyclic alternatives are non-selectable and do not create a
   assert.equal(routeState.ambiguous, false);
   assert.equal(routeState.selectedRouteId, "valid-route");
   assert.equal(routeState.preselectedRouteId, "valid-route");
+});
+
+test("indirectly cyclic alternatives are non-selectable and do not create ambiguity", () => {
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [{ id: "80", kind: "items", name: "Plate", quantity: 2 }],
+  });
+  const calculated = computeCraftPlan({
+    config,
+    detailsByKey: new Map([
+      ["items:80", {
+        item: { id: "80", kind: "items", name: "Plate" },
+        craftingRecipes: [
+          {
+            id: "valid-route",
+            name: "Valid plate",
+            craftedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "82", item_type: "item", quantity: 2 }],
+          },
+          {
+            id: "indirect-cycle",
+            name: "Indirect cycle",
+            craftedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "81", item_type: "item", quantity: 1 }],
+          },
+        ],
+      }],
+      ["items:81", {
+        item: { id: "81", kind: "items", name: "Loop" },
+        craftingRecipes: [{
+          id: "cycle-back",
+          name: "Cycle back",
+          craftedItemStacks: [{ item_id: "81", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+        }],
+      }],
+    ]),
+  });
+  const preview = buildCraftPlanPreview({
+    plan: calculated,
+    scope: "shared",
+    configurationRevision: 1,
+    baselineRevision: "indirect-cycle-baseline",
+    validation: { valid: true, errors: [] },
+  });
+  const routeState = preview.routeReviews.find(({ outputKey }) => outputKey === "items:80");
+
+  assert.equal(calculated.steps[0].alternatives.find(({ id }) => id === "indirect-cycle").isSelectable, false);
+  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["valid-route"]);
+  assert.equal(routeState.ambiguous, false);
+  assert.equal(routeState.selectedRouteId, "valid-route");
 });
 
 test("new shared plans require ambiguity confirmation and save reviews atomically with creation", () => {
