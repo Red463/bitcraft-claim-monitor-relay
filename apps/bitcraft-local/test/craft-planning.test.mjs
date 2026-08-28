@@ -96,6 +96,17 @@ test("canonical material totals stay fixed while live quantities and typed ident
       { key: "items:99", planRequired: 0, requiredNow: 3, missingNow: 3, required: 3, missing: 3 },
     ],
   );
+  const gatherItem = joined.gatherNext
+    .flatMap((group) => group.items)
+    .find((material) => material.key === "items:7");
+  assert.deepEqual(
+    {
+      planRequired: gatherItem?.planRequired,
+      requiredNow: gatherItem?.requiredNow,
+      missingNow: gatherItem?.missingNow,
+    },
+    { planRequired: 10, requiredNow: 4, missingNow: 4 },
+  );
   assert.equal("planRequired" in livePlan.materials.find((material) => material.key === "items:7"), false);
 });
 
@@ -182,6 +193,110 @@ test("invalid completed craft plans retain the exact last-good publication and o
     retainedLastGood: false,
     diagnostic: null,
   });
+});
+
+test("configured planner sources missing from a completed projection fail validation and retain last-good", () => {
+  assert.equal(typeof craftPlanning.reconcileCraftPlanRequiredSourceStatus, "function");
+  const config = normalizeCraftPlanConfig({
+    sourceRules: {
+      storageContainerIds: ["storage-present", "storage-missing"],
+      bankContainerIds: ["player-1:bank-missing"],
+      deployableContainerIds: ["player-1:cart-missing"],
+    },
+  });
+  const requiredSources = craftPlanning.reconcileCraftPlanRequiredSourceStatus(config, [{
+    sourceId: "storage-present",
+    label: "Present storage",
+    type: "Settlement storage",
+    available: true,
+    error: "",
+  }]);
+  const material = {
+    key: "items:7",
+    id: "7",
+    kind: "items",
+    planRequired: 10,
+    requiredNow: 4,
+    missingNow: 4,
+    required: 4,
+    missing: 4,
+  };
+  const candidatePlan = {
+    config,
+    materials: [material],
+    gatherNext: [],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { baselineRevision: "baseline-1" },
+  };
+  const lastGoodPlan = { marker: "last-good" };
+  const validation = craftPlanning.validateCompletedCraftPlan(candidatePlan, { requiredSources });
+  const publication = craftPlanning.selectCraftPlanPublication({ candidatePlan, lastGoodPlan, validation });
+
+  assert.deepEqual(
+    requiredSources.filter((source) => source.available === false).map((source) => source.sourceId),
+    ["storage-missing", "player-1:bank-missing", "player-1:cart-missing"],
+  );
+  assert.equal(validation.valid, false);
+  assert.equal(validation.errors.filter((error) => error.code === "required_source_unavailable").length, 3);
+  assert.strictEqual(publication.plan, lastGoodPlan);
+  assert.equal(publication.retainedLastGood, true);
+});
+
+test("effort-unavailable plans still pass through enrichment, validation, and last-good publication", () => {
+  assert.equal(typeof craftPlanning.finalizeCraftPlanPublication, "function");
+  const material = {
+    key: "items:7",
+    id: "7",
+    kind: "items",
+    required: 4,
+    missing: 2,
+  };
+  const candidatePlan = {
+    config: { routeOverrides: {} },
+    materials: [material],
+    gatherNext: [{ section: "Woodworking", items: [material] }],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { state: "unavailable", baselineRevision: "baseline-1" },
+  };
+  const baselinePlan = { materials: [{ key: "items:7", required: 10 }] };
+  const requiredSources = [{ sourceId: "storage-1", label: "Storage", type: "Settlement storage", available: true }];
+  const completed = craftPlanning.finalizeCraftPlanPublication({
+    candidatePlan,
+    baselinePlan,
+    requiredSources,
+    baselineRevision: "baseline-1",
+  });
+
+  assert.equal(completed.validation.valid, true);
+  assert.strictEqual(completed.plan, completed.candidatePlan);
+  assert.deepEqual(
+    completed.plan.gatherNext[0].items[0],
+    completed.plan.materials[0],
+  );
+  assert.deepEqual(
+    {
+      planRequired: completed.plan.materials[0].planRequired,
+      requiredNow: completed.plan.materials[0].requiredNow,
+      missingNow: completed.plan.materials[0].missingNow,
+    },
+    { planRequired: 10, requiredNow: 4, missingNow: 2 },
+  );
+
+  const invalidCandidate = structuredClone(candidatePlan);
+  invalidCandidate.materials[0].required = Number.NaN;
+  const lastGoodPlan = { marker: "last-good-complete-plan" };
+  const rejected = craftPlanning.finalizeCraftPlanPublication({
+    candidatePlan: invalidCandidate,
+    baselinePlan,
+    requiredSources,
+    baselineRevision: "baseline-1",
+    lastGoodPlan,
+  });
+  assert.equal(rejected.validation.valid, false);
+  assert.strictEqual(rejected.plan, lastGoodPlan);
+  assert.equal(rejected.retainedLastGood, true);
 });
 
 test("compactCraftPlanResponse keeps live board values without nested drilldown payloads", () => {

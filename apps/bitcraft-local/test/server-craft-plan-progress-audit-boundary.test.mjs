@@ -21,9 +21,13 @@ test("server records complete planner progress and retains last-good progress du
 });
 
 test("server validates completed planner results and retains the cached last-good complete plan", () => {
-  assert.match(server, /joinCraftPlanBaselineMaterials/);
-  assert.match(server, /validateCompletedCraftPlan/);
-  assert.match(server, /selectCraftPlanPublication/);
+  assert.match(server, /finalizeCraftPlanPublication/);
+  assert.match(server, /reconcileCraftPlanRequiredSourceStatus/);
+  assert.doesNotMatch(
+    computedCraftPlan,
+    /if \(storedEffortModelVersion !== CRAFT_PLAN_EFFORT_MODEL_VERSION\) \{[\s\S]*?return livePlan;[\s\S]*?\}/,
+  );
+  assert.match(computedCraftPlan, /livePlan\.gatherNext = completedPublication\.candidatePlan\.gatherNext/);
   assert.match(server, /const craftPlanCalculationValidationWarnings = new Map\(\)/);
   assert.match(computedCraftPlan, /craftPlanCalculationValidationWarnings\.(?:set|delete)\(planId/);
   assert.match(server, /validationWarning: craftPlanCalculationValidationWarnings\.get\(planId\) \?\? null/);

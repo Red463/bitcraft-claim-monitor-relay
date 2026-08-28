@@ -112,7 +112,7 @@ import { normalizeMarketDealWatchSettings } from "./src/server/marketDealWatchSe
 import { evaluateLiveDealWatches, sameEnabledDealWatchRevision } from "./src/server/liveDealWatch.mjs";
 import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
-import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, joinCraftPlanBaselineMaterials, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, selectCraftPlanPublication, validateCompletedCraftPlan } from "./src/server/craftPlanning.mjs";
+import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, finalizeCraftPlanPublication, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, reconcileCraftPlanRequiredSourceStatus } from "./src/server/craftPlanning.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
@@ -2353,12 +2353,13 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const currentPlanRecord = selectedCraftPlan(planId);
   livePlan.plan = currentPlanRecord ? { id: currentPlanRecord.id, name: currentPlanRecord.name, scope: currentPlanRecord.scope, primary: currentPlanRecord.primary, revision: currentPlanRecord.revision } : null;
   const storedEffortModelVersion = Number(statements.getSetting.get("game_catalog_effort_model_version")?.value ?? 0);
-  if (storedEffortModelVersion !== CRAFT_PLAN_EFFORT_MODEL_VERSION) {
-    livePlan.effortProgress = unavailableCraftPlanEffortProgress();
-    return livePlan;
-  }
-  const catalogRevision = gameCatalogRepository.getEffortWeightRevision(CRAFT_PLAN_EFFORT_MODEL_VERSION);
-  const weights = gameCatalogRepository.getEffortWeights(CRAFT_PLAN_EFFORT_MODEL_VERSION);
+  const effortModelAvailable = storedEffortModelVersion === CRAFT_PLAN_EFFORT_MODEL_VERSION;
+  const catalogRevision = effortModelAvailable
+    ? gameCatalogRepository.getEffortWeightRevision(CRAFT_PLAN_EFFORT_MODEL_VERSION)
+    : "";
+  const weights = effortModelAvailable
+    ? gameCatalogRepository.getEffortWeights(CRAFT_PLAN_EFFORT_MODEL_VERSION)
+    : new Map();
   const baselineRevision = craftPlanBaselineRevision(config, catalogRevision, CRAFT_PLAN_EFFORT_MODEL_VERSION);
   const baselineConfig = craftPlanBaselineConfig(config);
   const baselineKey = `${planId}:${craftPlanEffortBaselineKey(baselineConfig, catalogRevision, CRAFT_PLAN_EFFORT_MODEL_VERSION)}`;
@@ -2374,13 +2375,17 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   plannerTelemetry.baselineInflightReuse = baselineStats.inflightReuse;
   plannerTelemetry.baselineEntries = baselineStats.entries;
   plannerTelemetry.baselineBytes = baselineStats.bytes;
-  livePlan.materials = joinCraftPlanBaselineMaterials(livePlan, baselinePlan).materials;
-  livePlan.effortProgress = {
-    ...calculateCraftPlanEffortProgress({ baselinePlan, currentPlan: livePlan, weights }),
-    baselineRevision,
-  };
+  livePlan.effortProgress = effortModelAvailable
+    ? {
+        ...calculateCraftPlanEffortProgress({ baselinePlan, currentPlan: livePlan, weights }),
+        baselineRevision,
+      }
+    : {
+        ...unavailableCraftPlanEffortProgress(),
+        baselineRevision,
+      };
 
-  const sourceStatus = [
+  const discoveredSourceStatus = [
     ...storageSources,
     ...playerSources,
     ...bankSources,
@@ -2392,7 +2397,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     available: source?.unavailable !== true,
     error: source?.unavailable ? String(source?.error ?? "Unavailable") : "",
   }));
-  sourceStatus.push(
+  discoveredSourceStatus.push(
     { ...inventoriesResult.source, available: !inventoriesResult.error, error: inventoriesResult.error },
     { ...craftsResult.source, available: !craftsResult.error, error: craftsResult.error },
     ...config.sourceRules.craftPlayerIds.flatMap((playerId) => [{
@@ -2409,13 +2414,19 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       error: craftsResult.error,
     }]),
   );
+  const sourceStatus = reconcileCraftPlanRequiredSourceStatus(config, discoveredSourceStatus);
 
   const capturedAt = new Date().toISOString();
-  const validation = validateCompletedCraftPlan(livePlan, {
+  const completedPublication = finalizeCraftPlanPublication({
+    candidatePlan: livePlan,
+    baselinePlan,
     requiredSources: sourceStatus,
-    previousPlan: options.lastGoodPlan,
+    lastGoodPlan: options.lastGoodPlan,
     baselineRevision,
   });
+  livePlan.materials = completedPublication.candidatePlan.materials;
+  livePlan.gatherNext = completedPublication.candidatePlan.gatherNext;
+  const validation = completedPublication.validation;
   const validationFailure = validation.valid ? null : {
     sourceId: "craft-plan-validation",
     label: "Craft Plan calculation validation",
@@ -2423,11 +2434,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     error: `${validation.errors.length} calculation invariant${validation.errors.length === 1 ? "" : "s"} failed.`,
   };
   const publicationFailures = validationFailure ? [...sourceFailures, validationFailure] : sourceFailures;
-  const publication = selectCraftPlanPublication({
-    candidatePlan: livePlan,
-    lastGoodPlan: options.lastGoodPlan,
-    validation,
-  });
+  const publication = completedPublication;
   if (validation.valid) {
     craftPlanCalculationValidationWarnings.delete(planId);
   } else {
@@ -2440,7 +2447,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     });
   }
 
-  if (!publicationFailures.length) {
+  if (!publicationFailures.length && effortModelAvailable) {
     livePlan.effortProgress.lastSuccessfulAt = capturedAt;
     try {
       const auditResult = craftPlanProgressAudit.recordSuccess(buildCraftPlanProgressSnapshot({
@@ -2468,7 +2475,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       };
       console.warn(`Craft Plan progress audit write failed: ${craftPlanProgressAuditWriteWarning.error}`);
     }
-  } else {
+  } else if (publicationFailures.length) {
     try {
       craftPlanProgressAudit.recordFailure(claimId, publicationFailures, capturedAt, planId);
       craftPlanProgressAuditWriteWarning = null;

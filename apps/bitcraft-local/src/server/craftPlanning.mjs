@@ -1588,17 +1588,52 @@ export function joinCraftPlanBaselineMaterials(livePlan = {}, baselinePlan = {})
       material?.planRequired ?? material?.bufferedRequired ?? material?.required,
     ]),
   );
+  const enrichMaterial = (material) => ({
+    ...material,
+    planRequired: baselineRequirements.has(String(material?.key ?? ""))
+      ? baselineRequirements.get(String(material?.key ?? ""))
+      : 0,
+    requiredNow: material?.required,
+    missingNow: material?.missing,
+  });
+  const materials = (Array.isArray(livePlan?.materials) ? livePlan.materials : []).map(enrichMaterial);
+  const materialsByKey = new Map(materials.map((material) => [String(material?.key ?? ""), material]));
   return {
     ...livePlan,
-    materials: (Array.isArray(livePlan?.materials) ? livePlan.materials : []).map((material) => ({
-      ...material,
-      planRequired: baselineRequirements.has(String(material?.key ?? ""))
-        ? baselineRequirements.get(String(material?.key ?? ""))
-        : 0,
-      requiredNow: material?.required,
-      missingNow: material?.missing,
+    materials,
+    gatherNext: (Array.isArray(livePlan?.gatherNext) ? livePlan.gatherNext : []).map((group) => ({
+      ...group,
+      items: (Array.isArray(group?.items) ? group.items : []).map((material) => (
+        materialsByKey.get(String(material?.key ?? "")) ?? enrichMaterial(material)
+      )),
     })),
   };
+}
+
+const CRAFT_PLAN_CONFIGURED_SOURCE_TYPES = [
+  ["storageContainerIds", "Settlement storage"],
+  ["bankContainerIds", "Player bank"],
+  ["deployableContainerIds", "Player deployable"],
+];
+
+export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = []) {
+  const statuses = (Array.isArray(sourceStatus) ? sourceStatus : []).map((source) => ({ ...source }));
+  const returnedIds = new Set(statuses.map((source) => String(source?.sourceId ?? "").trim()).filter(Boolean));
+  for (const [rule, type] of CRAFT_PLAN_CONFIGURED_SOURCE_TYPES) {
+    for (const sourceId of config?.sourceRules?.[rule] ?? []) {
+      const id = String(sourceId ?? "").trim();
+      if (!id || returnedIds.has(id)) continue;
+      statuses.push({
+        sourceId: id,
+        label: id,
+        type,
+        available: false,
+        error: "Configured source was not present in the completed source projection.",
+      });
+      returnedIds.add(id);
+    }
+  }
+  return statuses;
 }
 
 const CRAFT_PLAN_TYPED_MATERIAL_KEY = /^(items|cargo):([0-9]+)$/;
@@ -1759,6 +1794,26 @@ export function selectCraftPlanPublication({ candidatePlan, lastGoodPlan = null,
     plan: lastGoodPlan,
     retainedLastGood: Boolean(lastGoodPlan),
     diagnostic: validation,
+  };
+}
+
+export function finalizeCraftPlanPublication({
+  candidatePlan,
+  baselinePlan = {},
+  requiredSources = [],
+  lastGoodPlan = null,
+  baselineRevision = candidatePlan?.effortProgress?.baselineRevision,
+} = {}) {
+  const completedCandidate = joinCraftPlanBaselineMaterials(candidatePlan, baselinePlan);
+  const validation = validateCompletedCraftPlan(completedCandidate, {
+    requiredSources,
+    previousPlan: lastGoodPlan,
+    baselineRevision,
+  });
+  return {
+    candidatePlan: completedCandidate,
+    validation,
+    ...selectCraftPlanPublication({ candidatePlan: completedCandidate, lastGoodPlan, validation }),
   };
 }
 
