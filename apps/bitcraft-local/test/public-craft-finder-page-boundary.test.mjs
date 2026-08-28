@@ -10,7 +10,7 @@ test("Public Craft Finder page lives outside the legacy MainPages bundle", () =>
 
   assert.equal(existsSync(publicCraftFinderPageUrl), true);
   assert.doesNotMatch(mainPages, new RegExp("export function PublicCraftFinder\\b"));
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/PublicCraftFinderPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/PublicCraftFinderPage"\)/);
 });
 
 test("Public Craft Finder summary reflows while its results table remains scrollable", () => {

@@ -47,9 +47,10 @@ test("public and admin pages are delivered through lazy route boundaries", () =>
   ];
 
   for (const route of routes) {
-    assert.match(appShell, new RegExp(`React\\.lazy\\(\\(\\) => import\\(\"\\./pages/${route}`), route);
+    assert.match(appShell, new RegExp(`lazyRoute\\(\\(\\) => import\\(\"\\./pages/${route}`), route);
   }
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
+  assert.match(appShell, /React\.lazy\(\(\) => loadLazyRoute\(importer\)\)/);
   assert.match(appShell, /<React\.Suspense\s+fallback=\{<RouteLoadingState/);
   assert.match(appShell, /<RouteErrorBoundary/);
   assert.match(appShell, /Try again/);

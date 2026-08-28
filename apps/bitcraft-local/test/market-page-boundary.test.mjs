@@ -30,8 +30,8 @@ test("Market page replaces the legacy MainPages bundle", () => {
   assert.match(marketPage, /from "\.\/market\/MarketOpportunities"/);
   assert.match(marketPage, /from "\.\/market\/MarketSaved"/);
   assert.match(marketPage, /from "\.\/market\/MarketStalls"/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/MarketPage"\)/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/SettlementMarketPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/MarketPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/SettlementMarketPage"\)/);
   assert.doesNotMatch(appShell, /from "\.\/pages\/MainPages"/);
 });
 test("Market page groups alerts and opportunities into canonical workspaces", () => {
