@@ -474,6 +474,7 @@ export const schemaBootstrapSql = `
     signature_fingerprint TEXT NOT NULL,
     selected_route_id TEXT NOT NULL,
     confirmed_fingerprint TEXT,
+    review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed' CHECK (review_status IN ('confirmed', 'grandfathered', 'legacy_unconfirmed')),
     reviewer_type TEXT NOT NULL,
     reviewer_id TEXT,
     reviewer_display_name TEXT NOT NULL,

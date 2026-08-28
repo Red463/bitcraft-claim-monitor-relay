@@ -666,13 +666,15 @@ function recipeMatchesOverride(recipe, overrideId) {
   return recipeId(recipe) === selected || String(recipe?.recipeKey ?? recipe?.catalogRecipeKey ?? "") === selected;
 }
 
-function selectedRecipeForTarget(recipes, overrideId, blockedKeys = []) {
+function recipeIsSelectable(recipe, blockedKeys = []) {
   const blocked = new Set(blockedKeys);
-  const isValid = (recipe) => !recipeInputs(recipe)
-    .some((input) => blocked.has(recipeKey(stackKind(input), stackId(input))));
+  return !recipeInputs(recipe).some((input) => blocked.has(recipeKey(stackKind(input), stackId(input))));
+}
+
+function selectedRecipeForTarget(recipes, overrideId, blockedKeys = []) {
   const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
-  if (overridden && isValid(overridden)) return overridden;
-  return recipes.find((recipe) => !recipeLooksTransportRoute(recipe) && isValid(recipe)) ?? null;
+  if (overridden && recipeIsSelectable(overridden, blockedKeys)) return overridden;
+  return recipes.find((recipe) => !recipeLooksTransportRoute(recipe) && recipeIsSelectable(recipe, blockedKeys)) ?? null;
 }
 
 function mergeDetailTarget(detail, target) {
@@ -733,8 +735,8 @@ function sectionOverrideKeyForItem(item) {
   return plannerOverrideKeyFor(item, recipeKey(item?.kind, item?.id));
 }
 
-function routeAlternativesForUi(recipes) {
-  return recipes;
+function routeAlternativesForUi(recipes, blockedKeys = []) {
+  return recipes.map((recipe) => ({ ...recipe, isSelectable: recipeIsSelectable(recipe, blockedKeys) }));
 }
 
 function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredItemKeys) {
@@ -746,7 +748,7 @@ function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredIte
   const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
   const selected = selectedRecipeForTarget(recipes, routeOverrides[key], [key]);
   if (!selected) return [];
-  const visibleRecipes = routeAlternativesForUi(recipes, selected);
+  const visibleRecipes = routeAlternativesForUi(recipes, [key]);
   const gatheringSources = visibleRecipes
     .filter(routeIsGathering)
     .map((recipe) => ({
@@ -772,6 +774,7 @@ function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredIte
       id: recipeId(alternative),
       label: recipeLabel(alternative),
       ...routeMetadata(alternative, normalizedTarget),
+      isSelectable: alternative.isSelectable !== false,
       buildingName: alternative.buildingName ?? alternative.building_name ?? null,
       inputs: recipeInputs(alternative).map((input, index) => ({
         ...enrichDisplayFromDetails(stackDisplay(input, alternative.consumedItems, index), detailsByKey),
@@ -811,7 +814,8 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     remainingSupply.set(key, availableSupply - allocatedSupply);
     const quantityToCraft = Math.max(0, quantity - allocatedSupply);
     const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
-    const selected = selectedRecipeForTarget(recipes, routeOverrides[key], [...stack, key]);
+    const blockedKeys = [...stack, key];
+    const selected = selectedRecipeForTarget(recipes, routeOverrides[key], blockedKeys);
     addRequired(required, normalizedTarget, quantity, sectionForMaterial(normalizedTarget, selected ?? parentRecipe));
     if (quantityToCraft <= 0) return;
     if (!selected) {
@@ -832,11 +836,12 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     const multiplier = selected.isProbabilistic === true ? multipliers[key]?.multiplier ?? 1 : 1;
     const craftCount = Math.ceil(quantityToCraft * multiplier / outputPerCraft);
     const section = sectionForMaterial(normalizedTarget, selected);
-    const visibleRecipes = routeAlternativesForUi(recipes, selected);
+    const visibleRecipes = routeAlternativesForUi(recipes, blockedKeys);
     const alternatives = visibleRecipes.map((recipe) => ({
       id: recipeId(recipe),
       label: String(recipe.name ?? normalizedTarget.name),
       ...routeMetadata(recipe, normalizedTarget),
+      isSelectable: recipe.isSelectable !== false,
       buildingName: recipe.buildingName ?? recipe.building_name ?? null,
       inputs: recipeInputs(recipe).map((input, index) => ({
         ...enrichDisplayFromDetails(stackDisplay(input, recipe.consumedItems, index), detailsByKey),
@@ -905,6 +910,7 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
         id: recipeId(recipe),
         label: recipeLabel(recipe),
         ...routeMetadata(recipe, normalizedTarget),
+        isSelectable: recipe.isSelectable !== false,
         buildingName: recipe.buildingName ?? recipe.building_name ?? null,
         inputs: recipeInputs(recipe).map((input, index) => ({
           ...enrichDisplayFromDetails(stackDisplay(input, recipe.consumedItems, index), detailsByKey),

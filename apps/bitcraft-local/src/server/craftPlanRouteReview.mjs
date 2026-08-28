@@ -65,6 +65,7 @@ function normalizedAlternative(alternative = {}) {
     probabilityStatus: String(alternative.probabilityStatus ?? (alternative.isProbabilistic ? "expected" : "guaranteed")),
     isProbabilistic: alternative.isProbabilistic === true,
     isTransportRoute: alternative.isTransportRoute === true,
+    isSelectable: alternative.isSelectable !== false,
     buildingName: alternative.buildingName == null ? null : String(alternative.buildingName),
     expectedYield: nullableNumber(alternative.expectedYield),
     yieldBasis: alternative.yieldBasis == null ? null : String(alternative.yieldBasis),
@@ -87,7 +88,10 @@ function normalizedAlternative(alternative = {}) {
 function validProductionAlternatives(route = {}) {
   return (Array.isArray(route.alternatives) ? route.alternatives : [])
     .map(normalizedAlternative)
-    .filter((alternative) => alternative.id && !alternative.isTransportRoute && alternative.probabilityStatus !== "unavailable")
+    .filter((alternative) => alternative.id
+      && alternative.isSelectable
+      && !alternative.isTransportRoute
+      && alternative.probabilityStatus !== "unavailable")
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -179,6 +183,7 @@ function parsedReview(row) {
     fingerprint: String(row.signature_fingerprint),
     selectedRouteId: String(row.selected_route_id),
     confirmedFingerprint: row.confirmed_fingerprint == null ? null : String(row.confirmed_fingerprint),
+    status: String(row.review_status ?? (row.confirmed_fingerprint == null ? "legacy_unconfirmed" : "confirmed")),
     reviewer: {
       type: String(row.reviewer_type),
       id: row.reviewer_id == null ? null : String(row.reviewer_id),
@@ -207,32 +212,42 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
     const stored = new Map(listForPlan(planId).map((entry) => [entry.outputKey, entry]));
     const submitted = new Map(confirmations.map((entry) => [String(entry?.outputKey ?? ""), entry]));
     const confirmed = [];
+    const grandfathered = [];
     const unconfirmed = [];
     const rejectedConfirmations = [];
     for (const route of normalizedRoutes) {
       const current = stored.get(route.outputKey);
       const submission = submitted.get(route.outputKey);
       const storedCurrent = current
+        && current.status === "confirmed"
         && current.confirmedFingerprint
         && current.confirmedFingerprint === route.fingerprint
         && current.fingerprint === route.fingerprint
         && current.selectedRouteId === route.selectedRouteId
         && route.alternatives.some((alternative) => alternative.id === current.selectedRouteId);
+      const grandfatheredCurrent = current
+        && current.status === "grandfathered"
+        && current.confirmedFingerprint == null
+        && current.fingerprint === route.fingerprint
+        && current.selectedRouteId === route.selectedRouteId
+        && route.alternatives.some((alternative) => alternative.id === current.selectedRouteId);
       if (submission && !matchingConfirmation(route, submission)) rejectedConfirmations.push(route);
       if (storedCurrent || matchingConfirmation(route, submission)) confirmed.push(route);
+      else if (grandfatheredCurrent) grandfathered.push(route);
       else if (route.ambiguous) unconfirmed.push(route);
     }
-    return { routeReviews: normalizedRoutes, confirmed, unconfirmed, storedReviews: [...stored.values()], rejectedConfirmations };
+    return { routeReviews: normalizedRoutes, confirmed, grandfathered, unconfirmed, storedReviews: [...stored.values()], rejectedConfirmations };
   };
   return {
     listForPlan,
     previewState,
-    reconcile({ planId, configurationRevision, routeReviews = [], confirmations = [], reviewer = {}, reviewedAt = now() }) {
+    reconcile({ planId, configurationRevision, routeReviews = [], confirmations = [], reviewer = {}, reviewedAt = now(), grandfatheredOutputKeys = [] }) {
       const state = previewState(planId, routeReviews, confirmations);
       const currentByKey = new Map(state.routeReviews.map((entry) => [entry.outputKey, entry]));
       for (const stored of listForPlan(planId)) {
         const current = currentByKey.get(stored.outputKey);
-        if (!current || current.fingerprint !== stored.fingerprint || stored.confirmedFingerprint !== stored.fingerprint) {
+        if (!current || (stored.status !== "grandfathered"
+          && (current.fingerprint !== stored.fingerprint || stored.confirmedFingerprint !== stored.fingerprint))) {
           statements.deleteCraftPlanRouteReview.run(String(planId), stored.outputKey);
         }
       }
@@ -245,9 +260,27 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
           route.fingerprint,
           String(confirmation.selectedRouteId),
           route.fingerprint,
+          "confirmed",
           String(reviewer.type ?? "system"),
           reviewer.id == null ? null : String(reviewer.id),
           String(reviewer.displayName ?? "system"),
+          String(reviewedAt),
+          Number(configurationRevision),
+        );
+      }
+      for (const outputKey of grandfatheredOutputKeys) {
+        const route = currentByKey.get(String(outputKey));
+        if (!route?.ambiguous || !route.selectedRouteId) continue;
+        statements.upsertCraftPlanRouteReview.run(
+          String(planId),
+          route.outputKey,
+          route.fingerprint,
+          route.selectedRouteId,
+          null,
+          "grandfathered",
+          "system",
+          null,
+          "Legacy public baseline",
           String(reviewedAt),
           Number(configurationRevision),
         );

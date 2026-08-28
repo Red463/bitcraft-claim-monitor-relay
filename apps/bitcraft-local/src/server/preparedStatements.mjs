@@ -64,12 +64,13 @@ export function createPreparedStatements(db) {
   upsertCraftPlanRouteReview: db.prepare(`
     INSERT INTO craft_plan_route_reviews (
       plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
-      reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      review_status, reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(plan_id, output_key) DO UPDATE SET
       signature_fingerprint = excluded.signature_fingerprint,
       selected_route_id = excluded.selected_route_id,
       confirmed_fingerprint = excluded.confirmed_fingerprint,
+      review_status = excluded.review_status,
       reviewer_type = excluded.reviewer_type,
       reviewer_id = excluded.reviewer_id,
       reviewer_display_name = excluded.reviewer_display_name,

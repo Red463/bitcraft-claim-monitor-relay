@@ -80,6 +80,11 @@ export function applyCraftPlanRecordsMigration(db, { now = () => new Date().toIS
     ]) {
       if (!db.prepare(`PRAGMA table_info(${table})`).all().some((entry) => entry.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
+    const routeReviewColumns = new Set(db.prepare("PRAGMA table_info(craft_plan_route_reviews)").all().map((entry) => entry.name));
+    if (!routeReviewColumns.has("review_status")) {
+      db.exec("ALTER TABLE craft_plan_route_reviews ADD COLUMN review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed' CHECK (review_status IN ('confirmed', 'grandfathered', 'legacy_unconfirmed'))");
+      db.prepare("UPDATE craft_plan_route_reviews SET review_status = 'confirmed' WHERE confirmed_fingerprint IS NOT NULL").run();
+    }
     const auditStatePrimaryKey = db.prepare("PRAGMA table_info(craft_plan_progress_audit_state)").all()
       .filter((entry) => Number(entry.pk) > 0)
       .sort((left, right) => Number(left.pk) - Number(right.pk))
@@ -213,6 +218,7 @@ export function createCraftPlanRepository(db, {
     requireRevision(entry, expectedRevision);
     const config = authorizedConfig(entry, changes.config);
     const routeReviewState = options.routeReviewState;
+    let grandfatheredOutputKeys = [];
     if (routeReviewState && routeReviews) {
       const state = routeReviews.previewState(entry.id, routeReviewState.routeReviews, routeReviewState.confirmations);
       requireMatchingRouteConfirmations(state);
@@ -221,11 +227,13 @@ export function createCraftPlanRepository(db, {
         .filter((route) => route?.ambiguous)
         .map((route) => [route.outputKey, route.fingerprint]));
       const storedOutputs = new Set(state.storedReviews.map((route) => route.outputKey));
-      const newlyUnconfirmed = state.unconfirmed.filter((route) => (
-        !wasPublic
-        || previousFingerprints.get(route.outputKey) !== route.fingerprint
-        || storedOutputs.has(route.outputKey)
-      ));
+      grandfatheredOutputKeys = state.unconfirmed
+        .filter((route) => wasPublic
+          && previousFingerprints.get(route.outputKey) === route.fingerprint
+          && !storedOutputs.has(route.outputKey))
+        .map((route) => route.outputKey);
+      const grandfatheredOutputs = new Set(grandfatheredOutputKeys);
+      const newlyUnconfirmed = state.unconfirmed.filter((route) => !grandfatheredOutputs.has(route.outputKey));
       if (entry.scope === "shared" && config.enabled !== false && newlyUnconfirmed.length) {
         const error = problem("Confirm newly ambiguous production routes before publishing this plan", 409, "craft_plan_route_review_required");
         error.unconfirmedRoutes = newlyUnconfirmed.map(({ outputKey, fingerprint, preselectedRouteId }) => ({ outputKey, fingerprint, preselectedRouteId }));
@@ -244,6 +252,7 @@ export function createCraftPlanRepository(db, {
         routeReviews: routeReviewState.routeReviews,
         confirmations: routeReviewState.confirmations,
         reviewer: routeReviewState.reviewer ?? options.actor,
+        grandfatheredOutputKeys,
       });
       recordConfigAudit(before, after, "update", options, timestamp);
       db.exec("COMMIT");
