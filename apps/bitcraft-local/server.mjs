@@ -9785,28 +9785,53 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "PUT" && url.pathname === "/api/local/admin/craft-plan") {
         const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "");
-        const previousConfig = storedCraftPlanConfig(planId);
-        const body = await readJson(req, BODY_LIMITS.settings);
-        let submittedConfig = normalizeCraftPlanConfig(body);
         try {
-          const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
-          submittedConfig = reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
-        } catch {
-          // Leave newly added building targets pending until a complete Relay building generation commits.
+          const existing = craftPlans.getAdmin(planId);
+          const previousConfig = storedCraftPlanConfig(planId);
+          const body = await readJson(req, BODY_LIMITS.settings);
+          const configInput = Object.prototype.hasOwnProperty.call(body, "config") ? body.config : { ...body };
+          if (!Object.prototype.hasOwnProperty.call(body, "config")) {
+            delete configInput.expectedRevision;
+            delete configInput.routeReviewConfirmations;
+          }
+          let submittedConfig = normalizeCraftPlanConfig(configInput);
+          try {
+            const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
+            submittedConfig = reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
+          } catch {
+            // Leave newly added building targets pending until a complete Relay building generation commits.
+          }
+          const preview = await previewCraftPlanConfig(planId, submittedConfig, { admin: true, expectedRevision: body.expectedRevision });
+          const previousPreview = await previewCraftPlanConfig(planId, existing?.config, { admin: true });
+          const planRecord = craftPlans.update(planId, { name: submittedConfig.name, config: submittedConfig }, {
+            expectedRevision: body.expectedRevision,
+            admin: true,
+            actor: adminCraftPlanActor(user),
+            claimId: getSettings().claimId,
+            routeReviewState: {
+              routeReviews: preview.routeReviews,
+              previousRouteReviews: previousPreview.routeReviews,
+              confirmations: Array.isArray(body.routeReviewConfirmations) ? body.routeReviewConfirmations : [],
+              reviewer: adminCraftPlanActor(user),
+            },
+          });
+          invalidateCraftPlanResponses();
+          const config = normalizeCraftPlanConfig({ ...planRecord.config, name: planRecord.name });
+          const response = await craftPlanAdminResponse(getSettings().claimId, planId);
+          const auditDetails = craftPlanAuditDetails(previousConfig, config, craftPlanAuditLabels(response.sources, response.plan?.materials));
+          audit(user, "craft_plan.update", {
+            planId,
+            targets: config.targets.length,
+            players: config.sourceRules.playerIds.length,
+            banks: config.sourceRules.bankContainerIds.length + config.sourceRules.bankPlayerIds.length,
+            deployables: config.sourceRules.deployableContainerIds.length,
+            changes: auditDetails.changes,
+            otherSettingsChanged: auditDetails.otherSettingsChanged,
+          });
+          return send(res, 200, response);
+        } catch (error) {
+          return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code, conflict: error?.conflict, unconfirmedRoutes: error?.unconfirmedRoutes });
         }
-        const config = saveCraftPlanConfig(submittedConfig, planId, adminCraftPlanActor(user));
-        const response = await craftPlanAdminResponse(getSettings().claimId, planId);
-        const auditDetails = craftPlanAuditDetails(previousConfig, config, craftPlanAuditLabels(response.sources, response.plan?.materials));
-        audit(user, "craft_plan.update", {
-          planId,
-          targets: config.targets.length,
-          players: config.sourceRules.playerIds.length,
-          banks: config.sourceRules.bankContainerIds.length + config.sourceRules.bankPlayerIds.length,
-          deployables: config.sourceRules.deployableContainerIds.length,
-          changes: auditDetails.changes,
-          otherSettingsChanged: auditDetails.otherSettingsChanged,
-        });
-        return send(res, 200, response);
       }
       if (req.method === "PUT" && url.pathname === "/api/local/admin/access-control") {
         const body = await readJson(req, BODY_LIMITS.settings);

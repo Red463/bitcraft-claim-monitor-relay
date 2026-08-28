@@ -197,3 +197,131 @@ test("preview HTTP routes enforce auth, ownership, CSRF, rate limiting, and neve
   }
   assert.equal(limited?.status, 429);
 });
+
+test("legacy admin save enforces revision and ambiguous-route review atomically", async (t) => {
+  const port = await availablePort();
+  const dataDir = path.join(appDir, `.test-legacy-craft-plan-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await mkdir(dataDir, { recursive: true });
+  const child = spawn(process.execPath, ["server.mjs"], {
+    cwd: appDir,
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      LEGAL_CONFIGURATION_CONFIRMED: "true",
+      BITCRAFT_TEST: "true",
+      ENABLE_LEGACY_ADMIN_PASSWORD_AUTH: "true",
+      ENABLE_SERVER_POLLING: "false",
+      ENABLE_SCHEDULED_JOBS: "false",
+      BITCRAFT_PROCESS_ROLE: "all",
+      ADMIN_SETUP_KEY: "legacy-save-setup",
+      APP_HOST: "127.0.0.1",
+      APP_PORT: String(port),
+      BITCRAFT_LOCAL_DATA_DIR: dataDir,
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.previewError = "";
+  child.stderr.on("data", (chunk) => { child.previewError += String(chunk); });
+  t.after(async () => { await stop(child); await rm(dataDir, { recursive: true, force: true }); });
+  const origin = `http://127.0.0.1:${port}`;
+  await waitForHealth(origin, child);
+  const dbPath = path.join(dataDir, "bitcraft-local.sqlite");
+
+  const setup = await fetch(`${origin}/api/local/admin/setup`, {
+    method: "POST",
+    headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "correct horse battery", setupKey: "legacy-save-setup" }),
+  });
+  const adminAuth = await setup.json();
+  const adminCookie = setup.headers.get("set-cookie").split(";")[0];
+  const headers = { cookie: adminCookie, origin, "content-type": "application/json", "x-csrf-token": adminAuth.csrfToken };
+  const plans = await fetch(`${origin}/api/local/admin/craft-plans`, { headers }).then((response) => response.json());
+  const planId = plans.plans[0].id;
+  const legacyUrl = `${origin}/api/local/admin/craft-plan?planId=${encodeURIComponent(planId)}`;
+  const initialDb = new DatabaseSync(dbPath, { readOnly: true });
+  const initialAuditCount = initialDb.prepare("SELECT COUNT(*) AS count FROM craft_plan_config_audit WHERE plan_id = ?").get(planId).count;
+  initialDb.close();
+
+  const stale = await fetch(legacyUrl, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ expectedRevision: 0, config: { enabled: false, targets: [] } }),
+  });
+  const staleBody = await stale.json();
+  assert.equal(stale.status, 409, JSON.stringify(staleBody));
+  assert.equal(staleBody.code, "craft_plan_revision_conflict");
+  assert.equal(staleBody.conflict.currentRevision, 1);
+  assert.equal(staleBody.conflict.plan.id, planId);
+  const afterStale = new DatabaseSync(dbPath, { readOnly: true });
+  assert.equal(afterStale.prepare("SELECT revision FROM craft_plans WHERE id = ?").get(planId).revision, 1);
+  assert.equal(afterStale.prepare("SELECT COUNT(*) AS count FROM craft_plan_config_audit WHERE plan_id = ?").get(planId).count, initialAuditCount);
+  assert.equal(afterStale.prepare("SELECT COUNT(*) AS count FROM craft_plan_route_reviews WHERE plan_id = ?").get(planId).count, 0);
+  afterStale.close();
+
+  const catalogDb = new DatabaseSync(dbPath);
+  catalogDb.exec(`
+    INSERT INTO game_catalog_entities (catalog_key, kind, target_id, item_type, name, updated_at) VALUES
+      ('items:9001', 'items', '9001', 0, 'Plate', 'catalog-v1'),
+      ('items:9002', 'items', '9002', 0, 'Ore A', 'catalog-v1'),
+      ('items:9003', 'items', '9003', 0, 'Ore B', 'catalog-v1');
+    INSERT INTO game_catalog_recipes (
+      recipe_key, source_kind, source_id, action_count, activity_kind, gathering_mode,
+      name, station_name, skill_name, is_passive, is_transport_route, updated_at
+    ) VALUES
+      ('recipe:plate-a', 'crafting_recipe', 'plate-a', 1, 'craft', 'ordinary', 'Plate route A', 'Forge', 'Smithing', 0, 0, 'catalog-v1'),
+      ('recipe:plate-b', 'crafting_recipe', 'plate-b', 1, 'craft', 'ordinary', 'Plate route B', 'Forge', 'Smithing', 0, 0, 'catalog-v1');
+    INSERT INTO game_catalog_recipe_outputs (
+      recipe_key, output_key, kind, target_id, quantity, occurrence_rate, yield_basis, guaranteed_quantity, is_primary_output
+    ) VALUES
+      ('recipe:plate-a', 'items:9001', 'items', '9001', 1, 1, 'per_craft', 1, 1),
+      ('recipe:plate-b', 'items:9001', 'items', '9001', 1, 1, 'per_craft', 1, 1);
+    INSERT INTO game_catalog_recipe_inputs (recipe_key, input_key, kind, target_id, quantity) VALUES
+      ('recipe:plate-a', 'items:9002', 'items', '9002', 1),
+      ('recipe:plate-b', 'items:9003', 'items', '9003', 1);
+  `);
+  catalogDb.close();
+
+  const stagedConfig = {
+    name: "Default",
+    enabled: true,
+    targets: [{ id: "9001", kind: "items", name: "Plate", quantity: 1 }],
+  };
+  const gated = await fetch(legacyUrl, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ expectedRevision: 1, config: stagedConfig }),
+  });
+  const gatedBody = await gated.json();
+  assert.equal(gated.status, 409, JSON.stringify(gatedBody));
+  assert.equal(gatedBody.code, "craft_plan_route_review_required");
+  assert.equal(gatedBody.unconfirmedRoutes.length, 1);
+  assert.equal(gatedBody.unconfirmedRoutes[0].outputKey, "items:9001");
+  const afterGate = new DatabaseSync(dbPath, { readOnly: true });
+  assert.equal(afterGate.prepare("SELECT revision FROM craft_plans WHERE id = ?").get(planId).revision, 1);
+  assert.equal(afterGate.prepare("SELECT COUNT(*) AS count FROM craft_plan_config_audit WHERE plan_id = ?").get(planId).count, initialAuditCount);
+  assert.equal(afterGate.prepare("SELECT COUNT(*) AS count FROM craft_plan_route_reviews WHERE plan_id = ?").get(planId).count, 0);
+  afterGate.close();
+
+  const confirmation = gatedBody.unconfirmedRoutes[0];
+  const saved = await fetch(legacyUrl, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      expectedRevision: 1,
+      config: stagedConfig,
+      routeReviewConfirmations: [{
+        outputKey: confirmation.outputKey,
+        fingerprint: confirmation.fingerprint,
+        selectedRouteId: confirmation.preselectedRouteId,
+      }],
+    }),
+  });
+  const savedBody = await saved.json();
+  assert.equal(saved.status, 200, JSON.stringify(savedBody));
+  assert.equal(savedBody.planRecord.revision, 2);
+  const afterSave = new DatabaseSync(dbPath, { readOnly: true });
+  assert.equal(afterSave.prepare("SELECT revision FROM craft_plans WHERE id = ?").get(planId).revision, 2);
+  assert.equal(afterSave.prepare("SELECT COUNT(*) AS count FROM craft_plan_config_audit WHERE plan_id = ?").get(planId).count, initialAuditCount + 1);
+  assert.equal(afterSave.prepare("SELECT COUNT(*) AS count FROM craft_plan_route_reviews WHERE plan_id = ? AND review_status = 'confirmed'").get(planId).count, 1);
+  afterSave.close();
+});
