@@ -1,6 +1,5 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { FeaturebaseProvider } from "featurebase-js/react";
 import { loadBootstrap, type BootstrapPayload } from "./api/bootstrap";
 import { RouteLoadingState } from "./components/main/RouteLoadingState";
 import "./styles.css";
@@ -61,19 +60,7 @@ function Root() {
     </main>
   ) : <main className="route-entry-state"><RouteLoadingState label="Starting application" /></main>;
 
-  return (
-    <FeaturebaseProvider
-      appId="6a78ff10ace030d1aa7582f2"
-      featurebaseJwt={bootstrap?.auth.featurebaseJwt ?? undefined}
-      theme="dark"
-      language="en"
-      alignment="right"
-    >
-      <RouteErrorBoundary>
-        {entry}
-      </RouteErrorBoundary>
-    </FeaturebaseProvider>
-  );
+  return <RouteErrorBoundary>{entry}</RouteErrorBoundary>;
 }
 
 // Keep this file as the React bootstrapping boundary only. App-level routing,

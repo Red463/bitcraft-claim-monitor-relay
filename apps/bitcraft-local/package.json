@@ -39,8 +39,6 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "exceljs": "^4.4.0",
-    "featurebase-js": "^1.0.3",
-    "jsonwebtoken": "^9.0.3",
     "leaflet": "1.9.4",
     "lucide-react": "catalog:",
     "react": "catalog:",

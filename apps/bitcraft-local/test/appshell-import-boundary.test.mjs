@@ -11,7 +11,7 @@ const bootstrapFixture = {
     user: null,
     csrfToken: null,
     discordLoginEnabled: false,
-    featurebaseJwt: "signed-featurebase-token",
+    retiredIdentityToken: "signed-retired-token",
     legal: { version: "2026-08", termsDigest: "terms", privacyDigest: "privacy", acceptedAt: null, requiresAcceptance: false },
   },
   legal: {
@@ -25,7 +25,7 @@ const bootstrapFixture = {
   build: { version: "0.58.0-beta.4", buildSha: "c081890cc330" },
 };
 
-test("browser bootstrap makes one request and preserves resolved claim and Featurebase identity", async () => {
+test("browser bootstrap makes one request, preserves the resolved claim, and discards retired identity fields", async () => {
   const requests = [];
   const bootstrap = await loadBootstrap(async (input, init) => {
     requests.push({ input: String(input), init });
@@ -35,7 +35,7 @@ test("browser bootstrap makes one request and preserves resolved claim and Featu
   assert.deepEqual(requests.map(({ input }) => input), ["/api/local/bootstrap"]);
   assert.equal(requests[0].init.cache, "no-store");
   assert.equal(bootstrap.config.claimId, "998877665544332211");
-  assert.equal(bootstrap.auth.featurebaseJwt, "signed-featurebase-token");
+  assert.equal("retiredIdentityToken" in bootstrap.auth, false);
 });
 
 test("browser bootstrap fails closed before any claim can be selected and can be retried", async () => {

@@ -14,5 +14,5 @@ test("React scheduler stays in the React chunk to prevent circular vendor initia
 
   assert.equal(manualChunks("/workspace/node_modules/react/index.js"), "vendor-react");
   assert.equal(manualChunks("/workspace/node_modules/scheduler/index.js"), "vendor-react");
-  assert.equal(manualChunks("/workspace/node_modules/featurebase-js/dist/react.js"), "vendor");
+  assert.equal(manualChunks("/workspace/node_modules/leaflet/dist/leaflet.js"), "vendor");
 });
