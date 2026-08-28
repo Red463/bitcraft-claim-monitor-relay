@@ -8,6 +8,8 @@
 
 `71c27d970f1d42935728b21c83a85555f2d9ad50` — `fix(craft-plan): preserve route review baselines`
 
+`eae636ad81aaa11e53477f8e51748e3bf10a78c6` — `fix(craft-plan): guard legacy plan saves`
+
 ## Files changed
 
 - `apps/bitcraft-local/server.mjs`
@@ -36,6 +38,7 @@
 - Planner alternatives now expose viability from the same blocked-input rule used for recipe selection. Cyclic or ancestor-blocked alternatives remain visible to planner consumers but are not selectable production alternatives and therefore cannot create false ambiguity.
 - Shared creation and plan updates persist configuration, route confirmations, and Task 2 configuration audit evidence in one transaction. Failed, stale, or publication-gated writes leave all three unchanged.
 - Modern updates require the last-seen revision. A mismatch returns `409 craft_plan_revision_conflict` with the authorized current revision, plan metadata, and configuration for rebase, before staged configuration validation can mask the conflict.
+- The singular legacy admin `PUT /api/local/admin/craft-plan` compatibility route now requires the caller's last-seen revision and uses the same preview, public ambiguity gate, exact confirmation, atomic route-review/configuration-audit persistence, and conflict metadata as the plural plan update. Legacy `GET` and raw-config request compatibility remain available.
 - Added account-deletion cleanup/anonymization and explicit least-privilege permissions for the multi-plan admin routes. No immediate-save route endpoint was added.
 
 ## RED/GREEN evidence
@@ -50,12 +53,13 @@
 - The independent-review GREEN runs passed 4/4 signature tests and 11/11 repository/orchestration tests. The real route case uses `computeCraftPlan` to produce two non-empty production alternatives, proves the calculated selection, rejects a different selected route, and persists only the exact calculated selection.
 - Fresh re-review RED produced three focused failures: no persisted legacy-public baseline, no additive evidence-status migration, and no planner viability marker for a real cyclic alternative.
 - Re-review GREEN persists an explicitly non-confirmed `grandfathered` baseline atomically with the first legacy save, continues unchanged saves only while fingerprint and selection match, gates catalog drift without discarding the baseline evidence, migrates existing confirmed rows to explicit `confirmed` status, and excludes cyclic alternatives using the planner's existing selection viability rule.
-- Final focused planner/preview/repository/schema/auth/server set: 145 passed, 0 failed.
+- Third-review HTTP RED showed a stale singular legacy save returned `200`, incremented the plan revision, and ignored the supplied revision. The GREEN case uses a real two-recipe catalog target and proves stale save `409`/no writes, newly ambiguous save `409`/no writes, and exact current confirmation persisting one review and one configuration-audit revision atomically.
+- Final focused planner/preview/repository/schema/auth/server set: 155 passed, 0 failed.
 
 ## Final verification
 
-- `node --test` focused planner/preview/repository/schema/auth/server files — 145 passed, 0 failed.
-- `corepack pnpm --filter @workspace/bitcraft-local test` — 2712 passed, 0 failed, 3 skipped (2715 total).
+- `node --test` focused planner/preview/repository/schema/auth/server files — 155 passed, 0 failed.
+- `corepack pnpm --filter @workspace/bitcraft-local test` — 2713 passed, 0 failed, 3 skipped (2716 total).
 - `corepack pnpm --filter @workspace/bitcraft-local run build` — passed server/provider/bindings builds, 1462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
 - `git diff --cached --check` — passed before the implementation commits; only expected Windows line-ending notices were emitted while staging.
 
@@ -73,6 +77,7 @@
 - `POST /api/local/user/craft-plans/:planId/preview`
 - Preview accepts staged configuration in `body.config` and returns `Cache-Control: no-store`.
 - Modern `PUT` saves accept `expectedRevision` and optional `routeReviewConfirmations` entries containing `outputKey`, `fingerprint`, and `selectedRouteId`.
+- Legacy `PUT /api/local/admin/craft-plan` accepts the same top-level concurrency and confirmation fields plus either nested `config` or the prior raw configuration shape. It never substitutes the server's latest revision for the caller's expected revision.
 - Shared-plan creation accepts the same confirmation list when duplicating an ambiguous public configuration.
 - Conflict responses contain `code`, `conflict.currentRevision`, authorized plan metadata, and the current configuration. Route-review gates return only typed output key, fingerprint, and preselected route metadata.
 
@@ -82,5 +87,6 @@
 - Spec review found and fixed five issues before handoff: a personal update variable temporal-dead-zone error, an unsafe attempt to alter locked byproduct route selection, stale validation preceding `409`, missing shared-create ambiguity gating, and display labels participating in material fingerprints.
 - Independent review corrections bind submitted and stored evidence to the preview's exact calculated selection; make any stale or legacy-null persisted evidence defeat grandfathering; and include route type, gathering mode/skill/source, producer identity, producer-recipe identity/skill, all expected/drop/guaranteed yield fields, resource health, action count, probability state, and typed inputs in the material signature while excluding display-only names and building labels.
 - Fresh re-review corrections make legacy-public compatibility durable and drift-sensitive through explicit baseline evidence, and reuse the planner's own blocked-route viability decision to prevent cyclic/blocked alternatives from creating ambiguity without changing recipe selection semantics.
+- Third-review correction removes the singular legacy mutation bypass while preserving its read/raw-config compatibility and committed Relay building reconciliation. The executable HTTP regression checks authoritative conflict metadata and all three persistence tables rather than source text.
 - Preview routes have executable behavioral coverage at the HTTP seam; authorization and atomic gating have executable coverage at the HTTP/repository seams. Static boundary tests supplement rather than replace them.
 - No unresolved correctness, security, migration, privacy, or compatibility finding remains in the Task 3 diff.
