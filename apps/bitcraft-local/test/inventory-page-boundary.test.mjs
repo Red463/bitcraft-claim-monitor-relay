@@ -10,7 +10,7 @@ test("Inventory page lives outside the legacy MainPages bundle", () => {
 
   assert.equal(existsSync(inventoryPageUrl), true);
   assert.doesNotMatch(mainPages, new RegExp("export function Inventory\\b"));
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/InventoryPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/InventoryPage"\)/);
 });
 
 test("Inventory summary and filters reflow without clipping", () => {

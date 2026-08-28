@@ -10,7 +10,7 @@ test("Dashboard page lives outside the legacy MainPages bundle", () => {
 
   assert.equal(existsSync(dashboardPageUrl), true);
   assert.doesNotMatch(mainPages, /export function Dashboard\b/);
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/pages\/DashboardPage"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/pages\/DashboardPage"\)/);
 });
 
 test("Dashboard shows the craft planning Gather Next overview", () => {

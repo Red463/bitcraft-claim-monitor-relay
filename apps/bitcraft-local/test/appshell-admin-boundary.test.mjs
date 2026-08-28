@@ -9,7 +9,7 @@ test("AppShell delegates admin console rendering to a focused admin component", 
   assert.equal(existsSync(adminPanelUrl), true, "AdminPanel component should exist");
   const adminPanel = readFileSync(adminPanelUrl, "utf8");
 
-  assert.match(appShell, /React\.lazy\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
+  assert.match(appShell, /lazyRoute\(\(\) => import\("\.\/components\/admin\/AdminPanel"\)/);
   assert.doesNotMatch(appShell, /function AdminPanel\b/);
   assert.doesNotMatch(appShell, /type AdminTab\b/);
   assert.match(adminPanel, /export function AdminPanel\b/);
