@@ -149,7 +149,6 @@ import {
 } from "./src/server/manualRefreshGuard.mjs";
 import { ADMIN_ROLE_LABELS, adminHasPermission, adminPermissionFor, normalizeAdminRole } from "./src/server/adminPermissions.mjs";
 import { discordAvatarUrl, publicAdminUser, publicAppUser } from "./src/server/publicUsers.mjs";
-import { createFeaturebaseJwt } from "./src/server/featurebaseJwt.mjs";
 import { adminMutationRejection } from "./src/server/adminRequestGuards.mjs";
 import { discordProfileDisplayName, validAdminUsername, validDiscordId } from "./src/server/authIdentity.mjs";
 import { hashPassword, validLegacyAdminPassword } from "./src/server/passwordAuth.mjs";
@@ -480,7 +479,6 @@ const legalPolicy = legalPolicyForEnvironment(process.env);
 const legalDigests = legalPolicyDigests(legalPolicy);
 const legalSnapshot = currentLegalSnapshot(legalPolicy, legalDigests);
 const serveFrontend = isProduction || process.env.SERVE_STATIC === "true";
-const featurebaseJwtSecret = process.env.FEATUREBASE_JWT_SECRET ?? "";
 const legacyAdminPasswordAuth = process.env.ENABLE_LEGACY_ADMIN_PASSWORD_AUTH === "true";
 const processRole = resolveProcessRole(process.env, { isProduction });
 const processRoleConfig = processRoleCapabilities(processRole);
@@ -3354,7 +3352,6 @@ function authStatus(req) {
   const acceptance = user ? statements.currentUserLegalAcceptance.get(user.id) : null;
   return {
     user: publicUser,
-    featurebaseJwt: createFeaturebaseJwt({ secret: featurebaseJwtSecret, user: publicUser }),
     csrfToken: user ? appUserCsrfToken(req) : null,
     discordLoginEnabled: config.enabled,
     legal: user
@@ -8358,7 +8355,7 @@ const server = createServer(async (req, res) => {
       const auth = authStatus(req);
       return send(res, 200, {
         config: publicBootstrapConfig(),
-        auth: { ...auth, authenticated: Boolean(auth.user), featurebaseJwt: auth.featurebaseJwt ?? null },
+        auth: { ...auth, authenticated: Boolean(auth.user) },
         legal: { ...legalPolicy, ...legalDigests, acceptanceRequired: auth.legal.requiresAcceptance },
         build: { version: appVersion, buildSha: currentAppBuildId() },
       }, { "cache-control": "no-store" });

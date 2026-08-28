@@ -10,7 +10,7 @@ import { React, installDom, mount } from "./react-dom-test-harness.mjs";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const bootstrapFixture = {
   config: { claimId: "55", refreshSeconds: 30, theme: {} },
-  auth: { authenticated: false, user: null, csrfToken: null, discordLoginEnabled: true, featurebaseJwt: null, legal: { version: "v1", termsDigest: "terms", privacyDigest: "privacy", acceptedAt: null, requiresAcceptance: false } },
+  auth: { authenticated: false, user: null, csrfToken: null, discordLoginEnabled: true, legal: { version: "v1", termsDigest: "terms", privacyDigest: "privacy", acceptedAt: null, requiresAcceptance: false } },
   legal: { version: "v1", effectiveDate: "2026-01-01", acceptanceRequired: false, operator: {} },
   build: { version: "test", buildSha: "build-a" },
 };

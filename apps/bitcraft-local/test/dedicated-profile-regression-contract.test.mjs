@@ -14,7 +14,7 @@ test("dedicated application anchors survive public profile removal", () => {
   const requiredDedicatedAnchors = [
     ["src/AppShell.tsx", 'const LOCAL_API = "/api/local"'],
     ["src/AppShell.tsx", "PublicCraftFinderPage"],
-    ["src/TimbersteelRoot.tsx", "FeaturebaseProvider"],
+    ["src/TimbersteelRoot.tsx", "RouteErrorBoundary"],
     ["server.mjs", "createDiscordOutboxLeaser"],
     ["src/server/preparedStatements.mjs", "craft_plan_settings"],
     ["worker.mjs", "BITCRAFT_PROCESS_ROLE"],

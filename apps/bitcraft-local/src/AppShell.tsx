@@ -18,7 +18,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import packageJson from "../package.json";
-import { useFeaturebase } from "featurebase-js/react";
 import type { BootstrapPayload } from "./api/bootstrap";
 import { loadAdminConsoleSession } from "./api/adminSession";
 import { clearPreviousClaimGameData, gameDataScopeKey, useGameData } from "./api/gameDataLoader";
@@ -301,7 +300,6 @@ function accountDisplayName(user: UserAuthState["user"]): string {
  * preferences, user Discord auth state, notifications, and page composition.
  */
 function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload }) {
-  const { shutdown: shutdownFeaturebase } = useFeaturebase();
   const [active, setActive] = usePersistedState<ActivePanel>("navigation.page", "dashboard");
   const [routeSearch, setRouteSearch] = React.useState(() => window.location.search);
   const mainRef = React.useRef<HTMLElement | null>(null);
@@ -314,10 +312,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
   const releaseUpdateBuildIdRef = React.useRef("");
   const [releaseUpdateBuildId, setReleaseUpdateBuildId] = React.useState("");
   const [releaseUpdatedNotice, setReleaseUpdatedNotice] = React.useState(false);
-  const [userAuth, setUserAuth] = React.useState<UserAuthState>(() => ({
-    ...initialBootstrap.auth,
-    featurebaseJwt: initialBootstrap.auth.featurebaseJwt ?? undefined,
-  }));
+  const [userAuth, setUserAuth] = React.useState<UserAuthState>(() => initialBootstrap.auth);
   const [publicLegalPolicy] = React.useState<PublicLegalPolicy>(() => initialBootstrap.legal);
   const [legalAcceptanceOpen, setLegalAcceptanceOpen] = React.useState(false);
   const [legalLoginReturnTo, setLegalLoginReturnTo] = React.useState("");
@@ -490,13 +485,11 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
     const response = await fetch(`${LOCAL_API}/auth/logout`, { method: "POST" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Unable to sign out");
-    shutdownFeaturebase();
     setUserAuth(body);
-  }, [shutdownFeaturebase]);
+  }, []);
   const invalidateUserAuth = React.useCallback(() => {
-    shutdownFeaturebase();
-    setUserAuth((current) => ({ ...current, user: null, csrfToken: null, featurebaseJwt: undefined }));
-  }, [shutdownFeaturebase]);
+    setUserAuth((current) => ({ ...current, user: null, csrfToken: null }));
+  }, []);
   const linkDiscordCharacter = React.useCallback(async (member: AnyRecord | null) => {
     const payload = member ? { characterPlayerId: String(member.playerEntityId ?? ""), characterName: String(member.userName ?? member.username ?? member.playerUsername ?? member.name ?? "") } : {};
     const response = await fetch(`${LOCAL_API}/auth/character`, { method: "PUT", headers: { "content-type": "application/json", "x-csrf-token": String(userAuth.csrfToken ?? "") }, body: JSON.stringify(payload) });
@@ -587,7 +580,6 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
     setConsent(null);
   }, []);
   const handleAccountDeleted = React.useCallback(() => {
-    shutdownFeaturebase();
     withdrawAnalyticsConsent();
     setConsent(null);
     setUserSettingsOpen(false);
@@ -597,7 +589,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
       csrfToken: null,
       legal: { ...current.legal, acceptedAt: null, requiresAcceptance: false },
     }));
-  }, [shutdownFeaturebase]);
+  }, []);
   const accessTargetMeta = React.useMemo(() => new Map(ACCESS_CONTROL_TARGETS.map((target) => [target.id, target])), []);
   const accessDecisionFor = React.useCallback((targetId: string) => effectiveAccess?.targets?.[targetId], [effectiveAccess]);
   const isPageAllowed = React.useCallback((panel: ActivePanel | string) => panel === "admin" || effectiveTargetAllowed(effectiveAccess, targetIdForPage(panel)), [effectiveAccess]);
