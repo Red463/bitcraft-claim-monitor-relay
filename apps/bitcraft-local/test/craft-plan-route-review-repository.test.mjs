@@ -513,6 +513,86 @@ test("indirectly cyclic alternatives are non-selectable and do not create ambigu
   assert.equal(routeState.selectedRouteId, "valid-route");
 });
 
+test("route viability tries a safe child recipe after a cyclic child recipe", () => {
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [{ id: "80", kind: "items", name: "Plate", quantity: 2 }],
+  });
+  const calculated = computeCraftPlan({
+    config,
+    detailsByKey: new Map([
+      ["items:80", {
+        item: { id: "80", kind: "items", name: "Plate" },
+        craftingRecipes: [
+          {
+            id: "plate-via-component",
+            name: "Plate via component",
+            craftedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "81", item_type: "item", quantity: 1 }],
+          },
+          {
+            id: "plate-direct",
+            name: "Plate direct",
+            craftedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "85", item_type: "item", quantity: 1 }],
+          },
+        ],
+      }],
+      ["items:81", {
+        item: { id: "81", kind: "items", name: "Component" },
+        craftingRecipes: [
+          {
+            id: "component-cycle-first",
+            name: "Component cycle first",
+            craftedItemStacks: [{ item_id: "81", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "82", item_type: "item", quantity: 1 }],
+          },
+          {
+            id: "component-safe-second",
+            name: "Component safe second",
+            craftedItemStacks: [{ item_id: "81", item_type: "item", quantity: 1 }],
+            consumedItemStacks: [{ item_id: "84", item_type: "item", quantity: 1 }],
+          },
+        ],
+      }],
+      ["items:82", {
+        item: { id: "82", kind: "items", name: "Loop" },
+        craftingRecipes: [{
+          id: "loop-back-to-plate",
+          name: "Loop back to plate",
+          craftedItemStacks: [{ item_id: "82", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "80", item_type: "item", quantity: 1 }],
+        }],
+      }],
+    ]),
+  });
+  const preview = buildCraftPlanPreview({
+    plan: calculated,
+    scope: "shared",
+    configurationRevision: 1,
+    baselineRevision: "safe-child-baseline",
+    validation: { valid: true, errors: [] },
+  });
+  const routeState = preview.routeReviews.find(({ outputKey }) => outputKey === "items:80");
+  const plateStep = calculated.steps.find((step) => step.output?.kind === "items" && step.output?.id === "80");
+
+  assert.equal(plateStep.alternatives.find(({ id }) => id === "plate-via-component").isSelectable, true);
+  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["plate-direct", "plate-via-component"]);
+  assert.equal(routeState.ambiguous, true);
+  assert.equal(routeState.selectedRouteId, "plate-via-component");
+
+  const { db, plans } = fixture();
+  const plan = plans.primary();
+  assert.throws(() => plans.update(plan.id, { config }, {
+    expectedRevision: plan.revision,
+    admin: true,
+    actor,
+    routeReviewState: { routeReviews: preview.routeReviews, confirmations: [], reviewer: actor },
+  }), (error) => error.code === "craft_plan_route_review_required");
+  assert.equal(plans.primary().revision, plan.revision);
+  db.close();
+});
+
 test("new shared plans require ambiguity confirmation and save reviews atomically with creation", () => {
   const { db, plans, routeReviews, configAudit } = fixture();
   const source = plans.primary();

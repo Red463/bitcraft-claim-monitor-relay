@@ -735,8 +735,17 @@ function sectionOverrideKeyForItem(item) {
   return plannerOverrideKeyFor(item, recipeKey(item?.kind, item?.id));
 }
 
-function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, depth = 0, maxDepth = 64) {
+function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, depth = 0, maxDepth = 64, memo = new Map()) {
   if (!recipeIsSelectable(recipe, blockedKeys) || depth >= maxDepth) return false;
+  const memoKey = JSON.stringify({
+    route: recipeId(recipe),
+    outputs: recipeOutputs(recipe).map((output) => recipeKey(stackKind(output), stackId(output))).sort(),
+    inputs: recipeInputs(recipe).map((input) => recipeKey(stackKind(input), stackId(input))).sort(),
+    blocked: [...blockedKeys].sort(),
+    depth,
+  });
+  if (memo.has(memoKey)) return memo.get(memoKey);
+  memo.set(memoKey, false);
   for (const [index, input] of recipeInputs(recipe).entries()) {
     const inputKey = recipeKey(stackKind(input), stackId(input));
     if (blockedKeys.includes(inputKey)) return false;
@@ -746,28 +755,31 @@ function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOve
     const recipes = recipesForTarget(detail, material, detailsByKey);
     if (!recipes.length) continue;
     const nextBlockedKeys = [...blockedKeys, inputKey];
-    const selected = selectedRecipeForTarget(recipes, routeOverrides[inputKey], nextBlockedKeys);
-    if (selected) {
-      if (!recipeExpansionIsSelectable(selected, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth)) return false;
-      continue;
-    }
-    if (recipes.some((candidate) => !recipeLooksTransportRoute(candidate) && !recipeIsSelectable(candidate, nextBlockedKeys))) return false;
+    const productionRecipes = recipes.filter((candidate) => !recipeLooksTransportRoute(candidate));
+    if (!productionRecipes.length) continue;
+    const overridden = productionRecipes.find((candidate) => recipeMatchesOverride(candidate, routeOverrides[inputKey]));
+    if (overridden && recipeExpansionIsSelectable(overridden, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth, memo)) continue;
+    if (!productionRecipes.some((candidate) => candidate !== overridden
+      && recipeExpansionIsSelectable(candidate, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth, memo))) return false;
   }
+  memo.set(memoKey, true);
   return true;
 }
 
 function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, detailsByKey, routeOverrides) {
+  const memo = new Map();
   const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
-  if (overridden && recipeExpansionIsSelectable(overridden, blockedKeys, detailsByKey, routeOverrides)) return overridden;
+  if (overridden && recipeExpansionIsSelectable(overridden, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo)) return overridden;
   return recipes.find((recipe) => !recipeLooksTransportRoute(recipe)
-    && recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides))
+    && recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo))
     ?? selectedRecipeForTarget(recipes, overrideId, blockedKeys);
 }
 
 function routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides) {
+  const memo = new Map();
   return recipes.map((recipe) => ({
     ...recipe,
-    isSelectable: recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides),
+    isSelectable: recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo),
   }));
 }
 
