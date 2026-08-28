@@ -10,6 +10,8 @@
 
 `eae636ad81aaa11e53477f8e51748e3bf10a78c6` — `fix(craft-plan): guard legacy plan saves`
 
+`1989686e9c547fb41a55a89ddc6d1a4b4b7d502a` — `fix(craft-plan): close route review race gaps`
+
 ## Files changed
 
 - `apps/bitcraft-local/server.mjs`
@@ -34,10 +36,10 @@
 - Added authenticated, same-origin, CSRF-protected, rate-limited preview routes for shared/admin and owned personal plans. Both reuse the existing normalized calculation, validation, baseline, and personal-source authorization seams.
 - Preview configuration is staged without persistence. The response includes exact material impact and compatibility aliases, route alternatives and ambiguity, safest guaranteed non-logistics preselection, validation, scope, baseline/configuration revisions, and a deterministic fingerprint.
 - Added exact typed-output route-review persistence with normalized material signatures, selected route, confirmed fingerprint, reviewer, timestamp, and configuration revision. Item and cargo identities remain distinct.
-- Hidden and personal drafts may remain unreviewed. Public shared creation/publication rejects only current newly ambiguous fingerprints; the first successful legacy-public save stores a durable non-confirmed grandfather baseline, unchanged baselines remain eligible, current confirmations remain valid, and changed outputs invalidate independently.
-- Planner alternatives now expose viability from the same blocked-input rule used for recipe selection. Cyclic or ancestor-blocked alternatives remain visible to planner consumers but are not selectable production alternatives and therefore cannot create false ambiguity.
+- Hidden and personal drafts may remain unreviewed. Public shared creation/publication rejects only current newly ambiguous fingerprints; the first successful legacy-public save stores a durable non-confirmed grandfather baseline, unchanged fingerprint-and-selected-route baselines remain eligible, current confirmations remain valid, and changed outputs invalidate independently.
+- Planner alternatives now expose bounded dependency-expansion viability using the planner's typed recipe graph, route overrides, and blocked-input semantics. Direct and indirect cyclic or ancestor-blocked alternatives remain visible to planner consumers but are not selectable production alternatives and therefore cannot create false ambiguity. When no safe route exists, the prior locked nearest-source fallback remains unchanged.
 - Shared creation and plan updates persist configuration, route confirmations, and Task 2 configuration audit evidence in one transaction. Failed, stale, or publication-gated writes leave all three unchanged.
-- Modern updates require the last-seen revision. A mismatch returns `409 craft_plan_revision_conflict` with the authorized current revision, plan metadata, and configuration for rebase, before staged configuration validation can mask the conflict.
+- Modern updates require the last-seen revision. Update, delete, and primary-selection reads and revision checks run after `BEGIN IMMEDIATE`, in the same write transaction as their mutation and audit/review side effects. A mismatch returns `409 craft_plan_revision_conflict` with the authorized current revision, plan metadata, and configuration for rebase, before staged configuration validation can mask the conflict.
 - The singular legacy admin `PUT /api/local/admin/craft-plan` compatibility route now requires the caller's last-seen revision and uses the same preview, public ambiguity gate, exact confirmation, atomic route-review/configuration-audit persistence, and conflict metadata as the plural plan update. Legacy `GET` and raw-config request compatibility remain available.
 - Added account-deletion cleanup/anonymization and explicit least-privilege permissions for the multi-plan admin routes. No immediate-save route endpoint was added.
 
@@ -54,12 +56,15 @@
 - Fresh re-review RED produced three focused failures: no persisted legacy-public baseline, no additive evidence-status migration, and no planner viability marker for a real cyclic alternative.
 - Re-review GREEN persists an explicitly non-confirmed `grandfathered` baseline atomically with the first legacy save, continues unchanged saves only while fingerprint and selection match, gates catalog drift without discarding the baseline evidence, migrates existing confirmed rows to explicit `confirmed` status, and excludes cyclic alternatives using the planner's existing selection viability rule.
 - Third-review HTTP RED showed a stale singular legacy save returned `200`, incremented the plan revision, and ignored the supplied revision. The GREEN case uses a real two-recipe catalog target and proves stale save `409`/no writes, newly ambiguous save `409`/no writes, and exact current confirmation persisting one review and one configuration-audit revision atomically.
-- Final focused planner/preview/repository/schema/auth/server set: 155 passed, 0 failed.
+- Fourth-review grandfather RED accepted changing the selected route from A to B when the alternatives fingerprint was unchanged. GREEN binds grandfather eligibility to both fingerprint and selected route: unchanged A continues, A-to-B gates, and exact explicit confirmation of B succeeds.
+- Fourth-review concurrency RED reproduced all three pre-transaction races by injecting a committed revision change immediately before `BEGIN IMMEDIATE`: update overwrote it, delete removed it, and primary selection switched it. GREEN moves each authoritative row read and revision check under the acquired write transaction; all three now return conflict with no mutation or related writes.
+- Fourth-review viability RED marked the real typed dependency cycle `80 -> 81 -> 80` selectable. The first bounded-DFS implementation exposed two locked sole-cycle/co-product fallback regressions; retaining the existing selected-route fallback when no viable alternative exists restored those contracts while the unsafe indirect alternative remains non-selectable whenever a valid route is available.
+- Final focused planner/preview/repository/schema/auth/server set: 170 passed, 0 failed.
 
 ## Final verification
 
-- `node --test` focused planner/preview/repository/schema/auth/server files — 155 passed, 0 failed.
-- `corepack pnpm --filter @workspace/bitcraft-local test` — 2713 passed, 0 failed, 3 skipped (2716 total).
+- `node --test` focused planner/preview/repository/schema/auth/server files — 170 passed, 0 failed.
+- `corepack pnpm --filter @workspace/bitcraft-local test` — 2718 passed, 0 failed, 3 skipped (2721 total).
 - `corepack pnpm --filter @workspace/bitcraft-local run build` — passed server/provider/bindings builds, 1462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
 - `git diff --cached --check` — passed before the implementation commits; only expected Windows line-ending notices were emitted while staging.
 
@@ -88,5 +93,6 @@
 - Independent review corrections bind submitted and stored evidence to the preview's exact calculated selection; make any stale or legacy-null persisted evidence defeat grandfathering; and include route type, gathering mode/skill/source, producer identity, producer-recipe identity/skill, all expected/drop/guaranteed yield fields, resource health, action count, probability state, and typed inputs in the material signature while excluding display-only names and building labels.
 - Fresh re-review corrections make legacy-public compatibility durable and drift-sensitive through explicit baseline evidence, and reuse the planner's own blocked-route viability decision to prevent cyclic/blocked alternatives from creating ambiguity without changing recipe selection semantics.
 - Third-review correction removes the singular legacy mutation bypass while preserving its read/raw-config compatibility and committed Relay building reconciliation. The executable HTTP regression checks authoritative conflict metadata and all three persistence tables rather than source text.
+- Fourth-review corrections prevent a same-fingerprint route-selection change from inheriting a legacy baseline, close update/delete/primary optimistic-concurrency race windows under SQLite's immediate writer transaction, and exclude indirect cyclic alternatives through typed bounded traversal while preserving the locked no-safe-route behavior.
 - Preview routes have executable behavioral coverage at the HTTP seam; authorization and atomic gating have executable coverage at the HTTP/repository seams. Static boundary tests supplement rather than replace them.
 - No unresolved correctness, security, migration, privacy, or compatibility finding remains in the Task 3 diff.
