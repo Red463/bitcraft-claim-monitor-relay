@@ -877,6 +877,25 @@ test("page generation watcher enrolls only provider pages with page-specific rec
   dashboard.stop();
   assert.equal(sources[0].closed, true);
   assert.equal(activePolls.size, 0);
+
+  const planning = create("planning");
+  assert.ok(planning, "Craft Planning must refresh when its Relay-backed source generations change");
+  assert.equal(activePolls.size, 1);
+  assert.equal(pollDelays.at(-1), 30_000);
+  const planningSearch = new URL(sources.at(-1).url, "http://local").searchParams;
+  assert.deepEqual(planningSearch.get("domains").split(","), [
+    "catalogs",
+    "construction",
+    "crafts",
+    "inventories",
+    "members",
+  ]);
+  sources.at(-1).onmessage({ data: JSON.stringify({ claimId: "20", generation: 8, changedDomains: ["market"] }) });
+  sources.at(-1).onmessage({ data: JSON.stringify({ claimId: "20", generation: 9, changedDomains: ["inventories"] }) });
+  assert.deepEqual(observed, [7, 9], "only a relevant Craft Planning generation should invalidate the page");
+  planning.stop();
+  assert.equal(activePolls.size, 0);
+
   const craftMonitor = create("craft-monitor");
   assert.equal(activePolls.size, 1, "navigation leaves one watcher poll enrolled");
   assert.equal(pollDelays.at(-1), 1_000);
