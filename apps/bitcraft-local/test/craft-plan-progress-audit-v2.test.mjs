@@ -307,6 +307,76 @@ test("first successful capture after failure creates a recovery causal group", (
   db.close();
 });
 
+test("unchanged success after failure records recovery without duplicating the snapshot", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const initial = v2Snapshot();
+  repository.recordSuccess(initial);
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+
+  const recovery = repository.recordSuccess({ ...initial, capturedAt: "2026-08-28T10:10:00.000Z" });
+
+  assert.equal(recovery.recorded, false);
+  assert.deepEqual(recovery.events.map((event) => event.type), ["source_recovered"]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_snapshots").get().count, 1);
+  const state = db.prepare("SELECT * FROM craft_plan_progress_audit_state WHERE claim_id = '42' AND plan_id = 'legacy-primary'").get();
+  assert.equal(state.last_failure_fingerprint, null);
+  assert.equal(state.last_error, null);
+  assert.equal(state.last_success_at, "2026-08-28T10:10:00.000Z");
+  const recovered = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" })
+    .causalGroups.find((group) => group.observedTriggers.some((entry) => entry.type === "source_recovered"));
+  assert.deepEqual(recovered.span, { from: "2026-08-28T10:05:00.000Z", to: "2026-08-28T10:10:00.000Z" });
+  db.close();
+});
+
+test("source failure falls back from corrupt state evidence to the latest valid checkpoint", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot());
+  db.prepare("UPDATE craft_plan_progress_audit_state SET last_payload_gzip = ? WHERE claim_id = '42' AND plan_id = 'legacy-primary'")
+    .run(Buffer.from("corrupt"));
+
+  const result = repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+
+  assert.equal(result.recorded, true);
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" }).causalGroups[0];
+  assert.deepEqual(group.span, { from: "2026-08-28T10:00:00.000Z", to: "2026-08-28T10:05:00.000Z" });
+  assert.ok(group.observedTriggers.some((entry) => entry.type === "source_failure"));
+  assert.equal(repository.status("42").lastError, "Storage: offline");
+  db.close();
+});
+
+test("source failure records a prior-evidence limitation when no valid checkpoint exists", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+
+  const group = repository.queryCausalGroups("42", { planId: "legacy-primary", triggerCategory: "source_health" }).causalGroups[0];
+  assert.ok(group.unresolvedRelationships.some((entry) => /no valid prior success checkpoint/i.test(entry.reason)));
+  db.close();
+});
+
+test("export falls back through a corrupt pre-range checkpoint to older valid evidence", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T09:00:00.000Z" }));
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T09:30:00.000Z", available: 45, missing: 35 }));
+  repository.recordSuccess(v2Snapshot({ capturedAt: "2026-08-28T10:10:00.000Z", available: 50, missing: 30 }));
+  db.prepare("UPDATE craft_plan_progress_audit_snapshots SET payload_gzip = ? WHERE captured_at = '2026-08-28T09:30:00.000Z'")
+    .run(Buffer.from("corrupt"));
+
+  const bundle = repository.exportRange("42", { label: "24h", since: "2026-08-28T10:00:00.000Z" }, "legacy-primary");
+
+  assert.equal(bundle.effectiveSince, "2026-08-28T10:00:00.000Z");
+  assert.deepEqual(bundle.snapshots.map((snapshot) => snapshot.capturedAt), [
+    "2026-08-28T09:00:00.000Z",
+    "2026-08-28T10:10:00.000Z",
+  ]);
+  assert.ok(bundle.warnings.some((warning) => /skipped corrupt snapshot/i.test(warning)));
+  db.close();
+});
+
 test("causal groups preserve typed identities, unresolved evidence, bounded pagination, and every filter", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });

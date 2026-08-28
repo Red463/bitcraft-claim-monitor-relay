@@ -73,6 +73,11 @@ export function createPreparedStatements(db) {
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
+  listCraftPlanProgressSnapshotsBefore: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_snapshots
+    WHERE claim_id = ? AND plan_id = ? AND captured_at <= ?
+    ORDER BY captured_at DESC, id DESC
+  `),
   craftPlanProgressSnapshotAt: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
     WHERE claim_id = ? AND plan_id = ? AND captured_at = ?

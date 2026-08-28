@@ -621,6 +621,14 @@ export function buildCraftPlanCausalGroup(previous, current, events = []) {
       triggerType: event.type,
       reason: "The source failure is observed, but its downstream demand, shortage, and progress effects have not yet been observed.",
     });
+    for (const limitation of event.evidenceLimitations ?? []) {
+      unresolvedRelationships.push({
+        materialKey: null,
+        triggerType: event.type,
+        relationship: "prior_success_checkpoint",
+        reason: text(limitation),
+      });
+    }
   }
   for (const event of events.filter((entry) => entry.type === "source_recovered")) {
     unresolvedRelationships.push({
@@ -850,11 +858,22 @@ export function createCraftPlanProgressAuditRepository(db, {
       || baselineChanged
       || hoursBetween(state?.last_full_snapshot_at, capturedAt) >= 6;
     const duplicate = text(state?.last_fingerprint) === fingerprint;
+    const recovering = Boolean(state?.last_failure_fingerprint);
+    const recordSnapshot = !duplicate || fullSnapshot;
     const payloadGzip = duplicate && state?.last_payload_gzip
       ? Buffer.from(state.last_payload_gzip)
       : gzipJson(snapshot);
 
-    if (duplicate && !fullSnapshot) {
+    const diff = previous
+      ? diffCraftPlanProgressSnapshots(previous, snapshot)
+      : { events: [], baselineChanged: false, baselineChange: null };
+    const recoveryEvent = recovering ? {
+      type: "source_recovered",
+      previousError: text(state.last_error),
+    } : null;
+    const events = recoveryEvent ? [...diff.events, recoveryEvent] : [...diff.events];
+
+    if (!recordSnapshot && !recovering) {
       updateState(claimId, planId, {
         lastFingerprint: fingerprint,
         lastPayloadGzip: payloadGzip,
@@ -875,42 +894,39 @@ export function createCraftPlanProgressAuditRepository(db, {
       };
     }
 
-    const diff = previous
-      ? diffCraftPlanProgressSnapshots(previous, snapshot)
-      : { events: [], baselineChanged: false, baselineChange: null };
-    const events = [...diff.events];
-    if (state?.last_failure_fingerprint) {
-      events.push({
-        type: "source_recovered",
-        previousError: text(state.last_error),
-      });
-    }
-
     db.exec("BEGIN IMMEDIATE");
     try {
       let lastSnapshotId = state?.last_snapshot_id ?? null;
       let lastFullSnapshotAt = state?.last_full_snapshot_at ?? null;
-      const result = statements.insertCraftPlanProgressSnapshot.run(
-        claimId,
-        planId,
-        capturedAt,
-        text(snapshot.baselineRevision),
-        fingerprint,
-        fullSnapshot ? 1 : 0,
-        payloadGzip,
-        text(snapshot?.metadata?.appVersion),
-        text(snapshot?.metadata?.buildId),
-      );
-      lastSnapshotId = result.lastInsertRowid;
-      if (fullSnapshot) lastFullSnapshotAt = capturedAt;
+      if (recordSnapshot) {
+        const result = statements.insertCraftPlanProgressSnapshot.run(
+          claimId,
+          planId,
+          capturedAt,
+          text(snapshot.baselineRevision),
+          fingerprint,
+          fullSnapshot ? 1 : 0,
+          payloadGzip,
+          text(snapshot?.metadata?.appVersion),
+          text(snapshot?.metadata?.buildId),
+        );
+        lastSnapshotId = result.lastInsertRowid;
+        if (fullSnapshot) lastFullSnapshotAt = capturedAt;
+      }
       for (const event of events) insertEvent(claimId, planId, capturedAt, snapshot.baselineRevision, event);
-      const groupPrevious = previous ?? (state?.last_failure_fingerprint ? {
-        planId,
-        capturedAt: text(state.updated_at),
-        baselineRevision: text(snapshot.baselineRevision),
-      } : null);
-      if (groupPrevious && events.length) {
-        const group = buildCraftPlanCausalGroup(groupPrevious, snapshot, events);
+      if (previous && diff.events.length) {
+        const group = buildCraftPlanCausalGroup(previous, snapshot, diff.events);
+        statements.insertCraftPlanProgressCausalGroup.run(
+          claimId, planId, group.groupId, group.span.from, group.span.to, JSON.stringify(group),
+        );
+      }
+      if (recoveryEvent) {
+        const recoveryPrevious = {
+          planId,
+          capturedAt: text(state.updated_at),
+          baselineRevision: text(snapshot.baselineRevision),
+        };
+        const group = buildCraftPlanCausalGroup(recoveryPrevious, snapshot, [recoveryEvent]);
         statements.insertCraftPlanProgressCausalGroup.run(
           claimId, planId, group.groupId, group.span.from, group.span.to, JSON.stringify(group),
         );
@@ -932,7 +948,7 @@ export function createCraftPlanProgressAuditRepository(db, {
     }
     prune(capturedAt);
     return {
-      recorded: true,
+      recorded: recordSnapshot,
       fullSnapshot,
       events,
       baselineChanged: diff.baselineChanged,
@@ -947,13 +963,16 @@ export function createCraftPlanProgressAuditRepository(db, {
     const current = stateFor(claimId, planId);
     const error = normalized.map((failure) => `${failure.label}: ${failure.error}`).join("; ").slice(0, 1000);
     const changed = text(current?.last_failure_fingerprint) !== failureFingerprint;
-    const previous = current?.last_payload_gzip ? gunzipJson(current.last_payload_gzip) : null;
+    const previous = latestSuccess(claimId, planId);
     db.exec("BEGIN IMMEDIATE");
     try {
       if (changed) {
         const event = {
           type: "source_failure",
           failures: normalized,
+          ...(!previous ? {
+            evidenceLimitations: ["No valid prior success checkpoint is available; downstream relationships cannot be reconstructed."],
+          } : {}),
         };
         insertEvent(claimId, planId, capturedAt, text(previous?.baselineRevision), event);
         const group = buildCraftPlanCausalGroup(
@@ -1097,7 +1116,16 @@ export function createCraftPlanProgressAuditRepository(db, {
   function exportRange(claimId, range, planId = "legacy-primary") {
     const warnings = [];
     const requestedSince = text(range.since);
-    const checkpoint = statements.latestCraftPlanProgressSnapshotBefore.get(text(claimId), text(planId), requestedSince);
+    let checkpoint = null;
+    for (const row of statements.listCraftPlanProgressSnapshotsBefore.all(text(claimId), text(planId), requestedSince)) {
+      try {
+        gunzipJson(row.payload_gzip);
+        checkpoint = row;
+        break;
+      } catch {
+        warnings.push(`Skipped corrupt snapshot ${row.id}.`);
+      }
+    }
     const rows = statements.listCraftPlanProgressSnapshotsSince.all(text(claimId), text(planId), requestedSince);
     const uniqueRows = new Map();
     if (checkpoint) uniqueRows.set(number(checkpoint.id), checkpoint);
