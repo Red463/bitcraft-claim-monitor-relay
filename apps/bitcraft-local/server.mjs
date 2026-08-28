@@ -130,8 +130,8 @@ import {
   buildCraftPlanProgressSnapshot,
   createCraftPlanProgressAuditRepository,
   normalizeCraftPlanAuditRange,
-  staleCraftPlanProgress,
 } from "./src/server/craftPlanProgressAudit.mjs";
+import { resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
 import { buildCraftPlanDiscordEmbed, buildCraftPlanDiscordReport, buildUnavailableCraftPlanDiscordReport, craftPlanReportProfessions, dueCraftPlanReportOccurrence, nextCraftPlanReportOccurrenceIso, normalizeCraftPlanReportProfession, validateCraftPlanReportSettings } from "./src/server/craftPlanDiscordReports.mjs";
 import { craftPlanInteractionDiagnostic, deferredDiscordInteractionResult, editDiscordInteractionOriginal, preflightCraftPlanInteraction, runDiscordTaskAfterResponse } from "./src/server/discordCraftPlanInteractions.mjs";
 import { buildWorkstationPresets, normalizeCatalogWorkstationTarget } from "./src/server/craftPlanWorkstationPresets.mjs";
@@ -2392,6 +2392,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     ...deployableSources,
   ].map((source) => ({
     sourceId: String(source?.sourceId ?? ""),
+    legacySourceIds: Array.isArray(source?.legacySourceIds) ? source.legacySourceIds.map(String) : [],
     label: String(source?.label ?? source?.sourceId ?? "Planner source"),
     type: String(source?.type ?? "Planner source"),
     available: source?.unavailable !== true,
@@ -2427,27 +2428,13 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   livePlan.materials = completedPublication.candidatePlan.materials;
   livePlan.gatherNext = completedPublication.candidatePlan.gatherNext;
   const validation = completedPublication.validation;
-  const validationFailure = validation.valid ? null : {
-    sourceId: "craft-plan-validation",
-    label: "Craft Plan calculation validation",
-    type: "Planner validation",
-    error: `${validation.errors.length} calculation invariant${validation.errors.length === 1 ? "" : "s"} failed.`,
-  };
-  const publicationFailures = validationFailure ? [...sourceFailures, validationFailure] : sourceFailures;
   const publication = completedPublication;
   if (validation.valid) {
     craftPlanCalculationValidationWarnings.delete(planId);
-  } else {
-    craftPlanCalculationValidationWarnings.set(planId, {
-      at: capturedAt,
-      planId,
-      baselineRevision,
-      retainedLastGood: publication.retainedLastGood,
-      errors: validation.errors,
-    });
   }
 
-  if (!publicationFailures.length && effortModelAvailable) {
+  const publicationFailed = !validation.valid || sourceFailures.length > 0;
+  if (!publicationFailed && effortModelAvailable) {
     livePlan.effortProgress.lastSuccessfulAt = capturedAt;
     try {
       const auditResult = craftPlanProgressAudit.recordSuccess(buildCraftPlanProgressSnapshot({
@@ -2475,61 +2462,33 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       };
       console.warn(`Craft Plan progress audit write failed: ${craftPlanProgressAuditWriteWarning.error}`);
     }
-  } else if (publicationFailures.length) {
+  } else if (publicationFailed) {
     try {
-      craftPlanProgressAudit.recordFailure(claimId, publicationFailures, capturedAt, planId);
-      craftPlanProgressAuditWriteWarning = null;
-    } catch (error) {
-      craftPlanProgressAuditWriteWarning = {
-        at: capturedAt,
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
-      };
-      console.warn(`Craft Plan progress audit failure write failed: ${craftPlanProgressAuditWriteWarning.error}`);
-    }
-    let lastSuccess = null;
-    try {
-      lastSuccess = craftPlanProgressAudit.latestSuccess(claimId, planId);
-    } catch (error) {
-      craftPlanProgressAuditWriteWarning = {
-        at: capturedAt,
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
-      };
-      console.warn(`Craft Plan progress audit recovery read failed: ${craftPlanProgressAuditWriteWarning.error}`);
-    }
-    if (!publication.plan) {
-      throw Object.assign(new Error("Craft Plan calculation validation failed before a complete plan was available."), { statusCode: 502 });
-    }
-    if (publication.retainedLastGood) {
-      const retainedPlan = {
-        ...publication.plan,
-        effortProgress: staleCraftPlanProgress(publication.plan?.effortProgress, publicationFailures, capturedAt),
-        unavailableSources: [
-          ...(Array.isArray(publication.plan?.unavailableSources) ? publication.plan.unavailableSources : []),
-          ...publicationFailures,
-        ],
-        warnings: [
-          ...(Array.isArray(publication.plan?.warnings) ? publication.plan.warnings : []),
-          "Craft Plan calculation validation failed; showing the last successful complete plan.",
-        ],
-      };
-      retainedPlan.effortProgress.baselineChange = craftPlanBaselineChangeSince(
+      const failedPublication = resolveFailedCraftPlanPublication({
         claimId,
-        new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
         planId,
-      );
-      return retainedPlan;
+        candidatePlan: livePlan,
+        publication,
+        validation,
+        sourceFailures,
+        capturedAt,
+        validationWarnings: craftPlanCalculationValidationWarnings,
+        progressAudit: craftPlanProgressAudit,
+        baselineChange: ({ planId: failedPlanId }) => craftPlanBaselineChangeSince(
+          claimId,
+          new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          failedPlanId,
+        ),
+      });
+      craftPlanProgressAuditWriteWarning = failedPublication.auditError;
+      if (craftPlanProgressAuditWriteWarning) {
+        console.warn(`Craft Plan progress audit failure handling failed: ${craftPlanProgressAuditWriteWarning.error}`);
+      }
+      return failedPublication.plan;
+    } catch (error) {
+      if (error?.auditError) craftPlanProgressAuditWriteWarning = error.auditError;
+      throw error;
     }
-    livePlan.effortProgress = lastSuccess?.effortProgress
-      ? staleCraftPlanProgress(lastSuccess.effortProgress, publicationFailures, capturedAt)
-      : unavailableCraftPlanEffortProgress();
-    livePlan.effortProgress.baselineChange = craftPlanBaselineChangeSince(
-      claimId,
-      new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    );
-    livePlan.unavailableSources = [
-      ...(Array.isArray(livePlan.unavailableSources) ? livePlan.unavailableSources : []),
-      ...publicationFailures,
-    ];
   }
   return livePlan;
 }

@@ -1618,7 +1618,10 @@ const CRAFT_PLAN_CONFIGURED_SOURCE_TYPES = [
 
 export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = []) {
   const statuses = (Array.isArray(sourceStatus) ? sourceStatus : []).map((source) => ({ ...source }));
-  const returnedIds = new Set(statuses.map((source) => String(source?.sourceId ?? "").trim()).filter(Boolean));
+  const returnedIds = new Set(statuses.flatMap((source) => [
+    source?.sourceId,
+    ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds : []),
+  ]).map((sourceId) => String(sourceId ?? "").trim()).filter(Boolean));
   for (const [rule, type] of CRAFT_PLAN_CONFIGURED_SOURCE_TYPES) {
     for (const sourceId of config?.sourceRules?.[rule] ?? []) {
       const id = String(sourceId ?? "").trim();
@@ -1673,11 +1676,23 @@ export function validateCompletedCraftPlan(plan = {}, {
   baselineRevision = plan?.effortProgress?.baselineRevision,
 } = {}) {
   const errors = [];
-  const materials = Array.isArray(plan?.materials) ? plan.materials : [];
+  const topLevelMaterials = Array.isArray(plan?.materials) ? plan.materials : [];
+  const publishedMaterialRows = topLevelMaterials.map((material, index) => ({
+    material,
+    path: `materials[${index}]`,
+  }));
+  const seenMaterialObjects = new Set(topLevelMaterials.filter((material) => material && typeof material === "object"));
+  for (const [groupIndex, group] of (Array.isArray(plan?.gatherNext) ? plan.gatherNext : []).entries()) {
+    for (const [itemIndex, material] of (Array.isArray(group?.items) ? group.items : []).entries()) {
+      if (material && typeof material === "object" && seenMaterialObjects.has(material)) continue;
+      if (material && typeof material === "object") seenMaterialObjects.add(material);
+      publishedMaterialRows.push({ material, path: `gatherNext[${groupIndex}].items[${itemIndex}]` });
+    }
+  }
+  const materials = publishedMaterialRows.map(({ material }) => material);
   const materialKeys = new Set();
 
-  for (const [index, material] of materials.entries()) {
-    const path = `materials[${index}]`;
+  for (const { material, path } of publishedMaterialRows) {
     const key = String(material?.key ?? "").trim();
     const match = CRAFT_PLAN_TYPED_MATERIAL_KEY.exec(key);
     if (!match

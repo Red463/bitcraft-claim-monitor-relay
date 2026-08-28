@@ -14,15 +14,15 @@ test("server records complete planner progress and retains last-good progress du
   assert.match(computedCraftPlan, /craftPlanBaselineRevision/);
   assert.match(computedCraftPlan, /buildCraftPlanProgressSnapshot/);
   assert.match(computedCraftPlan, /recordSuccess/);
-  assert.match(computedCraftPlan, /recordFailure/);
-  assert.match(computedCraftPlan, /latestSuccess/);
-  assert.match(computedCraftPlan, /staleCraftPlanProgress/);
+  assert.match(server, /resolveFailedCraftPlanPublication/);
+  assert.match(computedCraftPlan, /resolveFailedCraftPlanPublication/);
   assert.match(computedCraftPlan, /sourceFailures/);
 });
 
 test("server validates completed planner results and retains the cached last-good complete plan", () => {
   assert.match(server, /finalizeCraftPlanPublication/);
   assert.match(server, /reconcileCraftPlanRequiredSourceStatus/);
+  assert.match(computedCraftPlan, /legacySourceIds/);
   assert.doesNotMatch(
     computedCraftPlan,
     /if \(storedEffortModelVersion !== CRAFT_PLAN_EFFORT_MODEL_VERSION\) \{[\s\S]*?return livePlan;[\s\S]*?\}/,
@@ -32,9 +32,7 @@ test("server validates completed planner results and retains the cached last-goo
   assert.match(computedCraftPlan, /craftPlanCalculationValidationWarnings\.(?:set|delete)\(planId/);
   assert.match(server, /validationWarning: craftPlanCalculationValidationWarnings\.get\(planId\) \?\? null/);
   assert.match(computedCraftPlan, /lastGoodPlan/);
-  assert.match(computedCraftPlan, /retainedLastGood/);
-  assert.match(computedCraftPlan, /recordFailure/);
-  assert.match(computedCraftPlan, /staleCraftPlanProgress/);
+  assert.match(computedCraftPlan, /validationWarnings: craftPlanCalculationValidationWarnings/);
 });
 
 test("server exposes authenticated progress audit status and gzip export routes", () => {

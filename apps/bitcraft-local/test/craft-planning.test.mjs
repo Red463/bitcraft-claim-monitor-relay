@@ -169,6 +169,44 @@ test("completed craft plan validation reports every calculation invariant withou
   }
 });
 
+test("gather-only invalid materials cannot publish while ordinary gather mirrors are not duplicates", () => {
+  const topMaterial = {
+    key: "items:7",
+    id: "7",
+    kind: "items",
+    required: 4,
+    missing: 2,
+  };
+  const basePlan = () => ({
+    config: { routeOverrides: {} },
+    materials: [topMaterial],
+    gatherNext: [{ section: "Woodworking", items: [topMaterial] }],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { baselineRevision: "baseline-1" },
+  });
+  const baselinePlan = { materials: [{ key: "items:7", required: 10 }] };
+  const ordinary = craftPlanning.finalizeCraftPlanPublication({ candidatePlan: basePlan(), baselinePlan });
+  assert.equal(ordinary.validation.valid, true);
+  assert.equal(ordinary.validation.errors.some((error) => error.code === "duplicate_material_key"), false);
+
+  const invalidGatherCases = [
+    ["non-finite quantity", { key: "items:8", id: "8", kind: "items", required: Number.NaN, missing: 1 }, "invalid_material_quantity"],
+    ["negative quantity", { key: "items:8", id: "8", kind: "items", required: 1, missing: -1 }, "invalid_material_quantity"],
+    ["invalid typed key", { key: "item:8", id: "8", kind: "items", required: 1, missing: 1 }, "invalid_material_key"],
+  ];
+  for (const [label, gatherMaterial, expectedCode] of invalidGatherCases) {
+    const candidatePlan = basePlan();
+    candidatePlan.gatherNext.push({ section: "Gather only", items: [gatherMaterial] });
+    const lastGoodPlan = { marker: "last-good" };
+    const result = craftPlanning.finalizeCraftPlanPublication({ candidatePlan, baselinePlan, lastGoodPlan });
+    assert.equal(result.validation.valid, false, label);
+    assert.ok(result.validation.errors.some((error) => error.code === expectedCode), label);
+    assert.strictEqual(result.plan, lastGoodPlan, label);
+    assert.equal(result.retainedLastGood, true, label);
+  }
+});
+
 test("invalid completed craft plans retain the exact last-good publication and otherwise fail closed", () => {
   assert.equal(typeof craftPlanning.selectCraftPlanPublication, "function");
   const candidatePlan = { marker: "invalid-live-values" };
@@ -241,6 +279,31 @@ test("configured planner sources missing from a completed projection fail valida
   assert.equal(validation.errors.filter((error) => error.code === "required_source_unavailable").length, 3);
   assert.strictEqual(publication.plan, lastGoodPlan);
   assert.equal(publication.retainedLastGood, true);
+});
+
+test("configured deployable canonical and legacy aliases are both recognized as present", () => {
+  const config = normalizeCraftPlanConfig({
+    sourceRules: {
+      deployableContainerIds: ["player-1:cart", "player-1:raw-wagon-42"],
+    },
+  });
+  const requiredSources = craftPlanning.reconcileCraftPlanRequiredSourceStatus(config, [{
+    sourceId: "player-1:cart",
+    legacySourceIds: ["player-1:raw-wagon-42"],
+    label: "Cart",
+    type: "Player deployable",
+    available: true,
+    error: "",
+  }]);
+
+  assert.deepEqual(requiredSources, [{
+    sourceId: "player-1:cart",
+    legacySourceIds: ["player-1:raw-wagon-42"],
+    label: "Cart",
+    type: "Player deployable",
+    available: true,
+    error: "",
+  }]);
 });
 
 test("effort-unavailable plans still pass through enrichment, validation, and last-good publication", () => {
