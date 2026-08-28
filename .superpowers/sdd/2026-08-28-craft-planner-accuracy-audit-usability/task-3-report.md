@@ -12,6 +12,8 @@
 
 `1989686e9c547fb41a55a89ddc6d1a4b4b7d502a` — `fix(craft-plan): close route review race gaps`
 
+`aa37e77e94496433a17ece41de37a2fbce571937` — `fix(craft-plan): explore viable child routes`
+
 ## Files changed
 
 - `apps/bitcraft-local/server.mjs`
@@ -37,7 +39,7 @@
 - Preview configuration is staged without persistence. The response includes exact material impact and compatibility aliases, route alternatives and ambiguity, safest guaranteed non-logistics preselection, validation, scope, baseline/configuration revisions, and a deterministic fingerprint.
 - Added exact typed-output route-review persistence with normalized material signatures, selected route, confirmed fingerprint, reviewer, timestamp, and configuration revision. Item and cargo identities remain distinct.
 - Hidden and personal drafts may remain unreviewed. Public shared creation/publication rejects only current newly ambiguous fingerprints; the first successful legacy-public save stores a durable non-confirmed grandfather baseline, unchanged fingerprint-and-selected-route baselines remain eligible, current confirmations remain valid, and changed outputs invalidate independently.
-- Planner alternatives now expose bounded dependency-expansion viability using the planner's typed recipe graph, route overrides, and blocked-input semantics. Direct and indirect cyclic or ancestor-blocked alternatives remain visible to planner consumers but are not selectable production alternatives and therefore cannot create false ambiguity. When no safe route exists, the prior locked nearest-source fallback remains unchanged.
+- Planner alternatives now expose memoized, bounded dependency-expansion viability using the planner's typed recipe graph, route overrides, and blocked-input semantics. Each craftable dependency may use any viable non-logistics production expansion, with a viable explicit override taking precedence; cyclic branches do not hide safe siblings. Direct and indirect cyclic or ancestor-blocked alternatives remain visible to planner consumers but are not selectable production alternatives and therefore cannot create false ambiguity. When no safe route exists, the prior locked nearest-source fallback remains unchanged.
 - Shared creation and plan updates persist configuration, route confirmations, and Task 2 configuration audit evidence in one transaction. Failed, stale, or publication-gated writes leave all three unchanged.
 - Modern updates require the last-seen revision. Update, delete, and primary-selection reads and revision checks run after `BEGIN IMMEDIATE`, in the same write transaction as their mutation and audit/review side effects. A mismatch returns `409 craft_plan_revision_conflict` with the authorized current revision, plan metadata, and configuration for rebase, before staged configuration validation can mask the conflict.
 - The singular legacy admin `PUT /api/local/admin/craft-plan` compatibility route now requires the caller's last-seen revision and uses the same preview, public ambiguity gate, exact confirmation, atomic route-review/configuration-audit persistence, and conflict metadata as the plural plan update. Legacy `GET` and raw-config request compatibility remain available.
@@ -59,12 +61,13 @@
 - Fourth-review grandfather RED accepted changing the selected route from A to B when the alternatives fingerprint was unchanged. GREEN binds grandfather eligibility to both fingerprint and selected route: unchanged A continues, A-to-B gates, and exact explicit confirmation of B succeeds.
 - Fourth-review concurrency RED reproduced all three pre-transaction races by injecting a committed revision change immediately before `BEGIN IMMEDIATE`: update overwrote it, delete removed it, and primary selection switched it. GREEN moves each authoritative row read and revision check under the acquired write transaction; all three now return conflict with no mutation or related writes.
 - Fourth-review viability RED marked the real typed dependency cycle `80 -> 81 -> 80` selectable. The first bounded-DFS implementation exposed two locked sole-cycle/co-product fallback regressions; retaining the existing selected-route fallback when no viable alternative exists restored those contracts while the unsafe indirect alternative remains non-selectable whenever a valid route is available.
-- Final focused planner/preview/repository/schema/auth/server set: 170 passed, 0 failed.
+- Final-review RED reproduced the remaining sibling-search defect: a parent `80 -> 81` was marked non-selectable because the first child expansion `81 -> 82 -> 80` cycled, even though the sibling `81 -> 84` was safe. GREEN explores all viable non-logistics child alternatives with memoized typed path state, retains both valid root alternatives in preview, and preserves the public ambiguity gate and no-write behavior. The locked sole-cycle nearest-source regression remains green.
+- Final focused planner/preview/repository/schema/auth/server set: 171 passed, 0 failed.
 
 ## Final verification
 
-- `node --test` focused planner/preview/repository/schema/auth/server files — 170 passed, 0 failed.
-- `corepack pnpm --filter @workspace/bitcraft-local test` — 2718 passed, 0 failed, 3 skipped (2721 total).
+- `node --test` focused planner/preview/repository/schema/auth/server files — 171 passed, 0 failed.
+- `corepack pnpm --filter @workspace/bitcraft-local test` — 2719 passed, 0 failed, 3 skipped (2722 total).
 - `corepack pnpm --filter @workspace/bitcraft-local run build` — passed server/provider/bindings builds, 1462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
 - `git diff --cached --check` — passed before the implementation commits; only expected Windows line-ending notices were emitted while staging.
 
@@ -94,5 +97,6 @@
 - Fresh re-review corrections make legacy-public compatibility durable and drift-sensitive through explicit baseline evidence, and reuse the planner's own blocked-route viability decision to prevent cyclic/blocked alternatives from creating ambiguity without changing recipe selection semantics.
 - Third-review correction removes the singular legacy mutation bypass while preserving its read/raw-config compatibility and committed Relay building reconciliation. The executable HTTP regression checks authoritative conflict metadata and all three persistence tables rather than source text.
 - Fourth-review corrections prevent a same-fingerprint route-selection change from inheriting a legacy baseline, close update/delete/primary optimistic-concurrency race windows under SQLite's immediate writer transaction, and exclude indirect cyclic alternatives through typed bounded traversal while preserving the locked no-safe-route behavior.
+- Final-review correction keeps viability classification separate from route selection while trying safe sibling expansions after a cyclic child. Memoization is local to each selection/UI evaluation and includes route identity, typed inputs/outputs, blocked ancestry, and depth; the 64-level bound, viable override precedence, logistics exclusion, and existing fallback remain intact.
 - Preview routes have executable behavioral coverage at the HTTP seam; authorization and atomic gating have executable coverage at the HTTP/repository seams. Static boundary tests supplement rather than replace them.
 - No unresolved correctness, security, migration, privacy, or compatibility finding remains in the Task 3 diff.
