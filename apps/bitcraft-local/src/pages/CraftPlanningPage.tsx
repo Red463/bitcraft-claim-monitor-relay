@@ -184,6 +184,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
     localStorage.setItem(`planning.selectedPlan.${auth.user?.id ?? "guest"}`, planId);
     setSelectedPlanId(planId);
+    setError(null);
     setSelectionNotice("");
     setPlansOpen(false);
     onQueryStateChange();
@@ -204,14 +205,14 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     let stale = false;
     const controller = new AbortController();
     setLoading(true);
-    setError(null);
-    if (!selectedPlanId) { setLoading(false); return () => controller.abort(); }
+    if (!selectedPlanId) { setPlan(null); setError(null); setLoading(false); return () => controller.abort(); }
     const refresh = fetch(`${LOCAL_API}/craft-plans/${encodeURIComponent(selectedPlanId)}?claimId=${encodeURIComponent(claimId)}`, { headers: manualRefreshHeaders(request, "planning"), signal: controller.signal })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
         if (stale) return;
         setPlan(body);
+        setError(null);
         if (request && selectedNeedRef.current) await openNeedDetail(selectedNeedRef.current, true);
       });
     void trackPromise("craft-plan", refresh)

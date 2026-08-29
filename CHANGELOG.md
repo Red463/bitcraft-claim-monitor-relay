@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.7] - 2026-08-29
+
+### Fixed
+
+- Fixed valid saved recipe routes being rejected when a later cyclic dependency can safely stop at a source material.
+- Kept the Craft Plan error and administrator actions visible while an automatic retry is running.
+
 ## [0.66.2-beta.6] - 2026-08-29
 
 ### Fixed

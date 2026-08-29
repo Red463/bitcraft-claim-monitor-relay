@@ -1,6 +1,6 @@
 {
   "name": "@workspace/bitcraft-local",
-  "version": "0.66.2-beta.6",
+  "version": "0.66.2-beta.7",
   "private": true,
   "type": "module",
   "imports": {
