@@ -208,6 +208,17 @@ function progressEventLabel(value: unknown) {
   return firstText(value).replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Planner change";
 }
 
+function unresolvedRelationshipText(entry: AnyRecord) {
+  const dependencyIdentity = firstText(entry.relationship, entry.dependencyIdentity, entry.dependencyKey, entry.dependencyId, entry.dependencyMaterialKey);
+  return [
+    firstText(entry.reason) || "Unresolved relationship",
+    entry.triggerType ? `Trigger ${progressEventLabel(entry.triggerType)}` : "",
+    entry.effectType ? `Effect ${progressEventLabel(entry.effectType)}` : "",
+    entry.materialKey ? `Material ${String(entry.materialKey)}` : "",
+    dependencyIdentity ? `Dependency ${dependencyIdentity}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 function formatStoredBytes(value: unknown) {
   const bytes = Math.max(0, Number(value) || 0);
   if (bytes < 1024) return `${formatNumber(bytes, 0)} B`;
@@ -274,6 +285,7 @@ export function CraftPlanManagerDialog({
   const [routeConfirmations, setRouteConfirmations] = React.useState<Record<string, RouteConfirmation>>({});
   const [publicRouteGate, setPublicRouteGate] = React.useState<AnyRecord[] | null>(null);
   const [revisionConflict, setRevisionConflict] = React.useState<AnyRecord | null>(null);
+  const [conflictDraft, setConflictDraft] = React.useState<CraftPlanConfig | null>(null);
   const [auditFilters, setAuditFilters] = React.useState({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
   const [comparisonFrom, setComparisonFrom] = React.useState("");
   const [comparisonTo, setComparisonTo] = React.useState("");
@@ -282,8 +294,9 @@ export function CraftPlanManagerDialog({
   const loadRequestId = React.useRef(0);
   const previewRequestId = React.useRef(0);
   const auditRequestId = React.useRef(0);
+  const comparisonRequestId = React.useRef(0);
   const draftDirty = Boolean(savedConfigSignature) && JSON.stringify(config) !== savedConfigSignature;
-  const canViewAudit = !ownerManaged && (permissions.includes("*") || permissions.includes("audit.view"));
+  const canViewAudit = permissions.includes("*") || permissions.includes("audit.view");
   const canExportAudit = canViewAudit && (permissions.includes("*") || permissions.includes("data.export"));
   const workspaces = craftPlanManagerWorkspaces({ canViewAudit, canEdit });
   const adminApi = React.useCallback(async (path: string, options: RequestInit = {}) => {
@@ -298,9 +311,16 @@ export function CraftPlanManagerDialog({
 
   const load = React.useCallback(async (mode: "loading" | "refreshing" = "loading") => {
     const requestId = ++loadRequestId.current;
+    previewRequestId.current += 1;
+    comparisonRequestId.current += 1;
     setBusy(true);
     setOperation(mode);
     setError(null);
+    setPreview(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    setComparison(null);
+    setComparisonError(null);
     try {
       const result = await adminApi(ownerManaged
         ? `/user/craft-plans/${encodeURIComponent(planId)}`
@@ -322,6 +342,7 @@ export function CraftPlanManagerDialog({
       setRouteConfirmations({});
       setPublicRouteGate(null);
       setRevisionConflict(null);
+      setConflictDraft(null);
     } catch (err) {
       if (requestId === loadRequestId.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -368,10 +389,9 @@ export function CraftPlanManagerDialog({
         ? `/user/craft-plans/${encodeURIComponent(planId)}/preview`
         : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
       const result = await adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
-      if (requestId === previewRequestId.current) {
-        setPreview(result);
-        setConfig((current) => stageCraftPlanRouteRecommendations(current, result.routeReviews));
-      }
+      if (requestId !== previewRequestId.current) return null;
+      setPreview(result);
+      setConfig((current) => stageCraftPlanRouteRecommendations(current, result.routeReviews));
       return result;
     } catch (err) {
       if (requestId === previewRequestId.current) setPreviewError(err instanceof Error ? err.message : String(err));
@@ -383,13 +403,28 @@ export function CraftPlanManagerDialog({
 
   async function compareCheckpoints() {
     if (!comparisonFrom || !comparisonTo) return;
+    const requestId = ++comparisonRequestId.current;
+    const from = comparisonFrom;
+    const to = comparisonTo;
+    setComparison(null);
     setComparisonError(null);
     try {
-      setComparison(await adminApi(`/admin/craft-plan/progress-audit/compare?planId=${encodeURIComponent(planId)}&from=${encodeURIComponent(comparisonFrom)}&to=${encodeURIComponent(comparisonTo)}`));
+      const result = await adminApi(`/admin/craft-plan/progress-audit/compare?planId=${encodeURIComponent(planId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      if (requestId === comparisonRequestId.current) setComparison(result);
     } catch (err) {
-      setComparison(null);
-      setComparisonError(err instanceof Error ? err.message : String(err));
+      if (requestId === comparisonRequestId.current) {
+        setComparison(null);
+        setComparisonError(err instanceof Error ? err.message : String(err));
+      }
     }
+  }
+
+  function updateComparisonInput(kind: "from" | "to", value: string) {
+    comparisonRequestId.current += 1;
+    setComparison(null);
+    setComparisonError(null);
+    if (kind === "from") setComparisonFrom(value);
+    else setComparisonTo(value);
   }
 
   async function downloadProgressAudit(range: string) {
@@ -426,7 +461,9 @@ export function CraftPlanManagerDialog({
   React.useEffect(() => {
     if (open) return;
     loadRequestId.current += 1;
+    previewRequestId.current += 1;
     auditRequestId.current += 1;
+    comparisonRequestId.current += 1;
     setState(null);
     setConfig(emptyConfig());
     setBusy(false);
@@ -460,6 +497,7 @@ export function CraftPlanManagerDialog({
     setRouteConfirmations({});
     setPublicRouteGate(null);
     setRevisionConflict(null);
+    setConflictDraft(null);
     setAuditFilters({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
     setComparisonFrom("");
     setComparisonTo("");
@@ -631,13 +669,42 @@ export function CraftPlanManagerDialog({
   }
 
   function confirmRouteReview(review: AnyRecord) {
-    const selectedRouteId = String(review.selectedRouteId ?? review.preselectedRouteId ?? "");
+    const outputKey = String(review.outputKey);
+    const selectedRouteId = craftPlanRouteSelection(review, config.routeOverrides[outputKey]);
     if (!selectedRouteId) return;
     setRouteConfirmations((current) => ({
       ...current,
-      [String(review.outputKey)]: { outputKey: String(review.outputKey), fingerprint: String(review.fingerprint), selectedRouteId },
+      [outputKey]: { outputKey, fingerprint: String(review.fingerprint), selectedRouteId },
     }));
-    setStatus(`${String(review.outputKey)} review confirmed in the draft.`);
+    setStatus(`${outputKey} review confirmed in the draft.`);
+  }
+
+  function rebaseConflictDraft() {
+    if (!revisionConflict) return;
+    const authoritativeConfig = managerConfigFromResult({
+      config: { ...(revisionConflict.config ?? {}), name: revisionConflict.plan?.name ?? revisionConflict.config?.name },
+    });
+    const draft = conflictDraft ?? config;
+    setState((current) => ({
+      ...(current ?? {}),
+      planRecord: {
+        ...(current?.planRecord ?? {}),
+        ...(revisionConflict.plan ?? {}),
+        revision: Number(revisionConflict.currentRevision ?? current?.planRecord?.revision ?? 0),
+      },
+      config: authoritativeConfig,
+    }));
+    setConfig(draft);
+    setSavedConfigSignature(JSON.stringify(authoritativeConfig));
+    previewRequestId.current += 1;
+    setPreview(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    setRouteConfirmations({});
+    setPublicRouteGate(null);
+    setRevisionConflict(null);
+    setConflictDraft(null);
+    setStatus("Latest revision loaded; your local draft was preserved and is ready to save again.");
   }
 
   async function addWorkstationPreset(preset: AnyRecord) {
@@ -672,11 +739,11 @@ export function CraftPlanManagerDialog({
     setError(null);
     setStatus(null);
     setRevisionConflict(null);
+    let submittedConfig = {
+      ...config,
+      sourceRules: finalizeLegacyBankMigrations(config.sourceRules, legacyBankMigrations),
+    };
     try {
-      let submittedConfig = {
-        ...config,
-        sourceRules: finalizeLegacyBankMigrations(config.sourceRules, legacyBankMigrations),
-      };
       const revision = Number(state?.planRecord?.revision ?? 0);
       const path = ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}` : `/admin/craft-plans/${encodeURIComponent(planId)}`;
       let confirmations = Object.values(routeConfirmations);
@@ -686,8 +753,9 @@ export function CraftPlanManagerDialog({
         const latestPreview = await loadPreview(submittedConfig);
         const gatedKeys = new Set((publicRouteGate ?? []).map((entry) => String(entry.outputKey)));
         confirmations = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : [])
-          .filter((entry: AnyRecord) => gatedKeys.has(String(entry.outputKey)) && entry.selectedRouteId)
-          .map((entry: AnyRecord) => ({ outputKey: String(entry.outputKey), fingerprint: String(entry.fingerprint), selectedRouteId: String(entry.selectedRouteId) }));
+          .map((entry: AnyRecord) => ({ entry, selectedRouteId: craftPlanRouteSelection(entry, submittedConfig.routeOverrides[String(entry.outputKey)]) }))
+          .filter(({ entry, selectedRouteId }) => gatedKeys.has(String(entry.outputKey)) && selectedRouteId)
+          .map(({ entry, selectedRouteId }) => ({ outputKey: String(entry.outputKey), fingerprint: String(entry.fingerprint), selectedRouteId }));
       }
       await adminApi(path, { method: "PUT", body: JSON.stringify({ name: submittedConfig.name, config: submittedConfig, expectedRevision: revision, routeReviewConfirmations: confirmations }) });
       await load("refreshing");
@@ -701,6 +769,7 @@ export function CraftPlanManagerDialog({
         setError(null);
       } else if (err instanceof CraftPlanApiError && err.status === 409 && err.body.code === "craft_plan_revision_conflict") {
         setRevisionConflict(err.body.conflict ?? {});
+        setConflictDraft(submittedConfig);
         setError(null);
       } else {
         setError(err instanceof Error ? err.message : String(err));
@@ -758,7 +827,7 @@ export function CraftPlanManagerDialog({
         {error ? <div className="alert error">{error}</div> : null}
         {status ? <div className="alert success">{status}</div> : null}
         {publicRouteGate ? <div className="alert warning craft-plan-public-gate" role="alert"><div><strong>Public route review required</strong><span>New ambiguous routes must be explicitly confirmed before this public plan can be updated. Your draft is unchanged.</span></div><button className="toolbar-button primary" type="button" onClick={() => void save(true)} disabled={busy}>Confirm routes and Save Plan</button></div> : null}
-        {revisionConflict ? <div className="alert warning craft-plan-conflict" role="alert"><div><strong>Plan changed elsewhere</strong><span>The server is now at revision {String(revisionConflict.currentRevision ?? "unknown")}. Your unsaved edits are still here.</span></div><div><button className="toolbar-button" type="button" onClick={() => setRevisionConflict(null)}>Keep draft</button><button className="toolbar-button danger" type="button" onClick={() => void load("refreshing")}>Reload latest</button></div></div> : null}
+        {revisionConflict ? <div className="alert warning craft-plan-conflict" role="alert"><div><strong>Plan changed elsewhere</strong><span>The server is now at revision {String(revisionConflict.currentRevision ?? "unknown")}. Your unsaved edits are still here.</span></div><div><button className="toolbar-button" type="button" onClick={() => { setRevisionConflict(null); setConflictDraft(null); }}>Keep draft</button><button className="toolbar-button danger" type="button" onClick={rebaseConflictDraft}>Reload latest</button></div></div> : null}
         <nav className="craft-plan-manager-tabs" aria-label="Craft plan workspaces">
           {workspaces.map(({ id, label }) => <button key={id} type="button" aria-current={activeTab === id ? "page" : undefined} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{id === "goals" ? <Target size={15} /> : id === "sources" ? <Package size={15} /> : id === "recipes" ? <Route size={15} /> : <History size={15} />}{label}</button>)}
         </nav>
@@ -928,10 +997,10 @@ export function CraftPlanManagerDialog({
                   <div><h5>Observed</h5>{(group.observedTriggers ?? []).map((entry: AnyRecord, index: number) => <span key={`observed-${index}`}>{progressEventLabel(entry.category)} · {progressEventLabel(entry.type)}{entry.materialKey ? ` · ${entry.materialKey}` : ""}</span>)}</div>
                   <div><h5>Derived</h5>{(group.derivedEffects ?? []).map((entry: AnyRecord, index: number) => <span key={`derived-${index}`}>{progressEventLabel(entry.category)} · {progressEventLabel(entry.type)}{entry.materialKey ? ` · ${entry.materialKey}` : ""}{entry.before !== undefined ? ` · Before ${String(entry.before)}` : ""}{entry.after !== undefined ? ` · After ${String(entry.after)}` : ""}{entry.delta !== undefined ? ` · Delta ${String(entry.delta)}` : ""}</span>)}</div>
                   {Array.isArray(group.dependencyPaths) && group.dependencyPaths.length ? <details><summary>Dependency paths</summary>{group.dependencyPaths.map((entry: AnyRecord) => <p className="legend" key={entry.materialKey}>{entry.materialKey}: {(entry.paths ?? []).map((path: unknown[]) => path.join(" → ")).join("; ")}</p>)}</details> : null}
-                  {Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <details><summary>Unresolved details</summary>{group.unresolvedRelationships.map((entry: AnyRecord, index: number) => <p className="legend" key={index}>{entry.reason ?? `${progressEventLabel(entry.triggerType ?? "observed_trigger")} → ${progressEventLabel(entry.effectType ?? "unresolved_effect")}${entry.materialKey ? ` · ${entry.materialKey}` : ""}`}</p>)}</details> : null}
+                  {Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <details><summary>Unresolved details</summary>{group.unresolvedRelationships.map((entry: AnyRecord, index: number) => <p className="legend" key={index}>{unresolvedRelationshipText(entry)}</p>)}</details> : null}
                 </article>)}</div> : <div className="craft-plan-audit-state compact"><History size={20} /><strong>No causal groups match</strong><span>Change filters or wait for a completed planner checkpoint.</span></div>}
                 <div className="craft-plan-audit-pagination" aria-label="Causal timeline pages"><button className="toolbar-button" type="button" disabled={!progressAudit.pagination?.hasPrevious} onClick={() => { setAuditFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) })); setAuditLoaded(false); }}>Previous</button><span>Page {progressAudit.pagination?.page ?? 1} of {progressAudit.pagination?.totalPages ?? 1}</span><button className="toolbar-button" type="button" disabled={!progressAudit.pagination?.hasNext} onClick={() => { setAuditFilters((current) => ({ ...current, page: current.page + 1 })); setAuditLoaded(false); }}>Next</button></div>
-                <section className="craft-plan-checkpoint-comparison"><h4>Checkpoint comparison</h4><p className="legend">Enter two exact retained checkpoint timestamps. Differences and compatibility limits come from the server.</p><div><label className="field compact-field"><span>From</span><input aria-label="Comparison from checkpoint" value={comparisonFrom} onChange={(event) => setComparisonFrom(event.target.value)} placeholder="2026-08-28T10:00:00.000Z" /></label><label className="field compact-field"><span>To</span><input aria-label="Comparison to checkpoint" value={comparisonTo} onChange={(event) => setComparisonTo(event.target.value)} placeholder="2026-08-28T12:00:00.000Z" /></label><button className="toolbar-button" type="button" disabled={!comparisonFrom || !comparisonTo} onClick={() => void compareCheckpoints()}>Compare checkpoints</button></div>{comparisonError ? <div className="alert error">Comparison failed: {comparisonError}</div> : null}{comparison?.ok ? <div className="craft-plan-comparison-results">{Object.entries(comparison.differences ?? {}).map(([category, result]) => <span key={category}><strong>{progressEventLabel(category)}</strong>{(result as AnyRecord).changed ? "Changed" : "Unchanged"}</span>)}</div> : null}{comparison?.compatibility?.limitations?.length ? <div className="alert warning">{comparison.compatibility.limitations.join(" ")}</div> : null}</section>
+                <section className="craft-plan-checkpoint-comparison"><h4>Checkpoint comparison</h4><p className="legend">Enter two exact retained checkpoint timestamps. Differences and compatibility limits come from the server.</p><div><label className="field compact-field"><span>From</span><input aria-label="Comparison from checkpoint" value={comparisonFrom} onChange={(event) => updateComparisonInput("from", event.target.value)} placeholder="2026-08-28T10:00:00.000Z" /></label><label className="field compact-field"><span>To</span><input aria-label="Comparison to checkpoint" value={comparisonTo} onChange={(event) => updateComparisonInput("to", event.target.value)} placeholder="2026-08-28T12:00:00.000Z" /></label><button className="toolbar-button" type="button" disabled={!comparisonFrom || !comparisonTo} onClick={() => void compareCheckpoints()}>Compare checkpoints</button></div>{comparisonError ? <div className="alert error">Comparison failed: {comparisonError}</div> : null}{comparison?.ok ? <div className="craft-plan-comparison-results">{Object.entries(comparison.differences ?? {}).map(([category, result]) => <span key={category}><strong>{progressEventLabel(category)}</strong>{(result as AnyRecord).changed ? "Changed" : "Unchanged"}</span>)}</div> : null}{comparison?.compatibility?.limitations?.length ? <div className="alert warning">{comparison.compatibility.limitations.join(" ")}</div> : null}</section>
               </> : null}
             </section> : null}
             <div className="craft-plan-progress-event-header"><h4>Saved plan changes</h4><small>Visibility and counted source configuration</small></div>

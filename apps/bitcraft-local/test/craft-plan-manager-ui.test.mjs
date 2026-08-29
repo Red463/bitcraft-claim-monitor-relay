@@ -95,7 +95,7 @@ function auditResult(groupId) {
       derivedEffects: [{ category: "demand_change", type: "requirement_delta", materialKey: "items:7", before: 1, after: 3, delta: 2 }],
       dependencyPaths: [{ materialKey: "items:7", paths: [["items:9", "items:7"]] }],
       unresolvedRelationships: [
-        { triggerType: "stock_delta", effectType: "requirement_delta", reason: "Evidence timing is incomplete" },
+        { triggerType: "stock_delta", effectType: "requirement_delta", materialKey: "items:7", relationship: "prior_success_checkpoint", reason: "Evidence timing is incomplete" },
         { triggerType: "craft_removed", effectType: "progress_delta", materialKey: "items:7" },
       ],
     }],
@@ -236,17 +236,16 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
   const harness = installHookHarness();
   const originalFetch = globalThis.fetch;
-  let putCount = 0;
   const putBodies = [];
+  const plan = loadedPlan({ config: { targets: [{ id: "1", kind: "items", name: "Stone", quantity: 1 }] } });
   globalThis.fetch = async (url, options = {}) => {
     if (String(url).endsWith("/preview")) return jsonResponse(preview);
     if (options.method === "PUT") {
-      putCount += 1;
       putBodies.push(JSON.parse(options.body));
-      if (putCount === 1) return jsonResponse({ error: "Confirm routes", code: "craft_plan_route_review_required", unconfirmedRoutes: [{ outputKey: "items:7", fingerprint: "ambiguous", preselectedRouteId: "safe" }] }, { ok: false, status: 409 });
-      return jsonResponse({ error: "Changed elsewhere", code: "craft_plan_revision_conflict", conflict: { currentRevision: 5, config: { name: "Server plan" } } }, { ok: false, status: 409 });
+      if (putBodies.length === 1) return jsonResponse({ error: "Changed elsewhere", code: "craft_plan_revision_conflict", conflict: { currentRevision: 5, plan: { id: "plan-a", name: "Server plan", scope: "shared", updatedAt: "2026-08-29T12:00:00.000Z" }, config: { name: "Server plan", targets: [] } } }, { ok: false, status: 409 });
+      return jsonResponse({ planRecord: { id: "plan-a", revision: 6 } });
     }
-    return jsonResponse(loadedPlan());
+    return jsonResponse(plan);
   };
   try {
     const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
@@ -254,19 +253,34 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     await harness.render(CraftPlanManagerDialog, props);
     let tree = await harness.render(CraftPlanManagerDialog, props);
     findElements(tree, (element) => element.type === "input" && element.props.value === "Saved plan")[0].props.onChange({ target: { value: "Unsaved plan" } });
+    findElements(tree, (element) => element.type === "input" && element.props.type === "number")[0].props.onChange({ target: { value: "7" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Counted Sources")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "input" && element.props.type === "checkbox" && element.props.checked === false)[0].props.onChange({ target: { checked: true } });
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Recipe Review")[0].props.onClick();
+    await harness.render(CraftPlanManagerDialog, props);
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const review = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"))[0];
+    findElements(review, (element) => element.type === "input" && element.props.type === "radio")[0].props.onChange();
+    findElements(review, (element) => element.type === "input" && element.props["aria-label"] === "Material buffer for items:7")[0].props.onChange({ target: { value: "25" } });
     tree = await harness.render(CraftPlanManagerDialog, props);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
     await new Promise((resolve) => setImmediate(resolve));
     tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.match(elementText(tree), /Public route review required/);
-    assert.ok(findElements(tree, (element) => element.type === "input" && element.props.value === "Unsaved plan")[0]);
-    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Confirm routes and Save Plan")[0].props.onClick();
-    await new Promise((resolve) => setImmediate(resolve));
-    tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.equal(putBodies[1].config.routeOverrides["items:7"], "safe", "public confirmation should stage the safest server recommendation");
     assert.match(elementText(tree), /Plan changed elsewhere/);
     assert.match(elementText(tree), /Reload latest/);
-    assert.ok(findElements(tree, (element) => element.type === "input" && element.props.value === "Unsaved plan")[0], "409 must keep the unsaved draft");
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Reload latest")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /latest revision.*draft.*preserved/i);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(putBodies[1].expectedRevision, 5);
+    assert.equal(putBodies[1].config.name, "Unsaved plan");
+    assert.equal(putBodies[1].config.targets[0].quantity, 7);
+    assert.deepEqual(putBodies[1].config.sourceRules.storageContainerIds, ["storage-a"]);
+    assert.equal(putBodies[1].config.routeOverrides["items:7"], "risky");
+    assert.equal(putBodies[1].config.multipliers["items:7"].multiplier, 1.25);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();
@@ -325,6 +339,7 @@ test("audit-only access is read-only and stale filtered responses cannot replace
     assert.match(elementText(causalEntry), /Stock Delta.*items:7/s);
     assert.match(elementText(causalEntry), /items:9.*items:7/s);
     assert.match(elementText(causalEntry), /Evidence timing is incomplete/);
+    assert.match(elementText(causalEntry), /Evidence timing is incomplete.*Stock Delta.*Requirement Delta.*items:7.*prior_success_checkpoint/s);
     assert.match(elementText(causalEntry), /Craft Removed.*Progress Delta.*items:7/s);
   } finally {
     globalThis.fetch = originalFetch;
@@ -363,11 +378,147 @@ test("recipe review can stage calculated-route reset and remove saved buffers ab
     assert.equal(requests.filter(({ options }) => options.method === "PUT").length, 0);
 
     tree = await harness.render(CraftPlanManagerDialog, props);
+    const resetReview = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry") && /items:7/.test(elementText(element)))[0];
+    const selectedRoutes = findElements(resetReview, (element) => element.type === "input" && element.props.type === "radio" && element.props.checked);
+    assert.equal(selectedRoutes.length, 1);
+    assert.match(String(selectedRoutes[0].props["aria-label"]), /Safe forge/);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Confirm review")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
     await new Promise((resolve) => setImmediate(resolve));
     const body = JSON.parse(requests.find(({ options }) => options.method === "PUT").options.body);
     assert.equal(Object.hasOwn(body.config.routeOverrides, "items:7"), false);
     assert.equal(Object.hasOwn(body.config.multipliers, "items:99"), false);
+    assert.deepEqual(body.routeReviewConfirmations, [{ outputKey: "items:7", fingerprint: "ambiguous", selectedRouteId: "safe" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("preview responses are bound to the open lifecycle and selected plan", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const stalePreview = deferred();
+  const freshPreview = deferred();
+  const freshPlan = deferred();
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.endsWith("/plan-a/preview")) return stalePreview.promise;
+    if (target.endsWith("/plan-b/preview")) return freshPreview.promise;
+    if (target.endsWith("/plan-b")) return freshPlan.promise;
+    const plan = loadedPlan();
+    plan.planRecord.id = "plan-a";
+    return jsonResponse(plan);
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const base = { onClose() {}, csrfToken: "csrf", onSaved() {}, permissions: ["settings.manage"], initialWorkspace: "recipes" };
+    const propsA = { ...base, open: true, planId: "plan-a" };
+    await harness.render(CraftPlanManagerDialog, propsA);
+    await harness.render(CraftPlanManagerDialog, propsA);
+    await harness.render(CraftPlanManagerDialog, { ...propsA, open: false });
+    stalePreview.resolve(jsonResponse({ ...preview, routeReviews: [{ outputKey: "items:7", ambiguous: false, selectedRouteId: "stale", preselectedRouteId: "stale", fingerprint: "stale", alternatives: [{ id: "stale", label: "Stale A route", inputs: [] }] }] }));
+    await new Promise((resolve) => setImmediate(resolve));
+    const propsB = { ...base, open: true, planId: "plan-b" };
+    let tree = await harness.render(CraftPlanManagerDialog, propsB);
+    assert.doesNotMatch(elementText(tree), /Stale A route/, "a closed plan's preview must not reappear while the next plan loads");
+    const planB = loadedPlan();
+    planB.planRecord.id = "plan-b";
+    freshPlan.resolve(jsonResponse(planB));
+    await new Promise((resolve) => setImmediate(resolve));
+    await harness.render(CraftPlanManagerDialog, propsB);
+
+    freshPreview.resolve(jsonResponse({ ...preview, routeReviews: [{ outputKey: "items:7", ambiguous: false, selectedRouteId: "fresh", preselectedRouteId: "fresh", fingerprint: "fresh", alternatives: [{ id: "fresh", label: "Fresh B route", inputs: [] }] }] }));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, propsB);
+    assert.match(elementText(tree), /Fresh B route/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("checkpoint comparisons clear on edit and ignore out-of-order results", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/progress-audit/compare?")) {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    }
+    if (target.includes("/progress-audit?")) return jsonResponse(auditResult("comparison-group"));
+    if (target.includes("/craft-plan/audit?")) return jsonResponse({ auditLog: [] });
+    return jsonResponse(loadedPlan());
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["audit.view"], canEdit: false, initialWorkspace: "audit" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    let [from, to] = findElements(tree, (element) => element.type === "input" && String(element.props["aria-label"] ?? "").startsWith("Comparison "));
+    from.props.onChange({ target: { value: "initial-from" } });
+    to.props.onChange({ target: { value: "initial-to" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Compare checkpoints")[0].props.onClick();
+    requests[0].resolve(jsonResponse({ ok: true, differences: { initial_only: { changed: true } } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /Initial Only/);
+    [from, to] = findElements(tree, (element) => element.type === "input" && String(element.props["aria-label"] ?? "").startsWith("Comparison "));
+    from.props.onChange({ target: { value: "old-from" } });
+    to.props.onChange({ target: { value: "old-to" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.doesNotMatch(elementText(tree), /Initial Only/, "editing either checkpoint must clear the result for the prior input pair");
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Compare checkpoints")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    [from, to] = findElements(tree, (element) => element.type === "input" && String(element.props["aria-label"] ?? "").startsWith("Comparison "));
+    from.props.onChange({ target: { value: "new-from" } });
+    to.props.onChange({ target: { value: "new-to" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.doesNotMatch(elementText(tree), /Old Only/);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Compare checkpoints")[0].props.onClick();
+
+    requests[2].resolve(jsonResponse({ ok: true, differences: { new_only: { changed: true } } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    requests[1].resolve(jsonResponse({ ok: true, differences: { old_only: { changed: true } } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /New Only/);
+    assert.doesNotMatch(elementText(tree), /Old Only/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("an admin owner of a personal plan can edit and view Audit", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => String(url).includes("/progress-audit?")
+    ? jsonResponse(auditResult("personal-owner"))
+    : String(url).includes("/craft-plan/audit?") ? jsonResponse({ auditLog: [] }) : jsonResponse(loadedPlan({ personal: true }));
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", personal: true, ownerManaged: true, permissions: ["settings.manage", "audit.view"], canEdit: true };
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+    const nav = findElements(tree, (element) => element.type === "nav" && element.props["aria-label"] === "Craft plan workspaces")[0];
+    assert.deepEqual(findElements(nav, (element) => element.type === "button").map((button) => elementText(button).trim()), ["Goals", "Counted Sources", "Recipe Review", "Audit"]);
+    assert.equal(findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan").length, 1);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();
