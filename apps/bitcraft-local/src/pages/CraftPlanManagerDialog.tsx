@@ -274,6 +274,7 @@ export function CraftPlanManagerDialog({
   const [sourceQuery, setSourceQuery] = React.useState("");
   const [suggestionConfirmationOpen, setSuggestionConfirmationOpen] = React.useState(false);
   const [preview, setPreview] = React.useState<AnyRecord | null>(null);
+  const [previewSignature, setPreviewSignature] = React.useState("");
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [previewError, setPreviewError] = React.useState<string | null>(null);
   const [routeConfirmations, setRouteConfirmations] = React.useState<Record<string, RouteConfirmation>>({});
@@ -291,17 +292,22 @@ export function CraftPlanManagerDialog({
   const previewRequestId = React.useRef(0);
   const previewAttemptSignature = React.useRef("");
   const configSignatureRef = React.useRef(JSON.stringify(config));
+  const suppressedRouteRecommendations = React.useRef(new Set<string>());
   configSignatureRef.current = JSON.stringify(config);
   const auditRequestId = React.useRef(0);
   const comparisonRequestId = React.useRef(0);
   function updateConfig(update: React.SetStateAction<CraftPlanConfig>) {
+    setPreview(null);
+    setPreviewSignature("");
     setConfig((current) => {
       const next = typeof update === "function" ? update(current) : update;
       configSignatureRef.current = JSON.stringify(next);
       return next;
     });
   }
-  const draftDirty = Boolean(savedConfigSignature) && JSON.stringify(config) !== savedConfigSignature;
+  const configSignature = JSON.stringify(config);
+  const currentPreview = previewSignature === configSignature ? preview : null;
+  const draftDirty = Boolean(savedConfigSignature) && configSignature !== savedConfigSignature;
   const canViewAudit = permissions.includes("*") || permissions.includes("audit.view");
   const canExportAudit = canViewAudit && (permissions.includes("*") || permissions.includes("data.export"));
   const workspaces = craftPlanManagerWorkspaces({ canViewAudit, canEdit });
@@ -319,11 +325,13 @@ export function CraftPlanManagerDialog({
     const requestId = ++loadRequestId.current;
     previewRequestId.current += 1;
     previewAttemptSignature.current = "";
+    suppressedRouteRecommendations.current.clear();
     comparisonRequestId.current += 1;
     setBusy(true);
     setOperation(mode);
     setError(null);
     setPreview(null);
+    setPreviewSignature("");
     setPreviewLoading(false);
     setPreviewError(null);
     setComparison(null);
@@ -393,6 +401,8 @@ export function CraftPlanManagerDialog({
     const requestId = ++previewRequestId.current;
     const draftSignature = JSON.stringify(draft);
     previewAttemptSignature.current = draftSignature;
+    setPreview(null);
+    setPreviewSignature("");
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -401,8 +411,13 @@ export function CraftPlanManagerDialog({
         : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
       const result = await adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
       if (requestId !== previewRequestId.current || draftSignature !== configSignatureRef.current) return null;
+      const recommendedDraft = stageCraftPlanRouteRecommendations(draft, result.routeReviews, suppressedRouteRecommendations.current);
+      if (JSON.stringify(recommendedDraft) !== draftSignature) {
+        updateConfig(recommendedDraft);
+        return result;
+      }
       setPreview(result);
-      updateConfig((current) => stageCraftPlanRouteRecommendations(current, result.routeReviews));
+      setPreviewSignature(draftSignature);
       return result;
     } catch (err) {
       if (requestId === previewRequestId.current && draftSignature === configSignatureRef.current) setPreviewError(err instanceof Error ? err.message : String(err));
@@ -504,6 +519,7 @@ export function CraftPlanManagerDialog({
     setSourceQuery("");
     setSuggestionConfirmationOpen(false);
     setPreview(null);
+    setPreviewSignature("");
     setPreviewLoading(false);
     setPreviewError(null);
     setRouteConfirmations({});
@@ -526,14 +542,14 @@ export function CraftPlanManagerDialog({
 
   React.useEffect(() => {
     const signature = JSON.stringify(config);
-    if (!open || activeTab !== "recipes" || !state || previewLoading || preview || (previewError && previewAttemptSignature.current === signature)) return;
+    if (!open || activeTab !== "recipes" || !state || previewLoading || currentPreview || (previewError && previewAttemptSignature.current === signature)) return;
     void loadPreview(config);
-  }, [open, activeTab, config, loadPreview, preview, previewError, previewLoading, state]);
+  }, [open, activeTab, config, currentPreview, loadPreview, previewError, previewLoading, state]);
 
   React.useEffect(() => {
-    if (!open || activeTab !== "recipes" || !initialOutputKey || !preview || typeof document === "undefined") return;
+    if (!open || activeTab !== "recipes" || !initialOutputKey || !currentPreview || typeof document === "undefined") return;
     document.getElementById(`craft-plan-review-${encodeURIComponent(initialOutputKey)}`)?.focus();
-  }, [open, activeTab, initialOutputKey, preview]);
+  }, [open, activeTab, initialOutputKey, currentPreview]);
 
   async function loadPlayerBanks(player: AnyRecord) {
     const playerId = String(player.playerId ?? "");
@@ -651,14 +667,11 @@ export function CraftPlanManagerDialog({
       delete next[String(review.outputKey)];
       return next;
     });
-    setPreview((current) => current ? {
-      ...current,
-      routeReviews: (current.routeReviews ?? []).map((entry: AnyRecord) => entry.outputKey === review.outputKey ? { ...entry, selectedRouteId: routeId } : entry),
-    } : current);
     setPublicRouteGate(null);
   }
 
   function resetRoute(outputKey: string) {
+    suppressedRouteRecommendations.current.add(outputKey);
     updateConfig((current) => {
       const routeOverrides = { ...current.routeOverrides };
       delete routeOverrides[outputKey];
@@ -775,7 +788,7 @@ export function CraftPlanManagerDialog({
       const path = ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}` : `/admin/craft-plans/${encodeURIComponent(planId)}`;
       let confirmations = Object.values(routeConfirmations);
       if (confirmPublicRoutes) {
-        submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, publicRouteGate ?? []);
+        submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, publicRouteGate ?? [], suppressedRouteRecommendations.current);
         updateConfig(submittedConfig);
         const latestPreview = await loadPreview(submittedConfig);
         const gatedKeys = new Set((publicRouteGate ?? []).map((entry) => String(entry.outputKey)));
@@ -820,10 +833,10 @@ export function CraftPlanManagerDialog({
   const deployableGroups = groupDeployablesByPlayer(visibleDeployableSources);
   const tierPresets = state?.sources?.tierPresets ?? [];
   const workstationPresets = state?.sources?.workstationPresets ?? [];
-  const routeReviews = orderCraftPlanRouteReviews(Array.isArray(preview?.routeReviews) ? preview.routeReviews : []);
+  const routeReviews = orderCraftPlanRouteReviews(Array.isArray(currentPreview?.routeReviews) ? currentPreview.routeReviews : []);
   const reviewedOutputKeys = new Set(routeReviews.map((review: AnyRecord) => String(review.outputKey)));
   const orphanMultipliers = Object.entries(config.multipliers).filter(([outputKey]) => !reviewedOutputKeys.has(outputKey));
-  const previewMaterials = new Map((Array.isArray(preview?.materials) ? preview.materials : []).map((material: AnyRecord) => [String(material.key), craftPlanMaterialPresentation(material)]));
+  const previewMaterials = new Map((Array.isArray(currentPreview?.materials) ? currentPreview.materials : []).map((material: AnyRecord) => [String(material.key), craftPlanMaterialPresentation(material)]));
   const sourceSuggestion = craftPlanSourceSuggestion({ personal, sources: state?.sources ?? {} });
   const hasConfiguredSources = Object.values(config.sourceRules).some((values) => Array.isArray(values) && values.length > 0);
   const trackedBankIds = new Set(config.sourceRules.bankContainerIds.map(String));
@@ -952,7 +965,7 @@ export function CraftPlanManagerDialog({
 
           {activeTab === "recipes" ? <section className="craft-plan-manager-panel craft-plan-recipe-review" aria-labelledby="craft-plan-recipe-review-heading">
             <div className="split-header"><div><h3 id="craft-plan-recipe-review-heading">Recipe Review</h3><p className="legend">Ambiguous typed outputs appear first. Choose comparison cards, confirm the review in this draft, then use the single Save Plan action.</p></div><button className="toolbar-button" type="button" onClick={() => void loadPreview(config)} disabled={previewLoading}>{previewLoading ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} Refresh preview</button></div>
-            {previewLoading && !preview ? <div className="craft-plan-audit-state" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={22} /><strong>Loading recipe preview</strong><span>Calculating route choices and material impact without saving.</span></div> : null}
+            {previewLoading && !currentPreview ? <div className="craft-plan-audit-state" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={22} /><strong>Loading recipe preview</strong><span>Calculating route choices and material impact without saving.</span></div> : null}
             {previewError ? <div className="alert error" role="alert">Recipe preview could not be loaded: {previewError}</div> : null}
             {!previewLoading && !previewError && !routeReviews.length ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>No recipe routes to review</strong><span>Add goals, then refresh the preview. Nothing is saved until Save Plan.</span></div> : null}
             {routeReviews.length ? <div className="craft-plan-review-list">{routeReviews.map((review: AnyRecord) => {

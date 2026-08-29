@@ -91,10 +91,10 @@ test("recipe review orders ambiguous outputs first without losing typed identity
   assert.deepEqual(ordered.map(({ outputKey }) => outputKey), ["cargo:7", "items:3", "items:7"]);
 });
 
-test("recipe review preselects the safest server recommendation unless the draft has an override", () => {
+test("recipe review uses the calculated route unless the draft explicitly stages an override", () => {
   const review = { selectedRouteId: "route-risky", preselectedRouteId: "route-safe" };
 
-  assert.equal(craftPlanRouteSelection(review), "route-safe");
+  assert.equal(craftPlanRouteSelection(review), "route-risky");
   assert.equal(craftPlanRouteSelection(review, "route-staged"), "route-staged");
   assert.equal(craftPlanRouteSelection({ selectedRouteId: "route-only" }), "route-only");
 
@@ -105,6 +105,7 @@ test("recipe review preselects the safest server recommendation unless the draft
     "items:7": "route-safe",
     "items:8": "route-kept",
   });
+  assert.equal(craftPlanRouteSelection(review, "route-safe"), "route-safe");
 });
 
 test("material presentation prefers Task 1 fields and keeps legacy aliases as fallback", () => {

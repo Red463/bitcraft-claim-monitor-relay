@@ -74,16 +74,15 @@ export function orderCraftPlanRouteReviews<T extends { outputKey?: unknown; ambi
 
 export function craftPlanRouteSelection(review: AnyRecord, stagedOverride: unknown = "") {
   return String(stagedOverride ?? "").trim()
-    || String(review.preselectedRouteId ?? "").trim()
     || String(review.selectedRouteId ?? "").trim();
 }
 
-export function stageCraftPlanRouteRecommendations<T extends { routeOverrides?: Record<string, string> }>(draft: T, reviews: AnyRecord[]): T & { routeOverrides: Record<string, string> } {
+export function stageCraftPlanRouteRecommendations<T extends { routeOverrides?: Record<string, string> }>(draft: T, reviews: AnyRecord[], excludedOutputKeys: ReadonlySet<string> = new Set()): T & { routeOverrides: Record<string, string> } {
   const routeOverrides = { ...(draft.routeOverrides ?? {}) };
   for (const review of Array.isArray(reviews) ? reviews : []) {
     const outputKey = String(review.outputKey ?? "").trim();
-    if (!outputKey || String(routeOverrides[outputKey] ?? "").trim()) continue;
-    const recommended = craftPlanRouteSelection(review);
+    if (!outputKey || excludedOutputKeys.has(outputKey) || String(routeOverrides[outputKey] ?? "").trim()) continue;
+    const recommended = String(review.preselectedRouteId ?? review.selectedRouteId ?? "").trim();
     if (recommended) routeOverrides[outputKey] = recommended;
   }
   return { ...draft, routeOverrides };

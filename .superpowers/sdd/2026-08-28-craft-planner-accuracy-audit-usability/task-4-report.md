@@ -123,3 +123,15 @@ No migration or manual VPS action is required.
 - One uninterrupted aggregate suite completed before the final mutation-time signature tightening: 2,749 total; 2,746 passed, 0 failed, and 3 environment-skipped. Per instruction, it was not rerun; the affected focused files and production build were rerun afterward and passed.
 - Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung. Dependencies remain unchanged.
 - Final self-review found no further Task 4 correctness, authorization, race, typed-identity, schema, migration, dependency, changelog, or version issue.
+
+## Independent Task 4 fifth and final-review correction
+
+- RED: route selection returned the safer `preselectedRouteId` instead of the calculated `selectedRouteId`; after reset the UI still selected Safe forge rather than Risky forge. A successful preview that staged recommendations also left only one preview request instead of queuing the derived draft (`1 !== 2`).
+- GREEN: absent an explicit draft override, display and confirmation now use the server-calculated `selectedRouteId`. Reset suppresses automatic recommendation restaging for that typed output, so saving after reset submits no override and confirms calculated Risky forge; explicitly choosing Safe forge stages and confirms the `safe` override.
+- GREEN: every staged configuration mutation clears the bound preview and its signature. Preview results render only for their exact request/draft signature. A response that deterministically stages recommendations is not rendered; it queues one preview for the derived configuration, while later route, buffer, target, source, visibility, and other configuration mutations hide stale impact and queue their own current preview.
+- Focused manager UI: 14 passed, 0 failed. The complete focused manager/model/refresh/boundary set passed after timing fixtures were updated for the deliberate derived-preview request.
+- Broader craft-plan regression set: 431 passed, 0 failed.
+- Production build: passed, including server/provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
+- One uninterrupted full suite: 2,751 total; 2,748 passed, 0 failed, and 3 environment-skipped.
+- Browser automation was not retried after the two previously recorded bounded hangs; no browser result is claimed and dependencies remain unchanged.
+- Final self-review found no remaining Task 4 route-selection, confirmation, submitted-config, preview-loop, stale-render, request-race, authorization, schema, migration, dependency, changelog, or version issue.
