@@ -75,12 +75,13 @@ function needCellNode(cell: NeedCell | undefined, onSelect: (cell: NeedCell) => 
   const blocked = !satisfied && cell.items.some((item) => item.hasSourceRoutes || (Array.isArray(item.sourceRoutes) && item.sourceRoutes.length > 0)) && planningSupplied <= 0;
   return (
     <button className={`craft-plan-need-cell${satisfied ? " is-satisfied" : " is-shortage"}${hasGuaranteedActive ? " has-active" : ""}${hasIndicators ? " has-indicators" : ""}${blocked ? " is-blocked" : ""}`} type="button" aria-label={`${cell.name}: Needed now ${quantity(cell.missing)}; Plan total ${quantity(cell.required)}; Stock ${quantity(cell.available)}; Guaranteed craft output ${quantity(cell.guaranteedInProgress)}; Estimated craft output ${quantity(cell.estimatedInProgress)}`} title={`${cell.name}: Needed now ${quantity(cell.missing)}, Plan total ${quantity(cell.required)}, Stock ${quantity(cell.available)}, Guaranteed craft output ${quantity(cell.guaranteedInProgress)}, Estimated craft output ${quantity(cell.estimatedInProgress)}${hasApproximateRequirement ? "; requirement estimated from expected processing yield" : ""}`} onClick={() => onSelect(cell)}>
-      <strong>{quantity(cell.missing)}<span className="dialog-sr-only"> Needed now</span></strong>
-      <small>Plan total {quantity(cell.required)}</small>
-      <span className="craft-plan-cell-coverage" aria-hidden="true">Stock {quantity(cell.available)} · Guaranteed {quantity(cell.guaranteedInProgress)} · Estimated {quantity(cell.estimatedInProgress)}</span>
+      <strong>{quantity(cell.missing)}</strong>
+      <span className="craft-plan-cell-needed-label" aria-hidden="true">Needed now</span>
+      <span className="craft-plan-cell-plan-total" aria-hidden="true">Plan {quantity(cell.required)}</span>
+      <span className="craft-plan-cell-stock" aria-hidden="true">Stock {quantity(cell.available)}</span>
       {hasIndicators ? <span className="craft-plan-cell-indicators">
-        {hasGuaranteedActive ? <Factory className="is-guaranteed" size={11} role="img" aria-label="Actively being crafted" /> : null}
-        {hasEstimatedActive ? <Factory className="is-estimated" size={11} role="img" aria-label="Estimated craft output; counted for material planning" /> : null}
+        {hasGuaranteedActive ? <span className="craft-plan-cell-indicator is-guaranteed"><Factory size={11} role="img" aria-label="Actively being crafted" /><span aria-hidden="true">{quantity(cell.guaranteedInProgress)}</span></span> : null}
+        {hasEstimatedActive ? <span className="craft-plan-cell-indicator is-estimated"><Factory size={11} role="img" aria-label="Estimated craft output; counted for material planning" /><span aria-hidden="true">~{quantity(cell.estimatedInProgress)}</span></span> : null}
         {hasApproximateRequirement ? <EqualApproximately className="is-approximate" size={12} role="img" aria-label="Approximate requirement" /> : null}
       </span> : null}
     </button>

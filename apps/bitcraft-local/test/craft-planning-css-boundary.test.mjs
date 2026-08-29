@@ -75,7 +75,7 @@ test("Craft Planning estimate indicators share a compact non-overlapping row", (
   assert.doesNotMatch(css, /\.craft-plan-estimated-marker/);
 });
 
-test("Craft planning needs board uses one continuous compact matrix with status states", () => {
+test("Craft planning needs board uses one continuous balanced matrix with status states", () => {
   const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
   assert.match(css, /\.craft-plan-needs-matrix\s*\{/);
@@ -83,7 +83,8 @@ test("Craft planning needs board uses one continuous compact matrix with status 
   assert.match(page, /craft-plan-needs-row-column/);
   assert.match(page, /craft-plan-needs-data-column/);
   assert.match(css, /\.craft-plan-needs-row-column\s*\{[^}]*width:\s*250px/);
-  assert.match(css, /\.craft-plan-needs-data-column\s*\{[^}]*width:\s*78px/);
+  assert.match(css, /\.craft-plan-needs-data-column\s*\{[^}]*width:\s*92px/);
+  assert.match(css, /\.craft-plan-needs-table td\s*\{[^}]*height:\s*76px/);
   assert.match(css, /\.craft-plan-needs-section-row\s+th/);
   assert.match(page, /is-shortage/);
   assert.match(css, /\.craft-plan-need-cell\.is-shortage/);
@@ -282,7 +283,10 @@ test("Craft planning chance controls and compact targets retain responsive bound
   assert.doesNotMatch(page, /saveMultiplier/);
   assert.match(page, /Counted stock exists, but source details are unavailable/);
   assert.match(page, /craft-plan-target-progress/);
-  assert.match(css, /\.craft-plan-cell-coverage\s*\{/);
+  assert.match(css, /\.craft-plan-cell-needed-label\s*\{/);
+  assert.match(css, /\.craft-plan-cell-plan-total,/);
+  assert.match(css, /\.craft-plan-cell-stock\s*\{/);
+  assert.doesNotMatch(css, /\.craft-plan-cell-coverage\s*\{[^}]*text-overflow:\s*ellipsis/s);
   assert.match(css, /\.craft-plan-need-cell\.has-indicators\s*\{[^}]*padding-top:\s*16px/);
   assert.match(css, /\.craft-plan-target-progress\s*\{/);
   assert.match(css, /\.craft-plan-target-status\s*\{/);
