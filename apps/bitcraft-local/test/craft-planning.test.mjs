@@ -186,6 +186,15 @@ test("completed craft plan validation reports every calculation invariant withou
     "a route override outside the completed live and baseline graph is stale configuration, not an invalid calculation",
   );
 
+  const planWithUnselectableOverride = validPlan();
+  planWithUnselectableOverride.steps[0].alternatives.push({ id: "retired-looping-route", isSelectable: false });
+  planWithUnselectableOverride.config.routeOverrides["items:7"] = "retired-looping-route";
+  assert.deepEqual(
+    craftPlanning.validateCompletedCraftPlan(planWithUnselectableOverride, { requiredSources, previousPlan }),
+    { valid: true, baselineRevision: "baseline-1", errors: [] },
+    "an obsolete override that is now explicitly unselectable must not invalidate the safe selected route",
+  );
+
   const invalidCases = [
     ["duplicate typed key", "duplicate_material_key", (plan) => plan.materials.push({ ...plan.materials[0] })],
     ["invalid typed key", "invalid_material_key", (plan) => { plan.materials[0].key = "item:7"; }],

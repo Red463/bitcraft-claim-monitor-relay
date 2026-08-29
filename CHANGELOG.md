@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.9] - 2026-08-29
+
+### Fixed
+
+- Prevented obsolete recipe preferences that are explicitly no longer selectable from blocking a safe Craft Plan calculation.
+
 ## [0.66.2-beta.8] - 2026-08-29
 
 ### Fixed
