@@ -1871,18 +1871,8 @@ export function validateCompletedCraftPlan(plan = {}, {
     }
   }
   for (const [outputKey, selectedRecipeId] of Object.entries(plan?.config?.routeOverrides ?? {})) {
-    const completedOutputRoutes = completedRoutes.filter(({ route }) => craftPlanItemKey(route?.output) === outputKey);
-    const normalizedSelectedRecipeId = String(selectedRecipeId ?? "").trim();
-    const selectedRouteExists = completedOutputRoutes.some(({ route }) => (
-      String(route?.selectedRecipeId ?? "").trim() === normalizedSelectedRecipeId
-    ));
-    const configuredAlternative = completedOutputRoutes
-      .flatMap(({ route }) => Array.isArray(route?.alternatives) ? route.alternatives : [])
-      .find((alternative) => String(alternative?.id ?? "").trim() === normalizedSelectedRecipeId);
-    const configuredRouteIsExplicitlyUnselectable = configuredAlternative?.isSelectable === false;
-    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey))
-      || (completedOutputRoutes.length > 0 && !selectedRouteExists && !configuredRouteIsExplicitlyUnselectable)) {
-      errors.push(craftPlanValidationError("invalid_selected_route", `config.routeOverrides.${outputKey}`, "The configured route must match the completed selected route for its typed output.", {
+    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey))) {
+      errors.push(craftPlanValidationError("invalid_selected_route", `config.routeOverrides.${outputKey}`, "Configured route preferences must use an exact typed output identity.", {
         outputKey,
         selectedRecipeId: String(selectedRecipeId ?? ""),
       }));
