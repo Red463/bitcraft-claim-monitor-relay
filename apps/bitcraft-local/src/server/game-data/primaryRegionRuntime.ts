@@ -443,6 +443,20 @@ export class RelayPrimaryRegionRuntime {
             },
             warnings: snapshot.bankInventoryWarnings,
           },
+          "inventory-storages": {
+            data: snapshot.settlementInventories,
+            confidence: snapshot.settlementInventoryWarnings.length ? "partial" : "authoritative",
+            provenance: {
+              provider: "relay",
+              sourceKey,
+              regionId: snapshot.regionId,
+              database: snapshot.database,
+              schemaFingerprint: snapshot.schemaFingerprint,
+              sourceObservedAt: null,
+              receivedAt: snapshot.receivedAt,
+            },
+            warnings: snapshot.settlementInventoryWarnings,
+          },
           contributions: {
             data: {},
             confidence: snapshot.contributionWarnings?.length ? "partial" : "authoritative",

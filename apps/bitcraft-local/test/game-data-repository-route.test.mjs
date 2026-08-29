@@ -25,17 +25,17 @@ const { enrichCraftsDomain } = await import(
   new URL("../src/server/game-data/craftProjection.ts", import.meta.url).href,
 );
 
-test("Town Bank commits invalidate the public inventories domain immediately", () => {
+test("live storage and Town Bank commits invalidate the public inventories domain immediately", () => {
   assert.deepEqual(
-    browserVisibleChangedDomains(["players", "inventory-banks", "inventory-banks"]),
+    browserVisibleChangedDomains(["players", "inventory-storages", "inventory-banks", "inventory-banks"]),
     ["players", "inventories"],
   );
 });
 
-test("inventory generation polling includes the internal Town Bank source", () => {
+test("inventory generation polling includes both internal live inventory sources", () => {
   assert.deepEqual(
     generationSourceDomains(["claim", "inventories"]),
-    ["claim", "inventories", "inventory-banks"],
+    ["claim", "inventories", "inventory-storages", "inventory-banks"],
   );
 });
 const { parseDomainKeys } = await import(

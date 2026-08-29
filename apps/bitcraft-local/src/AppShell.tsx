@@ -219,7 +219,7 @@ function GameDataQualityNotice({
                 ? `${status.provenance.sourceKey} received ${status.provenance.receivedAt}`
                 : "No source provenance available"}</small>
               {Object.keys(status.dependencies).length ? <small>Dependencies: {Object.entries(status.dependencies).map(([name, dependency]) => (
-                `${name} generation ${dependency?.generation ?? "unavailable"}${dependency?.sourceGeneration == null ? "" : `, source generation ${dependency.sourceGeneration}`} (${dependency?.sourceKey ?? "unknown"}, ${dependency?.receivedAt ?? "unknown"})`
+                `${name} ${dependency?.freshness ? `${dependency.freshness}, ` : ""}generation ${dependency?.generation ?? "unavailable"}${dependency?.sourceGeneration == null ? "" : `, source generation ${dependency.sourceGeneration}`} (${dependency?.sourceKey ?? "unknown"}, ${dependency?.receivedAt ?? "unknown"})`
               )).join("; ")}</small> : null}
             </div>
           ))}

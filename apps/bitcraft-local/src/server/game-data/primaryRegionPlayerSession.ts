@@ -5,6 +5,7 @@ import {
   normalizeRegionalPlayers,
   normalizeRegionalRecruitment,
   normalizeRegionalResearch,
+  normalizeRegionalSettlementInventories,
   normalizeRelayCraftContributionRow,
 } from "./normalizers.ts";
 import {
@@ -132,6 +133,8 @@ export type RegionalPlayerSnapshot = {
   recruitmentWarnings: string[];
   bankInventories: ReturnType<typeof normalizeRegionalBankInventories>["data"];
   bankInventoryWarnings: string[];
+  settlementInventories: ReturnType<typeof normalizeRegionalSettlementInventories>["data"];
+  settlementInventoryWarnings: string[];
   contributionWarnings?: string[];
   database: string;
   regionId: string;
@@ -292,19 +295,21 @@ export class RelayPrimaryRegionPlayerSession {
   #pendingContributionTargets: CraftContributionTarget[] = [];
   #pendingContributionWarnings: string[] = [];
   #contributionRefreshEpoch = 0;
-  #bankInventorySubscriptions: SubscriptionHandle[] = [];
+  #inventorySubscriptions: SubscriptionHandle[] = [];
   #config: SessionConfig | null = null;
   #nextGeneration = 0;
   #snapshotQueued = false;
   #applyInFlight = false;
   #applyPending = false;
   #listenersAttached = false;
-  #bankRefreshEpoch = 0;
-  #bankRefreshQueued = false;
-  #refreshingBankInventories = false;
+  #inventoryRefreshEpoch = 0;
+  #inventoryRefreshQueued = false;
+  #refreshingInventories = false;
+  #inventoryScopeKey = "";
+  #inventoryScopeApplied = false;
   readonly #contributionSourceKeys = new Set<string>();
   readonly #tableChanged = () => this.#queueSnapshot();
-  readonly #bankChanged = () => this.#queueBankInventoryRefresh();
+  readonly #inventoryScopeChanged = () => this.#queueInventoryRefresh();
   readonly #contributionChanged = (...args: unknown[]) => { void this.#handleContributionUpdate(args); };
   #craftActionEvidence = new CraftActionEvidenceCache();
   readonly #playerActionInserted = (...args: unknown[]) => this.#recordCraftAction(args, false);
@@ -367,7 +372,7 @@ export class RelayPrimaryRegionPlayerSession {
           .onApplied(() => {
             this.#hydrateCraftActionEvidence(connection);
             this.#attachTableListeners(connection);
-            this.#beginBankInventoryRefresh(connection);
+            this.#beginInventoryRefresh(connection);
           })
           .onError((_context, error) => this.#recordError(error))
           .subscribe(queries);
@@ -455,7 +460,7 @@ export class RelayPrimaryRegionPlayerSession {
 
   #applySnapshot(connection: BindingConnection): void {
     const config = this.#config;
-    if (!config || this.#refreshingBankInventories) return;
+    if (!config || this.#refreshingInventories) return;
     if (this.#applyInFlight) {
       this.#applyPending = true;
       return;
@@ -495,6 +500,12 @@ export class RelayPrimaryRegionPlayerSession {
         bankRows: [...connection.db.bankState.iter()],
         inventoryRows: [...connection.db.inventoryState.iter()],
       });
+      const settlementInventories = normalizeRegionalSettlementInventories({
+        claimId: config.claimId,
+        buildingRows: [...connection.db.buildingState.iter()],
+        bankRows: [...connection.db.bankState.iter()],
+        inventoryRows: [...connection.db.inventoryState.iter()],
+      });
       const generation = this.#nextGeneration;
       this.#nextGeneration += 1;
       this.#applyInFlight = true;
@@ -511,6 +522,8 @@ export class RelayPrimaryRegionPlayerSession {
         recruitmentWarnings: recruitment.warnings,
         bankInventories: bankInventories.data,
         bankInventoryWarnings: bankInventories.warnings,
+        settlementInventories: settlementInventories.data,
+        settlementInventoryWarnings: settlementInventories.warnings,
         contributionWarnings: [...(config.contributionWarnings ?? [])],
         database: config.database,
         regionId: config.regionId,
@@ -547,9 +560,12 @@ export class RelayPrimaryRegionPlayerSession {
       table.onUpdate?.(this.#tableChanged);
       table.onDelete?.(this.#tableChanged);
     }
-    connection.db.bankState.onInsert?.(this.#bankChanged);
-    connection.db.bankState.onUpdate?.(this.#bankChanged);
-    connection.db.bankState.onDelete?.(this.#bankChanged);
+    connection.db.buildingState.onInsert?.(this.#inventoryScopeChanged);
+    connection.db.buildingState.onUpdate?.(this.#inventoryScopeChanged);
+    connection.db.buildingState.onDelete?.(this.#inventoryScopeChanged);
+    connection.db.bankState.onInsert?.(this.#inventoryScopeChanged);
+    connection.db.bankState.onUpdate?.(this.#inventoryScopeChanged);
+    connection.db.bankState.onDelete?.(this.#inventoryScopeChanged);
     connection.db.inventoryState.onInsert?.(this.#tableChanged);
     connection.db.inventoryState.onUpdate?.(this.#tableChanged);
     connection.db.inventoryState.onDelete?.(this.#tableChanged);
@@ -567,9 +583,12 @@ export class RelayPrimaryRegionPlayerSession {
       table.removeOnUpdate?.(this.#tableChanged);
       table.removeOnDelete?.(this.#tableChanged);
     }
-    this.#connection.db.bankState.removeOnInsert?.(this.#bankChanged);
-    this.#connection.db.bankState.removeOnUpdate?.(this.#bankChanged);
-    this.#connection.db.bankState.removeOnDelete?.(this.#bankChanged);
+    this.#connection.db.buildingState.removeOnInsert?.(this.#inventoryScopeChanged);
+    this.#connection.db.buildingState.removeOnUpdate?.(this.#inventoryScopeChanged);
+    this.#connection.db.buildingState.removeOnDelete?.(this.#inventoryScopeChanged);
+    this.#connection.db.bankState.removeOnInsert?.(this.#inventoryScopeChanged);
+    this.#connection.db.bankState.removeOnUpdate?.(this.#inventoryScopeChanged);
+    this.#connection.db.bankState.removeOnDelete?.(this.#inventoryScopeChanged);
     this.#connection.db.inventoryState.removeOnInsert?.(this.#tableChanged);
     this.#connection.db.inventoryState.removeOnUpdate?.(this.#tableChanged);
     this.#connection.db.inventoryState.removeOnDelete?.(this.#tableChanged);
@@ -712,7 +731,6 @@ export class RelayPrimaryRegionPlayerSession {
       connection.db.equipmentPresetState,
       connection.db.activeBuffState,
       connection.db.projectSiteState,
-      connection.db.buildingState,
       connection.db.claimTechState,
       connection.db.claimRecruitmentState,
       connection.db.travelerTaskState,
@@ -722,20 +740,17 @@ export class RelayPrimaryRegionPlayerSession {
     ];
   }
 
-  #beginBankInventoryRefresh(connection: BindingConnection): void {
+  #beginInventoryRefresh(connection: BindingConnection): void {
     if (!this.#config) return;
-    this.#refreshingBankInventories = true;
-    this.#bankRefreshEpoch += 1;
-    const epoch = this.#bankRefreshEpoch;
-    this.#clearBankInventorySubscriptions();
-    const buildingIds = [...connection.db.bankState.iter()].map((value, index) => {
+    this.#refreshingInventories = true;
+    const buildingIds = [...connection.db.buildingState.iter(), ...connection.db.bankState.iter()].map((value, index) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new TypeError(`regional bank row ${index} must be an object`);
+        throw new TypeError(`regional inventory owner row ${index} must be an object`);
       }
       const row = value as Record<string, unknown>;
       return decimalInteger(
-        row.buildingEntityId ?? row.building_entity_id,
-        `regional bank row ${index} building id`,
+        row.buildingEntityId ?? row.building_entity_id ?? row.entityId ?? row.entity_id,
+        `regional inventory owner row ${index} building id`,
       );
     });
     const queries = equalitySubscriptionQueries(
@@ -743,16 +758,31 @@ export class RelayPrimaryRegionPlayerSession {
       "owner_entity_id",
       buildingIds,
     );
+    const scopeKey = queries.join("\n");
+    if (scopeKey === this.#inventoryScopeKey && this.#inventorySubscriptions.length > 0) {
+      if (this.#inventoryScopeApplied) {
+        this.#refreshingInventories = false;
+        this.#applySnapshot(connection);
+      }
+      return;
+    }
+    this.#inventoryRefreshEpoch += 1;
+    const epoch = this.#inventoryRefreshEpoch;
+    this.#clearInventorySubscriptions();
+    this.#inventoryScopeKey = scopeKey;
+    this.#inventoryScopeApplied = false;
     if (!queries.length) {
-      this.#refreshingBankInventories = false;
+      this.#inventoryScopeApplied = true;
+      this.#refreshingInventories = false;
       this.#applySnapshot(connection);
       return;
     }
-    this.#bankInventorySubscriptions.push(
+    this.#inventorySubscriptions.push(
       connection.subscriptionBuilder()
         .onApplied(() => {
-          if (epoch !== this.#bankRefreshEpoch) return;
-          this.#refreshingBankInventories = false;
+          if (epoch !== this.#inventoryRefreshEpoch) return;
+          this.#inventoryScopeApplied = true;
+          this.#refreshingInventories = false;
           this.#applySnapshot(connection);
         })
         .onError((_context, error) => this.#recordError(error))
@@ -760,25 +790,25 @@ export class RelayPrimaryRegionPlayerSession {
     );
   }
 
-  #queueBankInventoryRefresh(): void {
-    if (this.#bankRefreshQueued || !this.#connection) return;
-    this.#bankRefreshQueued = true;
+  #queueInventoryRefresh(): void {
+    if (this.#inventoryRefreshQueued || !this.#connection) return;
+    this.#inventoryRefreshQueued = true;
     queueMicrotask(() => {
-      this.#bankRefreshQueued = false;
+      this.#inventoryRefreshQueued = false;
       if (!this.#connection) return;
       try {
-        this.#beginBankInventoryRefresh(this.#connection);
+        this.#beginInventoryRefresh(this.#connection);
       } catch (error) {
         this.#recordError(error);
       }
     });
   }
 
-  #clearBankInventorySubscriptions(): void {
-    for (const subscription of this.#bankInventorySubscriptions) {
+  #clearInventorySubscriptions(): void {
+    for (const subscription of this.#inventorySubscriptions) {
       subscription.unsubscribe();
     }
-    this.#bankInventorySubscriptions = [];
+    this.#inventorySubscriptions = [];
   }
 
   #queueSnapshot(): void {
@@ -799,9 +829,9 @@ export class RelayPrimaryRegionPlayerSession {
   }
 
   async stop(): Promise<void> {
-    this.#bankRefreshEpoch += 1;
+    this.#inventoryRefreshEpoch += 1;
     this.#removeTableListeners();
-    this.#clearBankInventorySubscriptions();
+    this.#clearInventorySubscriptions();
     this.#contributionRefreshEpoch += 1;
     this.#pendingContributionSubscription?.unsubscribe();
     this.#pendingContributionSubscription = null;
@@ -818,8 +848,10 @@ export class RelayPrimaryRegionPlayerSession {
     this.#snapshotQueued = false;
     this.#applyInFlight = false;
     this.#applyPending = false;
-    this.#bankRefreshQueued = false;
-    this.#refreshingBankInventories = false;
+    this.#inventoryRefreshQueued = false;
+    this.#refreshingInventories = false;
+    this.#inventoryScopeKey = "";
+    this.#inventoryScopeApplied = false;
     this.#contributionSourceKeys.clear();
     this.#health.connected = false;
   }

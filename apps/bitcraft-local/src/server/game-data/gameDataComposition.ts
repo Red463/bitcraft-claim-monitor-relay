@@ -53,12 +53,20 @@ export function createGameDataCompositionDependencies(options: {
 
   return {
     forDomain(domain: DomainKey, snapshots: {
+      inventoryStorageSnapshot?: StoredDomainSnapshot | null;
+      inventoryStorageFreshness?: GenerationDependency["freshness"];
       inventoryBankSnapshot?: StoredDomainSnapshot | null;
       publicCraftSnapshot?: StoredDomainSnapshot | null;
     } = {}): DomainDependencies {
       const dependencies: DomainDependencies = CATALOG_ENRICHED_DOMAINS.has(domain)
         ? { ...currentCatalogDependencies() }
         : {};
+      if (domain === "inventories" && snapshots.inventoryStorageSnapshot) {
+        dependencies["inventory-storages"] = {
+          ...snapshotDependency(snapshots.inventoryStorageSnapshot),
+          ...(snapshots.inventoryStorageFreshness ? { freshness: snapshots.inventoryStorageFreshness } : {}),
+        };
+      }
       if (domain === "inventories" && snapshots.inventoryBankSnapshot) {
         dependencies["inventory-banks"] = snapshotDependency(snapshots.inventoryBankSnapshot);
       }

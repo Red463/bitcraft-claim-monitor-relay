@@ -223,6 +223,20 @@ test("primary-region session filters member, settlement, and Town Bank state bef
       coordinates: { q: 1, r: 2 },
     }],
     inventoryRows: [{
+      entityId: 8000n,
+      ownerEntityId: 7001n,
+      playerOwnerEntityId: 0n,
+      inventoryIndex: 1,
+      cargoIndex: 2,
+      pockets: [{
+        contents: {
+          itemId: 42,
+          quantity: 11,
+          itemType: { tag: "Item", value: {} },
+        },
+        locked: false,
+      }],
+    }, {
       entityId: 8001n,
       ownerEntityId: 7002n,
       playerOwnerEntityId: 101n,
@@ -278,8 +292,12 @@ test("primary-region session filters member, settlement, and Town Bank state bef
   fake.state.onApplied({});
   assert.equal(snapshots.length, 0);
   assert.deepEqual(fake.state.subscriptions[1].queries, [
-    "SELECT * FROM inventory_state WHERE owner_entity_id = 7002",
+    "SELECT * FROM inventory_state WHERE owner_entity_id = 7001 OR owner_entity_id = 7002",
   ]);
+  fake.state.callbacks.get("building:update")?.({}, { entityId: 7001n }, { entityId: 7001n });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fake.state.subscriptions.length, 2, "an unchanged scope must reuse its applying subscription");
+  assert.equal(snapshots.length, 0, "an unchanged scope must not publish before the reused subscription applies");
   fake.state.subscriptions[1].onApplied({});
   await Promise.resolve();
   assert.deepEqual(snapshots[0], {
@@ -403,6 +421,22 @@ test("primary-region session filters member, settlement, and Town Bank state bef
       }],
     },
     bankInventoryWarnings: [],
+    settlementInventories: {
+      buildings: [{
+        entityId: "7001",
+        inventoryEntityId: "8000",
+        buildingDescriptionId: "6020",
+        inventoryIndex: 1,
+        cargoIndex: 2,
+        items: [{ itemId: "42", itemType: "item", quantity: "11" }],
+        inventory: [{
+          slot: 0,
+          locked: false,
+          contents: { itemId: "42", itemType: "item", quantity: "11" },
+        }],
+      }],
+    },
+    settlementInventoryWarnings: [],
     contributionWarnings: ["Relay craft 9002 has invalid experience per progress"],
     database: "relay-region-19",
     regionId: "19",
@@ -411,11 +445,16 @@ test("primary-region session filters member, settlement, and Town Bank state bef
     receivedAt: "2026-07-29T20:35:00.000Z",
   });
 
+  const subscriptionCount = fake.state.subscriptions.length;
+  fake.state.callbacks.get("building:update")?.({}, { entityId: 7001n }, { entityId: 7001n });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fake.state.subscriptions.length, subscriptionCount, "unchanged building identity must not rebuild the inventory scope");
+
   fake.state.callbacks.get("equipment:update")({}, {}, {});
   await Promise.resolve();
   await Promise.resolve();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(snapshots[1].generation, 5);
+  assert.equal(snapshots.at(-1).generation, 6);
 
   await session.stop();
   assert.equal(fake.state.unsubscribed, true);
@@ -501,6 +540,8 @@ test("primary-region session attributes reducer and consumed-action updates with
     "SELECT * FROM progressive_action_state WHERE entity_id = 1369094287428103662",
   ));
   fake.state.onApplied({});
+  fake.state.subscriptions[2].onApplied({});
+  await Promise.resolve();
 
   const update = fake.state.callbacks.get("progressive-action:update");
   assert.equal(typeof update, "function");
@@ -689,12 +730,15 @@ test("primary-region session replaces contribution queries without replacing bas
   await Promise.resolve();
   assert.equal(snapshots.length, 0, "contribution readiness must not publish broad data before base readiness");
   base.onApplied({});
+  const inventorySubscription = fake.state.subscriptions[2];
+  assert.match(inventorySubscription.queries.join("\n"), /owner_entity_id = 7001/);
+  inventorySubscription.onApplied({});
   await Promise.resolve();
   await Promise.resolve();
 
   session.updateContributionScope([second], []);
 
-  const replacementContribution = fake.state.subscriptions[2];
+  const replacementContribution = fake.state.subscriptions[3];
   assert.equal(base.unsubscribed, false);
   assert.equal(initialContribution.unsubscribed, false, "old target stays live until replacement applies");
   assert.match(replacementContribution.queries.join("\n"), /entity_id = 9002/);
@@ -761,6 +805,7 @@ test("primary-region player session coalesces rapid changes while a snapshot app
   });
   fake.state.onConnect(fake.connection);
   fake.state.onApplied({});
+  fake.state.subscriptions[1].onApplied({});
   fake.state.callbacks.get("player:update")({}, {}, {});
   fake.state.callbacks.get("buff:insert")({}, {});
   fake.state.callbacks.get("project:update")({}, {}, {});

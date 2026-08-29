@@ -19,6 +19,7 @@ const {
   normalizeCitizensPayload,
   normalizeRegionalEquipment,
   normalizeRegionalBankInventories,
+  normalizeRegionalSettlementInventories,
   normalizeRegionalEmpires,
   normalizeRegionalEmpireHexite,
   normalizeRegionalConstruction,
@@ -146,6 +147,73 @@ test("regional Town Bank inventories join through the bank building and preserve
     },
     warnings: ["Regional bank_state omitted cross-claim bank 7999 for claim 999."],
   });
+});
+
+test("regional settlement inventories expose absolute live storage quantities and exclude Town Banks", () => {
+  assert.deepEqual(normalizeRegionalSettlementInventories({
+    claimId: "1369094286777412590",
+    buildingRows: [
+      { entityId: 7001n, claimEntityId: 1369094286777412590n, buildingDescriptionId: 6020 },
+      { entityId: 7002n, claimEntityId: 1369094286777412590n, buildingDescriptionId: 6021 },
+      { entityId: 7999n, claimEntityId: 999n, buildingDescriptionId: 6020 },
+    ],
+    bankRows: [{ buildingEntityId: 7002n, claimEntityId: 1369094286777412590n }],
+    inventoryRows: [{
+      entityId: 8001n,
+      ownerEntityId: 7001n,
+      playerOwnerEntityId: 0n,
+      inventoryIndex: 4,
+      cargoIndex: 5,
+      pockets: [
+        { contents: { itemId: 42, quantity: 7, itemType: { tag: "Item", value: {} } }, locked: false },
+        { contents: { itemId: 42, quantity: 3, itemType: { tag: "Cargo", value: {} } }, locked: true },
+      ],
+    }, {
+      entityId: 8002n,
+      ownerEntityId: 7002n,
+      playerOwnerEntityId: 101n,
+      inventoryIndex: 1,
+      cargoIndex: 2,
+      pockets: [{ contents: { itemId: 99, quantity: 4, itemType: { tag: "Item", value: {} } }, locked: false }],
+    }],
+  }), {
+    data: {
+      buildings: [{
+        entityId: "7001",
+        inventoryEntityId: "8001",
+        buildingDescriptionId: "6020",
+        inventoryIndex: 4,
+        cargoIndex: 5,
+        items: [
+          { itemId: "42", itemType: "item", quantity: "7" },
+          { itemId: "42", itemType: "cargo", quantity: "3" },
+        ],
+        inventory: [
+          { slot: 0, locked: false, contents: { itemId: "42", itemType: "item", quantity: "7" } },
+          { slot: 1, locked: true, contents: { itemId: "42", itemType: "cargo", quantity: "3" } },
+        ],
+      }],
+    },
+    warnings: ["Regional building_state omitted cross-claim building 7999 for claim 999."],
+  });
+});
+
+test("regional settlement inventories fail closed when a Town Bank owner cannot be classified", () => {
+  const normalized = normalizeRegionalSettlementInventories({
+    claimId: "1369094286777412590",
+    buildingRows: [{ entityId: 7002n, claimEntityId: 1369094286777412590n, buildingDescriptionId: 6021 }],
+    bankRows: [{ buildingEntityId: 7002n }],
+    inventoryRows: [{
+      entityId: 8002n,
+      ownerEntityId: 7002n,
+      inventoryIndex: 1,
+      cargoIndex: 2,
+      pockets: [{ contents: { itemId: 99, quantity: 4, itemType: { tag: "Item", value: {} } }, locked: false }],
+    }],
+  });
+
+  assert.deepEqual(normalized.data.buildings, []);
+  assert.match(normalized.warnings[0], /bank_state omitted row 0/i);
 });
 
 test("regional empires retain exact identities and join proven attacker and defender siege roles", () => {

@@ -1778,11 +1778,12 @@ function craftPlanValidationError(code, path, message, details = {}) {
 
 function completedPlanRoutes(plan) {
   return [
-    ...(Array.isArray(plan?.steps) ? plan.steps.map((route, index) => ({ route, path: `steps[${index}]` })) : []),
+    ...(Array.isArray(plan?.steps) ? plan.steps.map((route, index) => ({ route, path: `steps[${index}]`, expanded: true })) : []),
     ...(Array.isArray(plan?.materials) ? plan.materials.flatMap((material, materialIndex) => (
       (Array.isArray(material?.sourceRoutes) ? material.sourceRoutes : []).map((route, routeIndex) => ({
         route,
         path: `materials[${materialIndex}].sourceRoutes[${routeIndex}]`,
+        expanded: false,
       }))
     )) : []),
   ];
@@ -1843,16 +1844,19 @@ export function validateCompletedCraftPlan(plan = {}, {
   }
 
   const completedRoutes = completedPlanRoutes(plan);
-  for (const { route, path } of completedRoutes) {
+  for (const { route, path, expanded } of completedRoutes) {
     const selectedRecipeId = String(route?.selectedRecipeId ?? "").trim();
     const alternatives = Array.isArray(route?.alternatives) ? route.alternatives : [];
     const selectedAlternative = alternatives.find((alternative) => String(alternative?.id ?? "").trim() === selectedRecipeId);
+    const outputKey = craftPlanItemKey(route?.output);
+    const explicitlySelected = String(plan?.config?.routeOverrides?.[outputKey] ?? "").trim() === selectedRecipeId;
     if (!selectedRecipeId || !selectedAlternative) {
       errors.push(craftPlanValidationError("invalid_selected_route", `${path}.selectedRecipeId`, "The selected route must identify one of the completed route alternatives.", { selectedRecipeId }));
-    } else if (selectedAlternative?.probabilityStatus === "unavailable" || route?.probabilityStatus === "unavailable") {
+    } else if ((expanded || explicitlySelected)
+      && (selectedAlternative?.probabilityStatus === "unavailable" || route?.probabilityStatus === "unavailable")) {
       errors.push(craftPlanValidationError("incomplete_recipe_expansion", `${path}.selectedRecipeId`, "The selected recipe cannot be published until its validated output rate is available.", {
         selectedRecipeId,
-        outputKey: craftPlanItemKey(route?.output),
+        outputKey,
       }));
     }
   }

@@ -155,7 +155,8 @@ test("Inventory uses only provider-neutral local routes", async () => {
   assert.match(source, /const LOCAL_API = "\/api\/local"/);
   assert.match(source, /LOCAL_API}\/catalog\/item-detail/);
   assert.match(server, /\/api\/local\/catalog\/item-detail/);
-  assert.match(server, /enrichInventoryWithCatalog\(\s*mergeClaimInventoryWithBanks\(data,\s*bankSnapshot\?\.data\)/);
+  assert.match(server, /mergeClaimInventoryWithBanks\(\s*mergeClaimInventoryWithLiveStorages\(data,\s*storage\.data\),\s*bankSnapshot\?\.data,?\s*\)/);
+  assert.match(server, /inventoryStorageFreshness: storage\.freshness/);
   assert.match(server, /providerCatalogRepository\.listDescriptions\("crafting_recipe"\)/);
 });
 

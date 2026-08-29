@@ -93,16 +93,29 @@ test("production composition seam conditionally declares composed snapshot depen
     },
   });
   const inventoryBankSnapshot = snapshot(81, "region:19");
+  const inventoryStorageSnapshot = snapshot(82, "region:19");
   const publicCraftSnapshot = snapshot(81, "region:19");
 
   assert.equal(composition.forDomain("inventories")["inventory-banks"], undefined);
   assert.deepEqual(
-    composition.forDomain("inventories", { inventoryBankSnapshot })["inventory-banks"],
+    composition.forDomain("inventories", { inventoryBankSnapshot, inventoryStorageSnapshot })["inventory-banks"],
     {
       generation: 81,
       sourceKey: "region:19",
       receivedAt: "2026-08-22T09:00:00.000Z",
     },
+  );
+  assert.deepEqual(
+    composition.forDomain("inventories", { inventoryBankSnapshot, inventoryStorageSnapshot })["inventory-storages"],
+    {
+      generation: 82,
+      sourceKey: "region:19",
+      receivedAt: "2026-08-22T09:00:00.000Z",
+    },
+  );
+  assert.equal(
+    composition.forDomain("inventories", { inventoryStorageSnapshot, inventoryStorageFreshness: "live" })["inventory-storages"]?.freshness,
+    "live",
   );
   assert.equal(composition.forDomain("crafts")["public-crafts"], undefined);
   assert.deepEqual(

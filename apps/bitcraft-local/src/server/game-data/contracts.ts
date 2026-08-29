@@ -11,6 +11,7 @@ export const DOMAIN_KEYS = [
   "skills",
   "buildings",
   "inventories",
+  "inventory-storages",
   "inventory-banks",
   "crafts",
   "public-crafts",
@@ -65,10 +66,11 @@ export type GenerationDependency = {
   sourceGeneration?: number | null;
   sourceKey: string;
   receivedAt: string | null;
+  freshness?: Freshness;
 };
 
 export type DomainDependencies = Partial<Record<
-  "catalog" | "inventory-banks" | "public-crafts",
+  "catalog" | "inventory-storages" | "inventory-banks" | "public-crafts",
   GenerationDependency
 >>;
 
