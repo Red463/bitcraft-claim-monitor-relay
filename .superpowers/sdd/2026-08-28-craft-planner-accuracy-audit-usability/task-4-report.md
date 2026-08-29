@@ -2,7 +2,10 @@
 
 ## Commit
 
-`aece139cc014d50730f64b45787f273cc0e99d30` — `feat(craft-plan): focus manager workspaces`
+- `aece139cc014d50730f64b45787f273cc0e99d30` — `feat(craft-plan): focus manager workspaces`
+- `68f86d175b93231f1258295c4f8bb977b3c069c1` — `fix(craft-plan): finish manager workspace review`
+- `c272639987159e4f99dd6b2ef57bc25caea3b5f3` — `fix(craft-plan): close manager review gaps`
+- `29c18ceda8918b7909acf04a2fa2319741f86fa8` — `fix(craft-plan): harden manager draft races`
 
 ## Implemented behavior
 
@@ -75,3 +78,19 @@ Browser smoke was attempted twice after the production build. Both bounded attem
 ## Deployment
 
 No migration or manual VPS action is required.
+
+## Independent Task 4 re-review correction
+
+- RED: five manager UI tests failed across the six reported behaviors. The preview lifecycle case was then tightened from an initially insufficient passing test to resolve preview A after close while plan B's load remained deferred.
+- GREEN: revision-conflict recovery keeps an explicit local conflict draft, rebases it onto the server's latest revision/config metadata, and preserves staged targets, routes, buffers, and sources for a retry using the new revision.
+- GREEN: route cards and confirmation payloads now share `craftPlanRouteSelection`; deleting a risky override displays and confirms the same safe server preselection.
+- GREEN: unresolved relationships always render their reason plus every available trigger, effect, typed material, and Task 2 relationship/dependency identity.
+- GREEN: preview identities are invalidated on close, open/load, and plan changes. Stale preview responses return without mutating preview or configuration; the deferred A→close→B regression covers this boundary.
+- GREEN: checkpoint results clear as soon as either input changes and request identities prevent an older comparison from replacing the result for the current from/to pair.
+- GREEN: `audit.view` alone controls Audit visibility. `ownerManaged` continues to select the personal endpoint, so an administrator who owns a personal plan can use both permitted edit workspaces and Audit.
+- Focused manager regression file: 8 passed, 0 failed.
+- Broader Task 4 manager/item-detail/Needs Board/boundary/CSS set: 238 passed, 0 failed.
+- Production build: passed, including server/provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
+- Final aggregate suite: 2,742 total; 2,739 passed, 0 failed, 3 environment-skipped.
+- Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung; this follows the explicit re-review constraint and leaves the recorded browser limitation unchanged.
+- Final focused self-review found no additional correctness, authorization, request-race, schema, dependency, migration, changelog, or version issue in Task 4 scope.
