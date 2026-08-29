@@ -7,11 +7,13 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 
 import { legalPolicyForEnvironment } from "../src/legal/legalPolicy.mjs";
 import { legalPolicyDigests } from "../src/server/legalPolicyDigest.mjs";
 
 const appDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const TEST_WRITE_BUSY_TIMEOUT_MS = 5_000;
 
 async function availablePort() {
   const server = createServer();
@@ -39,26 +41,82 @@ async function stop(child) {
   await new Promise((resolve) => { child.once("exit", resolve); setTimeout(resolve, 3_000); });
 }
 
-function session(dbPath, discordId) {
+function writableTestDatabase(dbPath, { busyTimeoutMs = TEST_WRITE_BUSY_TIMEOUT_MS } = {}) {
+  return new DatabaseSync(dbPath, { timeout: busyTimeoutMs });
+}
+
+function session(dbPath, discordId, options = {}) {
   const token = `session-${discordId}`;
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const csrf = createHash("sha256").update(`csrf:${token}`).digest("base64url");
   const legal = legalPolicyForEnvironment({});
   const digests = legalPolicyDigests(legal);
-  const db = new DatabaseSync(dbPath);
-  const userId = Number(db.prepare(`INSERT INTO user_accounts (
-    discord_id, discord_username, character_status, settings_json, created_at
-  ) VALUES (?, ?, 'unlinked', '{}', ?) RETURNING id`).get(discordId, discordId, new Date().toISOString()).id);
-  db.prepare("INSERT INTO user_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-    .run(tokenHash, userId, "2099-01-01T00:00:00.000Z", new Date().toISOString());
-  db.prepare(`INSERT INTO user_legal_acceptances (
-    user_id, legal_version, terms_digest, privacy_digest, age_confirmed, accepted_at, source
-  ) VALUES (?, ?, ?, ?, 1, ?, 'existing-session')`).run(
-    userId, legal.version, digests.termsDigest, digests.privacyDigest, new Date().toISOString(),
-  );
-  db.close();
-  return { userId, cookie: `bitcraft_user_session=${encodeURIComponent(token)}`, csrf };
+  const db = writableTestDatabase(dbPath, options);
+  try {
+    const userId = Number(db.prepare(`INSERT INTO user_accounts (
+      discord_id, discord_username, character_status, settings_json, created_at
+    ) VALUES (?, ?, 'unlinked', '{}', ?) RETURNING id`).get(discordId, discordId, new Date().toISOString()).id);
+    db.prepare("INSERT INTO user_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+      .run(tokenHash, userId, "2099-01-01T00:00:00.000Z", new Date().toISOString());
+    db.prepare(`INSERT INTO user_legal_acceptances (
+      user_id, legal_version, terms_digest, privacy_digest, age_confirmed, accepted_at, source
+    ) VALUES (?, ?, ?, ?, 1, ?, 'existing-session')`).run(
+      userId, legal.version, digests.termsDigest, digests.privacyDigest, new Date().toISOString(),
+    );
+    return { userId, cookie: `bitcraft_user_session=${encodeURIComponent(token)}`, csrf };
+  } finally {
+    db.close();
+  }
 }
+
+async function holdWriteLock(dbPath, durationMs) {
+  const worker = new Worker(`
+    const { parentPort, workerData } = require("node:worker_threads");
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(workerData.dbPath);
+    db.exec("BEGIN IMMEDIATE");
+    parentPort.postMessage("locked");
+    setTimeout(() => {
+      db.exec("COMMIT");
+      db.close();
+    }, workerData.durationMs);
+  `, { eval: true, workerData: { dbPath, durationMs } });
+  await new Promise((resolve, reject) => {
+    worker.once("error", reject);
+    worker.once("message", resolve);
+  });
+  return worker;
+}
+
+test("session fixture waits for transient writers without hiding persistent database locks", async (t) => {
+  const dataDir = path.join(appDir, `.test-preview-session-lock-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await mkdir(dataDir, { recursive: true });
+  const dbPath = path.join(dataDir, "fixture.sqlite");
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE user_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT, discord_username TEXT, character_status TEXT, settings_json TEXT, created_at TEXT
+    );
+    CREATE TABLE user_sessions (token_hash TEXT, user_id INTEGER, expires_at TEXT, created_at TEXT);
+    CREATE TABLE user_legal_acceptances (
+      user_id INTEGER, legal_version TEXT, terms_digest TEXT, privacy_digest TEXT,
+      age_confirmed INTEGER, accepted_at TEXT, source TEXT
+    );
+  `);
+  db.close();
+  const workers = [];
+  t.after(async () => {
+    await Promise.all(workers.map((worker) => worker.terminate()));
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  workers.push(await holdWriteLock(dbPath, 100));
+  assert.equal(session(dbPath, "transient", { busyTimeoutMs: 1_000 }).userId, 1);
+
+  workers.push(await holdWriteLock(dbPath, 500));
+  assert.throws(() => session(dbPath, "persistent", { busyTimeoutMs: 50 }), /database is locked/i);
+});
 
 test("preview HTTP routes enforce auth, ownership, CSRF, rate limiting, and never persist staged changes", async (t) => {
   const port = await availablePort();
@@ -258,7 +316,7 @@ test("legacy admin save enforces revision and ambiguous-route review atomically"
   assert.equal(afterStale.prepare("SELECT COUNT(*) AS count FROM craft_plan_route_reviews WHERE plan_id = ?").get(planId).count, 0);
   afterStale.close();
 
-  const catalogDb = new DatabaseSync(dbPath);
+  const catalogDb = writableTestDatabase(dbPath);
   catalogDb.exec(`
     INSERT INTO game_catalog_entities (catalog_key, kind, target_id, item_type, name, updated_at) VALUES
       ('items:9001', 'items', '9001', 0, 'Plate', 'catalog-v1'),
