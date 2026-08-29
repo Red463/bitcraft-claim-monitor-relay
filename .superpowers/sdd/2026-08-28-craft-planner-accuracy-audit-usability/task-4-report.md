@@ -6,6 +6,7 @@
 - `68f86d175b93231f1258295c4f8bb977b3c069c1` — `fix(craft-plan): finish manager workspace review`
 - `c272639987159e4f99dd6b2ef57bc25caea3b5f3` — `fix(craft-plan): close manager review gaps`
 - `29c18ceda8918b7909acf04a2fa2319741f86fa8` — `fix(craft-plan): harden manager draft races`
+- `0cde1de42a568b7eb3e3c63fc7aca7d5f09f58ab` — `fix(craft-plan): correct manager audit and retry states`
 
 ## Implemented behavior
 
@@ -94,3 +95,18 @@ No migration or manual VPS action is required.
 - Final aggregate suite: 2,742 total; 2,739 passed, 0 failed, 3 environment-skipped.
 - Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung; this follows the explicit re-review constraint and leaves the recorded browser limitation unchanged.
 - Final focused self-review found no additional correctness, authorization, request-race, schema, dependency, migration, changelog, or version issue in Task 4 scope.
+
+## Independent Task 4 third-review correction
+
+- RED: the deferred failed-preview case made two automatic requests for the same unchanged draft (`2 !== 1`); the publication gate rendered two Save actions (`2 !== 1`); shared and personal Audit UI cases received no Task 2 config history; and the server boundary still selected `admin_audit_log`.
+- GREEN: each draft signature now receives at most one automatic preview attempt after failure. The error remains stable, explicit Refresh can retry the same signature, and a changed staged config has a different signature and can auto-load again.
+- GREEN: the existing audit-authorized endpoint now returns the selected plan's complete Task 2 `craft_plan_config_audit` history, newest first, for shared and personal plans. It no longer reads or normalizes legacy `admin_audit_log` rows.
+- GREEN: Audit renders the server-provided actor/type/time, action, previous/new revisions, and exact JSON-pointer patch before/after values. Domain and UI fixtures cover target, route, multiplier/buffer, counted-source, and visibility changes without React-generated summaries.
+- GREEN: the publication gate transforms the primary Save action into `Confirm routes and Save Plan`; the warning no longer adds a second persistence control.
+- Focused server/domain/UI correction set: 16 passed, 0 failed.
+- Broader Task 4 server/manager/item-detail/Needs Board/boundary/CSS set: 246 passed, 0 failed.
+- Production build: passed with exit code 0, including server/provider/bindings builds, 1,462-asset verification, TypeScript, client Vite, and Relay runtime-boundary verification.
+- One uninterrupted aggregate suite completed with 2,744 total: 2,740 passed, 1 failed, and 3 environment-skipped. The sole failure was the unrelated deployment-runtime worker-exit test timing out after 10 seconds; no Task 4 test failed.
+- The requested one isolated follow-up of `deployment-runtime.test.mjs` passed 8/8, including the previously timed-out worker-exit case in 1.49 seconds. The aggregate suite was not rerun.
+- Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung; dependencies remain unchanged.
+- Final self-review found no remaining Task 4 correctness, authorization, audit-contract, request-loop, publication-gate, schema, migration, dependency, changelog, or version issue.
