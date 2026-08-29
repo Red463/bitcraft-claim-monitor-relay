@@ -20,6 +20,27 @@ const WORKSPACES = [
 
 export type CraftPlanManagerWorkspace = (typeof WORKSPACES)[number]["id"];
 
+const CRAFT_PLAN_LOCAL_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
+
+export function craftPlanAuditInstant(localValue: unknown) {
+  const value = String(localValue ?? "").trim();
+  if (!value) return "";
+  if (!CRAFT_PLAN_LOCAL_DATE_TIME.test(value)) return "";
+  const instant = new Date(value);
+  return Number.isFinite(instant.getTime()) ? instant.toISOString() : "";
+}
+
+export function craftPlanAuditLocalDateTime(instantValue: unknown) {
+  const instant = instantValue instanceof Date
+    ? new Date(instantValue.getTime())
+    : typeof instantValue === "number"
+      ? new Date(instantValue)
+      : new Date(String(instantValue ?? ""));
+  if (!Number.isFinite(instant.getTime())) return "";
+  const localTime = instant.getTime() - instant.getTimezoneOffset() * 60 * 1000;
+  return new Date(localTime).toISOString().slice(0, 16);
+}
+
 export function craftPlanManagerWorkspaces({ canViewAudit = false, canEdit = true } = {}) {
   return WORKSPACES.filter(({ id }) => canEdit ? id !== "audit" || canViewAudit : id === "audit" && canViewAudit);
 }

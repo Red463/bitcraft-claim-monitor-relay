@@ -1895,17 +1895,42 @@ export function validateCompletedCraftPlan(plan = {}, {
   const previousBaselineRevision = String(previousPlan?.effortProgress?.baselineRevision ?? "").trim();
   if (previousPlan && normalizedBaselineRevision && normalizedBaselineRevision === previousBaselineRevision) {
     const previousRequirements = new Map(
-      (Array.isArray(previousPlan?.materials) ? previousPlan.materials : []).map((material) => [String(material?.key ?? ""), material?.planRequired]),
+      (Array.isArray(previousPlan?.materials) ? previousPlan.materials : [])
+        .map((material) => [String(material?.key ?? ""), material?.planRequired])
+        .filter(([key]) => CRAFT_PLAN_TYPED_MATERIAL_KEY.test(key)),
     );
-    for (const [index, material] of materials.entries()) {
-      const key = String(material?.key ?? "");
-      if (previousRequirements.has(key) && previousRequirements.get(key) !== material?.planRequired) {
+    const currentRequirements = new Map(
+      topLevelMaterials
+        .map((material, index) => [String(material?.key ?? ""), { index, planRequired: material?.planRequired }])
+        .filter(([key]) => CRAFT_PLAN_TYPED_MATERIAL_KEY.test(key)),
+    );
+    for (const [key, { index, planRequired }] of currentRequirements.entries()) {
+      if (!previousRequirements.has(key)) {
+        errors.push(craftPlanValidationError("unstable_baseline_material", `materials[${index}].planRequired`, `Canonical material ${key} was added within baseline revision ${normalizedBaselineRevision}.`, {
+          key,
+          previousPlanRequired: null,
+          planRequired,
+          change: "added",
+        }));
+        continue;
+      }
+      if (previousRequirements.get(key) !== planRequired) {
         errors.push(craftPlanValidationError("unstable_baseline_material", `materials[${index}].planRequired`, `Canonical requirement for ${key} changed within baseline revision ${normalizedBaselineRevision}.`, {
           key,
           previousPlanRequired: previousRequirements.get(key),
-          planRequired: material?.planRequired,
+          planRequired,
+          change: "changed",
         }));
       }
+    }
+    for (const [key, previousPlanRequired] of previousRequirements.entries()) {
+      if (currentRequirements.has(key)) continue;
+      errors.push(craftPlanValidationError("unstable_baseline_material", "materials", `Canonical material ${key} was removed within baseline revision ${normalizedBaselineRevision}.`, {
+        key,
+        previousPlanRequired,
+        planRequired: null,
+        change: "removed",
+      }));
     }
   }
 

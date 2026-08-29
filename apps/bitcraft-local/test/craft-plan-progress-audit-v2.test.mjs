@@ -310,7 +310,28 @@ test("ordinary five-minute causal checkpoints compare from stored evidence", () 
   assert.equal(comparison.ok, true);
   assert.equal(comparison.checkpoints.to.capturedAt, "2026-08-28T10:05:00.000Z");
   assert.equal(comparison.differences.materials.changed, true);
+  assert.equal(comparison.differences.progress.changed, true);
+  assert.equal(comparison.differences.buildingProgress.changed, false);
+  db.close();
+});
+
+test("checkpoint comparison reports building completion independently from plan progress", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  const from = v2Snapshot();
+  const to = v2Snapshot({ capturedAt: "2026-08-28T10:05:00.000Z", buildingCompletion: 50 });
+  repository.recordSuccess(from);
+  repository.recordSuccess(to);
+
+  const comparison = repository.compareCheckpoints("42", {
+    planId: "legacy-primary",
+    from: from.capturedAt,
+    to: to.capturedAt,
+  });
+
+  assert.equal(comparison.ok, true);
   assert.equal(comparison.differences.buildingProgress.changed, true);
+  assert.equal(comparison.differences.progress.changed, false);
   db.close();
 });
 
@@ -615,7 +636,7 @@ test("comparison reconstructs stored v2 checkpoints across every evidence catego
 
   const result = repository.compareCheckpoints("42", { planId: "legacy-primary", from: from.capturedAt, to: to.capturedAt });
   assert.equal(result.ok, true);
-  for (const category of ["baseline", "routeConfig", "materials", "sources", "craft", "buildingProgress", "validation"]) {
+  for (const category of ["baseline", "routeConfig", "materials", "sources", "craft", "progress", "buildingProgress", "validation"]) {
     assert.equal(result.differences[category].changed, true, category);
   }
   assert.equal(result.checkpoints.from.capturedAt, from.capturedAt);
@@ -637,6 +658,7 @@ test("comparison reports missing and corrupt evidence and accepts v1 with explic
   const legacy = repository.compareCheckpoints("42", { planId: "legacy-primary", from: legacyFrom.capturedAt, to: legacyTo.capturedAt });
   assert.equal(legacy.ok, true);
   assert.equal(legacy.compatibility.legacyEvidence, true);
+  assert.equal(legacy.differences.progress.changed, false);
   assert.match(legacy.compatibility.limitations.join(" "), /schema version 1/i);
 
   db.prepare("UPDATE craft_plan_progress_audit_snapshots SET payload_gzip = ? WHERE captured_at = ?").run(Buffer.from("corrupt"), legacyTo.capturedAt);
@@ -657,7 +679,7 @@ test("v1 to v2 comparison resolves unchanged material aliases independently per 
   const result = repository.compareCheckpoints("42", { planId: "legacy-primary", from: from.capturedAt, to: to.capturedAt });
 
   assert.equal(result.ok, true);
-  for (const category of ["baseline", "routeConfig", "materials", "sources", "craft", "buildingProgress", "validation"]) {
+  for (const category of ["baseline", "routeConfig", "materials", "sources", "craft", "progress", "buildingProgress", "validation"]) {
     assert.equal(result.differences[category].changed, false, category);
   }
   assert.equal(result.compatibility.legacyEvidence, true);

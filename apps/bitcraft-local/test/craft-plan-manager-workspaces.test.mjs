@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   applyCraftPlanSourceSuggestion,
+  craftPlanAuditInstant,
+  craftPlanAuditLocalDateTime,
   craftPlanManagerWorkspaces,
   craftPlanMaterialPresentation,
   craftPlanNeedReviewTargets,
@@ -14,6 +16,18 @@ import {
   orderCraftPlanRouteReviews,
   stageCraftPlanRouteRecommendations,
 } from "../src/pages/craftPlanManagerModel.ts";
+
+test("audit datetime controls round-trip local wall time through an explicit ISO instant", () => {
+  const localValue = craftPlanAuditLocalDateTime("2026-08-10T09:30:00.000Z");
+  const instant = craftPlanAuditInstant(localValue);
+
+  assert.match(localValue, /^2026-08-10T\d{2}:\d{2}$/);
+  assert.equal(craftPlanAuditLocalDateTime(Date.parse("2026-08-10T09:30:00.000Z")), localValue);
+  assert.match(instant, /^2026-08-10T\d{2}:\d{2}:00\.000Z$/);
+  assert.equal(new Date(instant).getTime(), new Date(localValue).getTime());
+  assert.equal(craftPlanAuditInstant(""), "");
+  assert.equal(craftPlanAuditInstant("not-a-date"), "");
+});
 
 test("manager exposes exactly four capability-preserving workspaces when audit is authorized", () => {
   const workspaces = craftPlanManagerWorkspaces({ canViewAudit: true });

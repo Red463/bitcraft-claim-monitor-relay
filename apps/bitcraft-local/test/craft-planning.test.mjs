@@ -189,6 +189,8 @@ test("completed craft plan validation reports every calculation invariant withou
     ["unavailable required source", "required_source_unavailable", (_plan, sources) => { sources[0].available = false; }],
     ["incomplete required source", "required_source_incomplete", (_plan, sources) => { delete sources[0].sourceId; }],
     ["changed canonical total in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials[0].planRequired = 11; }],
+    ["added canonical material in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials.push({ ...plan.materials[0], key: "cargo:7", kind: "cargo" }); }],
+    ["removed canonical material in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials = []; }],
     ["projected overall progress below confirmed", "projected_progress_regression", (plan) => { plan.effortProgress.projected.overall.completion = 39; }],
     ["projected section progress below confirmed", "projected_progress_regression", (plan) => { plan.effortProgress.projected.sections.Other.completion = 39; }],
   ];
@@ -200,6 +202,11 @@ test("completed craft plan validation reports every calculation invariant withou
     const result = craftPlanning.validateCompletedCraftPlan(plan, { requiredSources: sources, previousPlan });
     assert.equal(result.valid, false, label);
     assert.ok(result.errors.some((error) => error.code === expectedCode), `${label}: ${JSON.stringify(result.errors)}`);
+    if (expectedCode === "unstable_baseline_material") {
+      const publication = craftPlanning.selectCraftPlanPublication({ candidatePlan: plan, lastGoodPlan: previousPlan, validation: result });
+      assert.strictEqual(publication.plan, previousPlan, `${label}: last-good plan must be retained`);
+      assert.equal(publication.retainedLastGood, true, `${label}: publication must report retained last-good`);
+    }
   }
 });
 

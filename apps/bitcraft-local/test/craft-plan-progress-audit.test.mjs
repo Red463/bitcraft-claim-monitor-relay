@@ -289,6 +289,18 @@ test("exact audit windows reject dates outside retention and normalize valid bou
     until: "2026-08-20T00:00:00.000Z",
     now: "2026-08-29T12:00:00.000Z",
   }), /retention/i);
+  assert.throws(() => normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T09:30",
+    until: "2026-08-20T18:45",
+    now: "2026-08-29T12:00:00.000Z",
+  }), /timezone/i);
+  assert.deepEqual(normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T10:30:00.000+01:00",
+    until: "2026-08-20T19:45:00.000+01:00",
+    now: "2026-08-29T12:00:00.000Z",
+  }), { since: "2026-08-10T09:30:00.000Z", until: "2026-08-20T18:45:00.000Z" });
 });
 
 function createTestRepository(clock) {

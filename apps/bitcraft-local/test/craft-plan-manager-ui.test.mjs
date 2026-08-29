@@ -518,9 +518,14 @@ test("Audit time controls send preset and exact bounded ranges while resetting p
     until.props.onChange({ target: { value: "2026-08-20T18:45" } });
     await harness.render(CraftPlanManagerDialog, props);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.match(progressUrls.at(-1), /since=2026-08-10T09%3A30/);
-    assert.match(progressUrls.at(-1), /until=2026-08-20T18%3A45/);
-    assert.match(progressUrls.at(-1), /[?&]page=1(?:&|$)/);
+    const exactUrl = new URL(progressUrls.at(-1), "http://localhost");
+    const sinceInstant = exactUrl.searchParams.get("since");
+    const untilInstant = exactUrl.searchParams.get("until");
+    assert.match(sinceInstant, /^2026-08-10T\d{2}:\d{2}:00\.000Z$/);
+    assert.match(untilInstant, /^2026-08-20T\d{2}:\d{2}:00\.000Z$/);
+    assert.equal(new Date(sinceInstant).getTime(), new Date("2026-08-10T09:30").getTime());
+    assert.equal(new Date(untilInstant).getTime(), new Date("2026-08-20T18:45").getTime());
+    assert.equal(exactUrl.searchParams.get("page"), "1");
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

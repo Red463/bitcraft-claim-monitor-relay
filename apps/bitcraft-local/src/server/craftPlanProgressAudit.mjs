@@ -526,6 +526,11 @@ function gunzipJson(value) {
 export function normalizeCraftPlanAuditWindow({ range = "3d", since = "", until = "", now = new Date().toISOString() } = {}) {
   const normalizedRange = normalizeCraftPlanAuditRange(range, now);
   const nowTime = new Date(now).getTime();
+  for (const [label, value] of [["since", since], ["until", until]]) {
+    if (text(value) && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(text(value))) {
+      throw new Error(`Exact audit ${label} must include a timezone offset or Z.`);
+    }
+  }
   const sinceTime = new Date(since || normalizedRange.since).getTime();
   const untilTime = new Date(until || now).getTime();
   const retentionStart = nowTime - AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -738,9 +743,21 @@ function comparableMaterials(snapshot) {
 }
 
 function comparableBuildingProgress(snapshot) {
+  return firstDefined(snapshot?.buildingCompletion, snapshot?.planInputs?.buildingProgress);
+}
+
+function comparableProgress(snapshot) {
   return {
-    buildingCompletion: firstDefined(snapshot?.buildingCompletion, snapshot?.planInputs?.buildingProgress),
-    progress: snapshot?.progress,
+    confirmed: firstDefined(
+      snapshot?.progress?.confirmed,
+      snapshot?.effortProgress?.confirmed?.overall?.completion,
+      snapshot?.effortProgress?.overall?.completion,
+    ),
+    projected: firstDefined(
+      snapshot?.progress?.projected,
+      snapshot?.effortProgress?.projected?.overall?.completion,
+      snapshot?.effortProgress?.overall?.completion,
+    ),
   };
 }
 
@@ -768,6 +785,7 @@ function comparisonDifferences(before, after) {
     materials: changed(comparableMaterials(before), comparableMaterials(after)),
     sources: changed({ sourceStatus: before?.sourceStatus ?? [], materials: materialSources(before) }, { sourceStatus: after?.sourceStatus ?? [], materials: materialSources(after) }),
     craft: changed(crafts(before), crafts(after)),
+    progress: changed(comparableProgress(before), comparableProgress(after)),
     buildingProgress: changed(comparableBuildingProgress(before), comparableBuildingProgress(after)),
     validation: legacyEvidence ? changed(null, null) : changed(before?.validation ?? null, after?.validation ?? null),
   };
