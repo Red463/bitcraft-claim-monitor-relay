@@ -1881,18 +1881,7 @@ export function validateCompletedCraftPlan(plan = {}, {
       || !String(source.type ?? "").trim()
       || typeof source.available !== "boolean") {
       errors.push(craftPlanValidationError("required_source_incomplete", path, "Required source status is incomplete."));
-    } else if (source.available !== true) {
-      errors.push(craftPlanValidationError("required_source_unavailable", path, "A required planner source is unavailable.", {
-        sourceId: String(source.sourceId),
-        error: String(source.error ?? "Unavailable"),
-      }));
     }
-  }
-  for (const [index, source] of (Array.isArray(plan?.unavailableSources) ? plan.unavailableSources : []).entries()) {
-    errors.push(craftPlanValidationError("required_source_unavailable", `unavailableSources[${index}]`, "A required planner source is unavailable.", {
-      sourceId: String(source?.sourceId ?? ""),
-      error: String(source?.error ?? "Unavailable"),
-    }));
   }
 
   const normalizedBaselineRevision = String(baselineRevision ?? "").trim();

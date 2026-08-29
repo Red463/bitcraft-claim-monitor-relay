@@ -135,6 +135,32 @@ test("server publication failure records diagnostics and fails closed without la
   assert.equal(state.validationWarnings.get("plan-1").retainedLastGood, false);
 });
 
+test("source-health failures publish the complete candidate when no prior publication exists", () => {
+  const state = harness();
+  const candidatePlan = {
+    marker: "complete-with-one-source-offline",
+    effortProgress: { confirmed: { overall: { completion: 35 } } },
+    unavailableSources: [],
+  };
+  const result = resolveFailedCraftPlanPublication({
+    claimId: "claim-1",
+    planId: "plan-1",
+    candidatePlan,
+    publication: { plan: candidatePlan, retainedLastGood: false },
+    validation: { valid: true, baselineRevision: "baseline-1", errors: [] },
+    sourceFailures: [{ sourceId: "storage-1", label: "Materials", type: "Settlement storage", error: "Unavailable" }],
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    validationWarnings: state.validationWarnings,
+    progressAudit: state.progressAudit,
+  });
+
+  assert.equal(result.plan.marker, "complete-with-one-source-offline");
+  assert.equal(result.plan.effortProgress.state, "unavailable");
+  assert.equal(result.plan.unavailableSources.at(-1).sourceId, "storage-1");
+  assert.equal(state.recordedFailures.length, 1);
+  assert.equal(state.validationWarnings.has("plan-1"), false);
+});
+
 test("valid publication survives cache loss and repository reconstruction for the next invalid candidate", () => {
   const db = new DatabaseSync(":memory:");
   const published = {
