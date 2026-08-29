@@ -24,6 +24,12 @@ export function craftPlanManagerWorkspaces({ canViewAudit = false } = {}) {
   return WORKSPACES.filter(({ id }) => id !== "audit" || canViewAudit);
 }
 
+export function canEditCraftPlan(adminSession: AnyRecord | null | undefined, ownsSelectedPlan: boolean) {
+  if (ownsSelectedPlan) return true;
+  const permissions = Array.isArray(adminSession?.user?.permissions) ? adminSession.user.permissions : [];
+  return Boolean(adminSession?.authenticated && (permissions.includes("*") || permissions.includes("settings.manage")));
+}
+
 function emptySourceRules(): CraftPlanSourceRules {
   return {
     storageContainerIds: [],

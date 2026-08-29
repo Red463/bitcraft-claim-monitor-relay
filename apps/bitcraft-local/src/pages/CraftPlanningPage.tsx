@@ -14,7 +14,7 @@ import { CraftPlanManagerDialog } from "./CraftPlanManagerDialog";
 import { CraftPlansDialog } from "./CraftPlansDialog";
 import { resolveCraftPlanSelection } from "./craftPlanSelection.mjs";
 import type { UserAuthState } from "../types/settings";
-import { craftPlanRecipeReviewHref, craftPlanMaterialPresentation } from "./craftPlanManagerModel";
+import { canEditCraftPlan, craftPlanRecipeReviewHref, craftPlanMaterialPresentation } from "./craftPlanManagerModel";
 import { applyPersonalFishingView, normalizeFishingRoutePreference, type FishingRoutePreference } from "./craftPlanningFishingView";
 import { selectCraftPlanningEffortView } from "./craftPlanningEffortView";
 import { buildNeedsBoard, filterNeedsBoard, itemKey, itemName, NEED_COLUMNS, NEED_SECTIONS, type NeedCell, type NeedRow } from "./craftPlanningNeedsBoard";
@@ -297,13 +297,12 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     () => filterNeedsBoard(personalBoard.board, selectedSections, shortagesOnly, needsSearch),
     [personalBoard.board, selectedSections, shortagesOnly, needsSearch],
   );
-  const canManage = Boolean(adminAuth?.authenticated && adminAuth?.csrfToken);
   const computedPlanRecord = plan?.plan;
   const selectedPlan = String(computedPlanRecord?.id ?? "") === selectedPlanId
     ? computedPlanRecord
     : plans.find((entry) => String(entry.id) === selectedPlanId) ?? null;
   const ownsSelectedPlan = Boolean(auth.user && selectedPlan?.scope === "personal" && Number(selectedPlan?.ownerUserId) === Number(auth.user.id));
-  const canEditSelectedPlan = canManage || ownsSelectedPlan;
+  const canEditSelectedPlan = canEditCraftPlan(adminAuth, ownsSelectedPlan);
   const currentSectionOverrides = config.sectionOverrides ?? {};
   const currentRowNameOverrides = config.rowNameOverrides ?? {};
   const selectedNeedSources = selectedNeed ? groupNeedCellSources(selectedNeed) : [];

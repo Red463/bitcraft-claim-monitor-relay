@@ -126,6 +126,12 @@ test("manager renders four authorized workspaces, one Save action, and an explic
     tree = await harness.render(CraftPlanManagerDialog, props);
     assert.match(elementText(tree), /Settlement storage suggestion/);
     assert.match(elementText(tree), /Town Store/);
+    assert.deepEqual(
+      findElements(tree, (element) => element.type === "input" && String(element.props["aria-label"] ?? "").startsWith("Search "))
+        .map((input) => input.props["aria-label"]),
+      ["Search counted sources"],
+      "the shared source search must cover banks without a second disconnected search",
+    );
     assert.equal(requests.filter(({ options }) => options.method === "PUT").length, 0);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Review suggestion")[0].props.onClick();
     tree = await harness.render(CraftPlanManagerDialog, props);

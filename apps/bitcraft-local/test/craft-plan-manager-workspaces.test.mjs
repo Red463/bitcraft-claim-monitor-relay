@@ -27,6 +27,17 @@ test("manager exposes exactly four capability-preserving workspaces when audit i
   assert.deepEqual(craftPlanManagerWorkspaces({ canViewAudit: false }).map(({ id }) => id), ["goals", "sources", "recipes"]);
 });
 
+test("manager edit access requires ownership or the settings-manage permission", async () => {
+  const model = await import("../src/pages/craftPlanManagerModel.ts");
+
+  assert.equal(typeof model.canEditCraftPlan, "function");
+  assert.equal(model.canEditCraftPlan({ authenticated: true, user: { permissions: ["audit.view"] } }, false), false);
+  assert.equal(model.canEditCraftPlan({ authenticated: true, user: { permissions: ["settings.manage"] } }, false), true);
+  assert.equal(model.canEditCraftPlan({ authenticated: true, user: { permissions: ["*"] } }, false), true);
+  assert.equal(model.canEditCraftPlan({ authenticated: false, user: { permissions: ["settings.manage"] } }, false), false);
+  assert.equal(model.canEditCraftPlan({ authenticated: false, user: { permissions: [] } }, true), true);
+});
+
 test("new-plan suggestions are unselected, scope-specific, and keep opt-in sources empty", () => {
   const sources = {
     storage: [{ sourceId: "storage-a" }, { sourceId: "storage-b" }],

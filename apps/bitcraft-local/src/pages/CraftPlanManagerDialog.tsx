@@ -233,7 +233,6 @@ export function CraftPlanManagerDialog({
   const [bankDiscoveryStarted, setBankDiscoveryStarted] = React.useState(false);
   const [legacyBankMigrations, setLegacyBankMigrations] = React.useState<string[]>([]);
   const [expandedBankPlayers, setExpandedBankPlayers] = React.useState<string[]>([]);
-  const [bankSearch, setBankSearch] = React.useState("");
   const [trackedBanksOnly, setTrackedBanksOnly] = React.useState(false);
   const [savedConfigSignature, setSavedConfigSignature] = React.useState("");
   const [refreshConfirmationOpen, setRefreshConfirmationOpen] = React.useState(false);
@@ -413,7 +412,6 @@ export function CraftPlanManagerDialog({
     setBankDiscoveryStarted(false);
     setLegacyBankMigrations([]);
     setExpandedBankPlayers([]);
-    setBankSearch("");
     setTrackedBanksOnly(false);
     setSavedConfigSignature("");
     setRefreshConfirmationOpen(false);
@@ -680,7 +678,7 @@ export function CraftPlanManagerDialog({
   const sourceSuggestion = craftPlanSourceSuggestion({ personal, sources: state?.sources ?? {} });
   const hasConfiguredSources = Object.values(config.sourceRules).some((values) => Array.isArray(values) && values.length > 0);
   const trackedBankIds = new Set(config.sourceRules.bankContainerIds.map(String));
-  const bankGroups = buildCraftPlanBankGroups({ players: playerSources, bankLoads, trackedBankIds: config.sourceRules.bankContainerIds, search: bankSearch, trackedOnly: trackedBanksOnly });
+  const bankGroups = buildCraftPlanBankGroups({ players: playerSources, bankLoads, trackedBankIds: config.sourceRules.bankContainerIds, search: sourceQuery, trackedOnly: trackedBanksOnly });
   const loadedBankPlayers = Object.values(bankLoads).filter((entry) => entry.status === "loaded" || entry.status === "error").length;
   const trackedBankCount = config.sourceRules.bankContainerIds.length;
   const pendingLabel = operation === "loading" ? "Loading plan data…" : operation === "refreshing" ? "Refreshing plan data…" : operation === "saving" ? "Saving plan…" : operation === "preset" ? "Loading workstation preset…" : null;
@@ -770,12 +768,11 @@ export function CraftPlanManagerDialog({
           {activeTab === "sources" ? <section className="craft-plan-manager-panel craft-plan-bank-panel">
             <div className="split-header"><div><h3>Player banks</h3><p className="legend">Track only the individual banks whose stock should count toward this plan. Empty untracked banks are hidden.</p></div><small>{formatNumber(trackedBankCount, 0)} tracked</small></div>
             <div className="craft-plan-bank-toolbar">
-              <label className="search"><Search size={16} /><input value={bankSearch} onChange={(event) => setBankSearch(event.target.value)} placeholder="Search players, banks, or settlements" aria-label="Search player banks" /></label>
               <label className="craft-plan-bank-filter"><input type="checkbox" checked={trackedBanksOnly} onChange={(event) => setTrackedBanksOnly(event.target.checked)} /><span>Tracked only</span></label>
               <span className="craft-plan-bank-progress" role="status" aria-live="polite">{loadedBankPlayers < playerSources.length ? <><LoaderCircle className="is-spinning" size={14} /> Discovering banks {loadedBankPlayers}/{playerSources.length}</> : `${loadedBankPlayers} players checked`}</span>
             </div>
             {bankGroups.length ? <div className="craft-plan-bank-groups">{bankGroups.map((group: AnyRecord) => {
-              const expanded = Boolean(bankSearch.trim()) || expandedBankPlayers.includes(group.playerId);
+              const expanded = Boolean(sourceQuery.trim()) || expandedBankPlayers.includes(group.playerId);
               return <section className={`craft-plan-bank-group${group.trackedCount ? " has-tracked" : ""}`} key={group.playerId}>
                 <button className="craft-plan-bank-group-toggle" type="button" aria-expanded={expanded} onClick={() => setExpandedBankPlayers((current) => current.includes(group.playerId) ? current.filter((id) => id !== group.playerId) : [...current, group.playerId])}>
                   <span><strong>{group.playerName}</strong><small>{group.loadState?.status === "loaded" ? `${formatNumber(group.nonEmptyCount, 0)} non-empty banks · ${formatNumber(group.trackedCount, 0)} tracked` : group.loadState?.status === "error" ? "Bank discovery failed" : "Discovering banks…"}</small></span>

@@ -33,22 +33,27 @@
 - Self-review RED: the server's safer recommendation lost to the calculated route, and the public confirmation payload did not stage it. GREEN now preserves explicit overrides but otherwise stages the safest recommendation before save.
 - Final post-review focused model/item/CSS set: 9 passed, 0 failed.
 - Final post-review React manager/refresh set: 6 passed, 0 failed.
+- Finalization review RED: an authenticated audit-only administrator still received plan-edit controls, and Counted Sources rendered a second bank-only search disconnected from the workspace search. The focused tests failed 1/7 and 1/3 respectively before the corrections.
+- Finalization review GREEN: editor access now requires plan ownership or `settings.manage`, and the single Counted Sources search covers storage, inventory, crafts, deployables, and banks. The combined manager model/React set passed 10/10 after the corrections.
 - Full boundary/CSS/Needs set: 68 passed, 0 failed.
 - Standalone frontend TypeScript check: passed.
 
 ## Final verification
 
 - `corepack pnpm --filter @workspace/bitcraft-local run build` — passed after the final self-review correction, including server/provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
+- Finalization focused manager/item/boundary/CSS/Needs set — 82 passed, 0 failed; the production build was rerun afterward and passed.
 - `corepack pnpm --filter @workspace/bitcraft-local test` — 2,734 total, 2,731 passed, 0 failed, 3 environment-skipped. This full run completed before the final narrow safest-route staging correction; the affected model, React, TypeScript, and production build checks were rerun afterward and passed.
 - `git diff --cached --check` — passed before the implementation commit; only expected Windows line-ending notices were emitted.
 
 ## Browser result
 
-Browser smoke was attempted once after the production build and stopped at the documented 15-second launcher timeout. The local smoke server never became healthy because `exceljs@4.4.0` could not resolve its existing `jszip` dependency (`MODULE_NOT_FOUND`). No browser tab was opened. Dependencies were intentionally left unchanged, and the launcher was not retried.
+Browser smoke was attempted twice after the production build. Both bounded attempts hung and were interrupted; no browser tab reached a reliable verification state. Browser smoke was therefore skipped after those two attempts, no third attempt was made, and dependencies were intentionally left unchanged.
 
 ## Self-review and findings
 
 - Fixed safest-route priority and ensured an unoverridden server recommendation is staged in both Recipe Review and the public-confirmation retry payload.
+- Restricted manager and item-detail Recipe Review controls to plan owners or administrators with `settings.manage`, matching the server mutation permission.
+- Made the one Counted Sources search filter bank groups as well as storage, inventory/craft, and deployable sources.
 - Confirmed the old seven-tab and immediate route/buffer-save paths are absent from production UI code.
 - Confirmed audit/export rendering uses the locked permissions and React displays server causal evidence rather than deriving claims.
 - Confirmed no backend, schema, provider, dependency, changelog, or version change was introduced.
