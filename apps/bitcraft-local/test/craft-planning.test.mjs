@@ -195,6 +195,14 @@ test("completed craft plan validation reports every calculation invariant withou
     "an obsolete override that is now explicitly unselectable must not invalidate the safe selected route",
   );
 
+  const planWithRetiredActiveOverride = validPlan();
+  planWithRetiredActiveOverride.config.routeOverrides["items:7"] = "retired-route";
+  assert.deepEqual(
+    craftPlanning.validateCompletedCraftPlan(planWithRetiredActiveOverride, { requiredSources, previousPlan }),
+    { valid: true, baselineRevision: "baseline-1", errors: [] },
+    "an override removed from the current alternatives must not invalidate the safe selected route",
+  );
+
   const invalidCases = [
     ["duplicate typed key", "duplicate_material_key", (plan) => plan.materials.push({ ...plan.materials[0] })],
     ["invalid typed key", "invalid_material_key", (plan) => { plan.materials[0].key = "item:7"; }],
@@ -202,7 +210,6 @@ test("completed craft plan validation reports every calculation invariant withou
     ["negative quantity", "invalid_material_quantity", (plan) => { plan.materials[0].missingNow = -1; }],
     ["invalid selected route", "invalid_selected_route", (plan) => { plan.steps[0].selectedRecipeId = "route-b"; }],
     ["selected route with unavailable probability expansion", "incomplete_recipe_expansion", (plan) => { plan.steps[0].alternatives[0].probabilityStatus = "unavailable"; }],
-    ["selected route does not satisfy its configured override", "invalid_selected_route", (plan) => { plan.config.routeOverrides["items:7"] = "route-b"; }],
     ["incomplete required source", "required_source_incomplete", (_plan, sources) => { delete sources[0].sourceId; }],
     ["changed canonical total in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials[0].planRequired = 11; }],
     ["added canonical material in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials.push({ ...plan.materials[0], key: "cargo:7", kind: "cargo" }); }],

@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.10] - 2026-08-29
+
+### Fixed
+
+- Allowed valid calculated recipe routes to load when a saved preference no longer exists in the current catalogue.
+
 ## [0.66.2-beta.9] - 2026-08-29
 
 ### Fixed
