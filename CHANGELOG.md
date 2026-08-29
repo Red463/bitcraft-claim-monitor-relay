@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.1-beta.3] - 2026-08-29
+
+### Changed
+
+- Improved Craft Planning Needs Board spacing and hierarchy so needed-now, plan-total, stock, and active craft coverage are easier to scan.
+
 ## [0.66.1-beta.2] - 2026-08-29
 
 ### Fixed
