@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.1-beta.2] - 2026-08-29
+
+### Fixed
+
+- Fixed selected settlement storage with no nickname making an otherwise valid Craft Plan unavailable.
+
 ## [0.66.1-beta.1] - 2026-08-29
 
 ### Changed

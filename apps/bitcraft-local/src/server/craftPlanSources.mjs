@@ -292,7 +292,9 @@ export function settlementStorageSourcesFromInventories(inventories = {}, allowe
     const sourceId = String(building.entityId ?? building.id ?? building.buildingName ?? "").trim();
     return {
       sourceId,
-      label: String(building.buildingNickname ?? building.nickname ?? building.buildingName ?? building.name ?? (sourceId || "Settlement storage")),
+      label: [building.buildingNickname, building.nickname, building.buildingName, building.name]
+        .map((value) => String(value ?? "").trim())
+        .find(Boolean) ?? (sourceId || "Settlement storage"),
       type: "Settlement storage",
       items: sourceItemsFromSlots(building.inventory, lookup),
     };

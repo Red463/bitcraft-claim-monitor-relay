@@ -45,6 +45,19 @@ test("settlementStorageSourcesFromInventories reads normalized Relay buildings a
   ]);
 });
 
+test("settlementStorageSourcesFromInventories falls back to the building name for an empty nickname", () => {
+  const [source] = settlementStorageSourcesFromInventories({
+    buildings: [{
+      entityId: "501",
+      name: "Simple Large Chest",
+      nickname: "",
+      inventory: [],
+    }],
+  }, ["501"]);
+
+  assert.equal(source.label, "Simple Large Chest");
+});
+
 test("trackedPassiveCraftPlanOutputs counts processing and complete jobs but ignores other states", () => {
   const outputs = trackedPassiveCraftPlanOutputs([{
     playerId: "farmer-1",
