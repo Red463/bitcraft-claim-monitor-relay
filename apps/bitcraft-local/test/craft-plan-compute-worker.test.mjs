@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
 import { createWorkerTaskRunner, runWorkerTask } from "../src/server/workerTask.mjs";
 import { computeCraftPlanOffThread } from "../src/server/craftPlanComputeExecutor.mjs";
 import { computeCraftPlan, normalizeCraftPlanConfig, recipeKey } from "../src/server/craftPlanning.mjs";
-import { refreshFailureEntry, nextRefreshRetry, refreshRetryAllowed, serveLastGoodOrWait } from "../src/server/lastGoodRefresh.mjs";
+import { refreshFailureEntry, nextRefreshRetry, refreshRetryAllowed, serveLastGoodOrWait, serveRetainedLastGoodOrWait } from "../src/server/lastGoodRefresh.mjs";
 
 test("worker tasks keep the Node event loop responsive during CPU-heavy work", async () => {
   const workerUrl = new URL("./fixtures/cpu-worker.mjs", import.meta.url);
@@ -67,6 +68,24 @@ test("manual craft-plan refresh waits for the new result", async () => {
   assert.deepEqual(await response, { revision: "new" });
 });
 
+test("persisted last-good craft plans return immediately while a cold refresh continues", async () => {
+  let completeRefresh;
+  const refresh = new Promise((resolve) => { completeRefresh = resolve; });
+  const response = serveRetainedLastGoodOrWait({
+    cached: undefined,
+    retained: { revision: "persisted" },
+    project: (plan) => ({ plan }),
+    refresh,
+  });
+
+  assert.deepEqual(
+    await Promise.race([response, Promise.resolve("not-immediate")]),
+    { plan: { revision: "persisted" } },
+  );
+  completeRefresh({ plan: { revision: "fresh" } });
+  assert.deepEqual(await refresh, { plan: { revision: "fresh" } });
+});
+
 test("worker task runner bounds concurrency and queue depth", async () => {
   const workerUrl = new URL("./fixtures/cpu-worker.mjs", import.meta.url);
   const runner = createWorkerTaskRunner({ maxConcurrent: 1, maxQueued: 2, timeoutMs: 2_000 });
@@ -91,6 +110,29 @@ test("worker task runner terminates tasks that exceed their deadline", async () 
     runner.run(workerUrl, { durationMs: 250 }),
     (error) => error?.code === "WORKER_TASK_TIMEOUT",
   );
+  assert.deepEqual(runner.stats(), { active: 0, queued: 0, maxConcurrent: 1, maxQueued: 1 });
+});
+
+test("worker task deadlines reject even when worker termination never settles", async () => {
+  class NeverTerminatingWorker extends EventEmitter {
+    terminate() {
+      return new Promise(() => {});
+    }
+  }
+  const runner = createWorkerTaskRunner({
+    WorkerClass: NeverTerminatingWorker,
+    maxConcurrent: 1,
+    maxQueued: 1,
+    timeoutMs: 10,
+  });
+
+  const result = await Promise.race([
+    runner.run(new URL("./fixtures/cpu-worker.mjs", import.meta.url), {})
+      .then(() => ({ status: "resolved" }), (error) => ({ status: "rejected", code: error?.code })),
+    new Promise((resolve) => setTimeout(() => resolve({ status: "pending" }), 50)),
+  ]);
+
+  assert.deepEqual(result, { status: "rejected", code: "WORKER_TASK_TIMEOUT" });
   assert.deepEqual(runner.stats(), { active: 0, queued: 0, maxConcurrent: 1, maxQueued: 1 });
 });
 

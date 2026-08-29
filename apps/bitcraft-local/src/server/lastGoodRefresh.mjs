@@ -7,6 +7,22 @@ export function serveLastGoodOrWait({ lastGood, refresh, forceRefresh = false, o
   return refreshPromise;
 }
 
+export function serveRetainedLastGoodOrWait({
+  cached,
+  retained,
+  project = (value) => value,
+  refresh,
+  forceRefresh = false,
+  onRefreshError = () => {},
+}) {
+  const lastGood = cached !== undefined
+    ? cached
+    : retained == null
+      ? undefined
+      : project(retained);
+  return serveLastGoodOrWait({ lastGood, refresh, forceRefresh, onRefreshError });
+}
+
 export function nextRefreshRetry(previous = {}, { now = Date.now(), baseDelayMs = 15_000, maxDelayMs = 300_000 } = {}) {
   const refreshFailures = Math.max(0, Number(previous.refreshFailures) || 0) + 1;
   const delayMs = Math.min(
