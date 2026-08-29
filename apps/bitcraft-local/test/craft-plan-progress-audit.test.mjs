@@ -8,6 +8,7 @@ import {
   createCraftPlanProgressAuditRepository,
   diffCraftPlanProgressSnapshots,
   normalizeCraftPlanAuditRange,
+  normalizeCraftPlanAuditWindow,
   staleCraftPlanProgress,
 } from "../src/server/craftPlanProgressAudit.mjs";
 import { createPreparedStatements } from "../src/server/preparedStatements.mjs";
@@ -217,23 +218,23 @@ test("diff attributes stock, craft, requirement, output, and progress changes", 
   assert.ok(result.events.some((event) => event.type === "guaranteed_output_delta" && event.delta === -15));
 });
 
-test("collection is inferred only when matching stock appears", () => {
+test("collection is inferred only when stock exactly matches captured craft output", () => {
   const result = diffCraftPlanProgressSnapshots(
-    fixtureSnapshot({ craftPresent: true, sourceQuantity: 0 }),
+    fixtureSnapshot({ craftPresent: true, sourceQuantity: 0, material: { guaranteed: 10 } }),
     fixtureSnapshot({ craftPresent: false, sourceQuantity: 10 }),
   );
   const removed = result.events.find((event) => event.type === "craft_removed");
   assert.equal(removed.inference?.cause, "collected");
-  assert.equal(removed.inference?.confidence, "medium");
-  assert.match(removed.inference?.evidence.join(" "), /matching stock increase/i);
+  assert.equal(removed.inference?.confidence, "high");
+  assert.match(removed.inference?.evidence.join(" "), /uniquely allocate.*10/i);
 });
 
-test("baseline changes are not reported as ordinary progress deltas", () => {
+test("baseline changes retain simultaneous progress deltas", () => {
   const previous = fixtureSnapshot({ confirmed: 75, baselineRevision: "rev-a" });
   const current = fixtureSnapshot({ confirmed: 65, baselineRevision: "rev-b" });
   current.baselineInputs.config.targets[0].quantity = 120;
   const result = diffCraftPlanProgressSnapshots(previous, current);
-  assert.equal(result.events.some((event) => event.type === "progress_delta"), false);
+  assert.equal(result.events.some((event) => event.type === "progress_delta"), true);
   assert.equal(result.events.some((event) => event.type === "baseline_change"), true);
   assert.match(result.baselineChange.reasons.join(" "), /target/i);
 });
@@ -268,12 +269,38 @@ test("audit ranges are explicit and bounded by retention", () => {
   );
   assert.equal(
     normalizeCraftPlanAuditRange("all", "2026-07-24T12:00:00.000Z").since,
-    "2026-07-10T12:00:00.000Z",
+    "2026-06-24T12:00:00.000Z",
   );
-  assert.throws(
-    () => normalizeCraftPlanAuditRange("30d", "2026-07-24T12:00:00.000Z"),
-    /invalid audit range/i,
-  );
+  assert.equal(normalizeCraftPlanAuditRange("14d", "2026-07-24T12:00:00.000Z").since, "2026-07-10T12:00:00.000Z");
+  assert.equal(normalizeCraftPlanAuditRange("30d", "2026-07-24T12:00:00.000Z").since, "2026-06-24T12:00:00.000Z");
+  assert.throws(() => normalizeCraftPlanAuditRange("31d", "2026-07-24T12:00:00.000Z"), /invalid audit range/i);
+});
+
+test("exact audit windows reject dates outside retention and normalize valid bounds", () => {
+  assert.deepEqual(normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T09:30:00.000Z",
+    until: "2026-08-20T18:45:00.000Z",
+    now: "2026-08-29T12:00:00.000Z",
+  }), { since: "2026-08-10T09:30:00.000Z", until: "2026-08-20T18:45:00.000Z" });
+  assert.throws(() => normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-07-01T00:00:00.000Z",
+    until: "2026-08-20T00:00:00.000Z",
+    now: "2026-08-29T12:00:00.000Z",
+  }), /retention/i);
+  assert.throws(() => normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T09:30",
+    until: "2026-08-20T18:45",
+    now: "2026-08-29T12:00:00.000Z",
+  }), /timezone/i);
+  assert.deepEqual(normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T10:30:00.000+01:00",
+    until: "2026-08-20T19:45:00.000+01:00",
+    now: "2026-08-29T12:00:00.000Z",
+  }), { since: "2026-08-10T09:30:00.000Z", until: "2026-08-20T18:45:00.000Z" });
 });
 
 function createTestRepository(clock) {
@@ -340,7 +367,7 @@ test("repository records one baseline event and uses the new comparison epoch", 
   const result = repository.recordSuccess(next);
   assert.equal(result.fullSnapshot, true);
   assert.equal(result.baselineChanged, true);
-  assert.equal(result.events.some((event) => event.type === "progress_delta"), false);
+  assert.equal(result.events.some((event) => event.type === "progress_delta"), true);
   assert.match(result.baselineChange.reasons.join(" "), /target/i);
 });
 

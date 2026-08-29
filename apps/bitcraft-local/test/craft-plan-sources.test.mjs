@@ -436,7 +436,17 @@ test("selectedPlayerInventoryIds shares inventory requests across source familie
     playerIds: ["player-1", "player-2"],
     bankPlayerIds: ["player-1", "player-3"],
     bankContainerIds: ["player-4:bank-8", "player-2:bank-9"],
-  }), ["player-1", "player-2", "player-3", "player-4"]);
+    deployableContainerIds: ["player-5:cart", "player-3:wagon-9"],
+  }), ["player-1", "player-2", "player-3", "player-4", "player-5"]);
+});
+
+test("selectedPlayerInventoryIds discovers a player from deployable-only opt-in", () => {
+  assert.deepEqual(selectedPlayerInventoryIds({
+    playerIds: [],
+    bankPlayerIds: [],
+    bankContainerIds: [],
+    deployableContainerIds: ["deployable-owner:personal-cache-7"],
+  }), ["deployable-owner"]);
 });
 
 test("filterSelectedPlayerBankSources prefers exact bank IDs while preserving legacy players", () => {

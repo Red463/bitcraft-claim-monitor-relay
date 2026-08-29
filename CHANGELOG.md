@@ -9,6 +9,24 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.0-beta.1] - 2026-08-29
+
+### Added
+
+- Added stable Craft Planner plan totals alongside live shortages, with validation and restart-safe last-good results.
+- Added lifetime configuration history, causal progress auditing, checkpoint comparison, and schema-v2 diagnostic exports.
+- Added four focused manager workspaces for goals, counted sources, recipe review, and administrator audit.
+
+### Changed
+
+- Simplified recipe selection with staged previews, ambiguity review, route fingerprints, and conflict-safe saves.
+- Improved Needs Board labels to distinguish “Needed now” from “Plan total”.
+
+### Fixed
+
+- Prevented stock, craft, and source changes from silently altering baseline plan totals.
+- Prevented newly ambiguous public routes from being published without confirmation.
+
 ## [0.65.0-beta.1] - 2026-08-28
 
 ### Removed

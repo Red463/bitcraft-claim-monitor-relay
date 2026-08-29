@@ -278,10 +278,11 @@ test("Craft planning targets use safe container-responsive columns", () => {
 test("Craft planning chance controls and compact targets retain responsive boundaries", () => {
   const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
-  assert.match(page, /Safety buffer \(% extra\)/);
-  assert.match(page, /saveMultiplier/);
+  assert.match(page, /Buffer changes are staged in Recipe Review and persist only through Save Plan\./);
+  assert.doesNotMatch(page, /saveMultiplier/);
   assert.match(page, /Counted stock exists, but source details are unavailable/);
   assert.match(page, /craft-plan-target-progress/);
+  assert.match(css, /\.craft-plan-cell-coverage\s*\{/);
   assert.match(css, /\.craft-plan-need-cell\.has-indicators\s*\{[^}]*padding-top:\s*16px/);
   assert.match(css, /\.craft-plan-target-progress\s*\{/);
   assert.match(css, /\.craft-plan-target-status\s*\{/);
@@ -312,12 +313,14 @@ test("Craft planning loading and active craft states communicate ongoing work", 
   assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*\.craft-plan-need-cell\.has-active::before[\s\S]*animation:\s*none/);
 });
 
-test("How to get this separates route headings and producer buffer controls", () => {
+test("How to get this keeps route data read-only and points editing to Recipe Review", () => {
   const css = readFileSync(new URL("../src/styles/craft-planning.css", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
 
   assert.match(page, /craft-plan-route-heading/);
-  assert.match(page, /craft-plan-buffer-settings/);
+  assert.match(page, /craft-plan-route-readonly/);
+  assert.match(page, /Open in Recipe Review/);
+  assert.match(page, /Saved material buffer/);
   assert.match(page, /Recipe completions/);
   assert.match(page, /full nodes/);
   assert.match(page, /extraction progress/);
@@ -325,16 +328,16 @@ test("How to get this separates route headings and producer buffer controls", ()
   assert.match(page, /total station actions/i);
   assert.match(page, /Craft inputs/);
   assert.match(page, /Gather\/process/);
-  assert.match(page, /does not increase the .* goal/);
+  assert.match(page, /Buffer changes are staged in Recipe Review and persist only through Save Plan\./);
   assert.match(css, /\.craft-plan-route-heading\s*\{/);
   assert.match(css, /\.craft-plan-route-kind\.is-craft\s*\{/);
   assert.match(css, /\.craft-plan-route-kind\.is-gathering\s*\{/);
-  assert.match(css, /\.craft-plan-buffer-settings\s*\{/);
+  assert.match(css, /\.craft-plan-route-readonly\s*\{/);
   assert.match(css, /\.craft-plan-route-options\s*\{/);
   assert.match(css, /\.craft-plan-calculation\s*\{/);
   assert.doesNotMatch(css, /\.craft-plan-gathered-control\s*\{/);
   assert.doesNotMatch(css, /\.craft-plan-gathered-state\s*\{/);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.craft-plan-buffer-control/);
+  assert.doesNotMatch(page, /saveMultiplier/);
 });
 
 test("Craft planning route cards and calculations wrap without horizontal scrolling", () => {

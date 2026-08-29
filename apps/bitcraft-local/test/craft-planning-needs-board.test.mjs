@@ -186,6 +186,30 @@ test("buildNeedsBoard ignores fully stocked items that are not used by the curre
 
   assert.deepEqual(board, []);
 });
+
+test("buildNeedsBoard keeps canonical baseline-only rows with zero live demand", () => {
+  const board = buildNeedsBoard([{
+    key: "items:102001",
+    id: "102001",
+    kind: "items",
+    name: "Simple Plank",
+    tag: "Plank",
+    tier: 1,
+    section: "Carpentry",
+    planRequired: 1880,
+    requiredNow: 0,
+    missingNow: 0,
+    required: 0,
+    missing: 0,
+    available: 0,
+    inProgress: 0,
+  }], []);
+
+  assert.equal(board.length, 1);
+  const cell = board[0].rows[0].cells.get("T1");
+  assert.equal(cell?.required, 1880);
+  assert.equal(cell?.missing, 0);
+});
 test("buildNeedsBoard splits generic trade-good tags by actual item name", () => {
   const board = buildNeedsBoard([
     {
@@ -491,6 +515,30 @@ test("buildNeedsBoard calculates section completion from required and covered qu
   assert.equal(board[0].rows[0].cells.get("T1")?.estimatedInProgress, 3);
   assert.equal(board[0].rows[0].cells.get("T2")?.guaranteedInProgress, 0);
   assert.equal(board[0].rows[0].cells.get("T2")?.estimatedInProgress, 0);
+});
+
+test("Needs Board uses missingNow and planRequired before compatibility aliases", () => {
+  const board = buildNeedsBoard([{
+    key: "items:task-1",
+    name: "Task 1 Plank",
+    tag: "Plank",
+    tier: 1,
+    section: "Carpentry",
+    missingNow: 4,
+    planRequired: 12,
+    missing: 99,
+    required: 88,
+    available: 3,
+    guaranteedInProgress: 2,
+    estimatedInProgress: 1,
+  }], []);
+  const cell = board[0].rows[0].cells.get("T1");
+
+  assert.equal(cell?.missing, 4);
+  assert.equal(cell?.required, 12);
+  assert.equal(cell?.available, 3);
+  assert.equal(cell?.guaranteedInProgress, 2);
+  assert.equal(cell?.estimatedInProgress, 1);
 });
 
 test("buildNeedsBoard treats legacy in-progress coverage as guaranteed", () => {
