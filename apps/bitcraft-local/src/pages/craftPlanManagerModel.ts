@@ -67,6 +67,21 @@ export function craftPlanUnavailableActions({ canOpenManager = false, canEdit = 
   };
 }
 
+export function craftPlanValidationDiagnostics(progressAudit: AnyRecord | null | undefined) {
+  const errors = progressAudit?.status?.validationWarning?.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.flatMap((error) => {
+    if (!error || typeof error !== "object") return [];
+    const { code, path, message, ...details } = error as AnyRecord;
+    return [{
+      code: String(code ?? "").trim(),
+      path: String(path ?? "").trim(),
+      message: String(message ?? "").trim(),
+      details,
+    }];
+  });
+}
+
 function emptySourceRules(): CraftPlanSourceRules {
   return {
     storageContainerIds: [],

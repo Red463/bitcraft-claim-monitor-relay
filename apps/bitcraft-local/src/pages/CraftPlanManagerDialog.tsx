@@ -7,7 +7,7 @@ import type { AnyRecord } from "../main-app-data";
 import { dateLabel, formatNumber, timeAgo } from "../utils/format";
 import { createDelayedRefreshTask } from "../refresh/pageRefresh.mjs";
 import { buildCraftPlanBankGroups, finalizeLegacyBankMigrations, initiallyExpandedBankPlayerIds, mergeLegacyBankDiscovery, runBankDiscoveryQueue } from "./craftPlanBankSelection.mjs";
-import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace } from "./craftPlanManagerModel";
+import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace } from "./craftPlanManagerModel";
 
 const LOCAL_API = "/api/local";
 const BANK_LOAD_CONCURRENCY = 3;
@@ -843,6 +843,7 @@ export function CraftPlanManagerDialog({
   const bankGroups = buildCraftPlanBankGroups({ players: playerSources, bankLoads, trackedBankIds: config.sourceRules.bankContainerIds, search: sourceQuery, trackedOnly: trackedBanksOnly });
   const loadedBankPlayers = Object.values(bankLoads).filter((entry) => entry.status === "loaded" || entry.status === "error").length;
   const trackedBankCount = config.sourceRules.bankContainerIds.length;
+  const validationDiagnostics = craftPlanValidationDiagnostics(progressAudit);
   const pendingLabel = operation === "loading" ? "Loading plan data…" : operation === "refreshing" ? "Refreshing plan data…" : operation === "saving" ? "Saving plan…" : operation === "preset" ? "Loading workstation preset…" : null;
 
   return (
@@ -1021,6 +1022,7 @@ export function CraftPlanManagerDialog({
                   <article><small>Audit storage</small><strong>{formatStoredBytes(progressAudit.status?.storedBytes)}</strong><span>{formatNumber(progressAudit.status?.eventCount ?? 0, 0)} events · {formatNumber(progressAudit.status?.retentionDays ?? 30, 0)}-day retention</span></article>
                 </div>
                 {progressAudit.status?.lastError ? <div className="alert warning">Latest calculation used the last complete result: {progressAudit.status.lastError}</div> : null}
+                {validationDiagnostics.length ? <details className="craft-plan-audit-validation" open><summary>Calculation validation details ({validationDiagnostics.length})</summary><div className="craft-plan-audit-list">{validationDiagnostics.map((diagnostic, index) => <article className="craft-plan-audit-entry" key={`${diagnostic.code}:${diagnostic.path}:${index}`}><div className="craft-plan-audit-meta"><strong>{diagnostic.code || "validation_error"}</strong><code>{diagnostic.path || "unspecified path"}</code></div><p>{diagnostic.message || "No validation message was recorded."}</p>{Object.keys(diagnostic.details).length ? <code>{JSON.stringify(diagnostic.details)}</code> : null}</article>)}</div></details> : null}
                 {progressAudit.status?.writeWarning ? <div className="alert warning">Audit recording warning: {progressAudit.status.writeWarning}</div> : null}
                 <div className="craft-plan-progress-event-header"><h4>Recent progress events</h4><small>{Array.isArray(progressAudit.events) ? `${progressAudit.events.length} shown` : "None recorded"}</small></div>
                 {Array.isArray(progressAudit.events) && progressAudit.events.length ? <div className="craft-plan-progress-event-list">

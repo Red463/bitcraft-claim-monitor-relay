@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.6] - 2026-08-29
+
+### Fixed
+
+- Added exact calculation validation codes, paths, messages, and structured details to the administrator Craft Plan audit.
+
 ## [0.66.2-beta.5] - 2026-08-29
 
 ### Fixed
