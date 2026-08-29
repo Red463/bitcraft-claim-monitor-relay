@@ -766,8 +766,7 @@ function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOve
   return true;
 }
 
-function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, detailsByKey, routeOverrides) {
-  const memo = new Map();
+function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, detailsByKey, routeOverrides, memo = new Map()) {
   const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
   if (overridden && recipeExpansionIsSelectable(overridden, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo)) return overridden;
   return recipes.find((recipe) => !recipeLooksTransportRoute(recipe)
@@ -775,24 +774,23 @@ function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, details
     ?? selectedRecipeForTarget(recipes, overrideId, blockedKeys);
 }
 
-function routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides) {
-  const memo = new Map();
+function routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides, memo = new Map()) {
   return recipes.map((recipe) => ({
     ...recipe,
     isSelectable: recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo),
   }));
 }
 
-function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredItemKeys) {
+function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredItemKeys, viabilityMemo = new Map()) {
   const targetKey = recipeKey(target.kind, target.id);
   const detail = detailsByKey.get(targetKey);
   if (!detail) return [];
   const normalizedTarget = mergeDetailTarget(detail, target);
   const key = recipeKey(normalizedTarget.kind, normalizedTarget.id);
   const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
-  const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], [key], detailsByKey, routeOverrides);
+  const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], [key], detailsByKey, routeOverrides, viabilityMemo);
   if (!selected) return [];
-  const visibleRecipes = routeAlternativesForUi(recipes, [key], detailsByKey, routeOverrides);
+  const visibleRecipes = routeAlternativesForUi(recipes, [key], detailsByKey, routeOverrides, viabilityMemo);
   const gatheringSources = visibleRecipes
     .filter(routeIsGathering)
     .map((recipe) => ({
@@ -829,7 +827,7 @@ function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredIte
   }];
 }
 
-function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gatheredItemKeys = new Set(), multipliers = {}, effectiveStockTotals = new Map()) {
+function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gatheredItemKeys = new Set(), multipliers = {}, effectiveStockTotals = new Map(), viabilityMemo = new Map()) {
   const required = new Map();
   const steps = [];
   const warnings = [];
@@ -859,7 +857,7 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     const quantityToCraft = Math.max(0, quantity - allocatedSupply);
     const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
     const blockedKeys = [...stack, key];
-    const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], blockedKeys, detailsByKey, routeOverrides);
+    const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], blockedKeys, detailsByKey, routeOverrides, viabilityMemo);
     addRequired(required, normalizedTarget, quantity, sectionForMaterial(normalizedTarget, selected ?? parentRecipe));
     if (quantityToCraft <= 0) return;
     if (!selected) {
@@ -880,7 +878,7 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     const multiplier = selected.isProbabilistic === true ? multipliers[key]?.multiplier ?? 1 : 1;
     const craftCount = Math.ceil(quantityToCraft * multiplier / outputPerCraft);
     const section = sectionForMaterial(normalizedTarget, selected);
-    const visibleRecipes = routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides);
+    const visibleRecipes = routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides, viabilityMemo);
     const alternatives = visibleRecipes.map((recipe) => ({
       id: recipeId(recipe),
       label: String(recipe.name ?? normalizedTarget.name),
@@ -907,6 +905,7 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
           [...stack, key, recipeKey(material.kind, material.id)],
           detailsByKey,
           routeOverrides,
+          viabilityMemo,
         );
         return producer && recipeOutputs(producer).some((candidate) => siblingKeys.has(recipeKey(stackKind(candidate), stackId(candidate))) && !stackMatches(candidate, material)) ? 0 : 1;
       };
@@ -975,8 +974,8 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
   return { required, steps, usages, warnings: [...new Set(warnings)] };
 }
 
-function buildRequirementMap(targets, detailsByKey, routeOverrides, gatheredItemKeys = new Set(), multipliers = {}, effectiveStockTotals = new Map()) {
-  return buildRequirementMapPass(targets, detailsByKey, routeOverrides, gatheredItemKeys, multipliers, effectiveStockTotals);
+function buildRequirementMap(targets, detailsByKey, routeOverrides, gatheredItemKeys = new Set(), multipliers = {}, effectiveStockTotals = new Map(), viabilityMemo = new Map()) {
+  return buildRequirementMapPass(targets, detailsByKey, routeOverrides, gatheredItemKeys, multipliers, effectiveStockTotals, viabilityMemo);
 }
 
 
@@ -1589,10 +1588,11 @@ function materialRowsForRequirements({
   targetKeys,
   normalized,
   countEstimatedOutput,
+  viabilityMemo,
 }) {
   return [...requirements.values()].map((item) => {
     const enrichedItem = enrichDisplayFromDetails(item, detailsByKey);
-    const sourceRoutes = sourceRoutesForTarget({ ...item, ...enrichedItem }, detailsByKey, routeOverrides, gatheredItemKeys);
+    const sourceRoutes = sourceRoutesForTarget({ ...item, ...enrichedItem }, detailsByKey, routeOverrides, gatheredItemKeys, viabilityMemo);
     const probabilistic = sourceRoutes.some((route) => route.isProbabilistic === true);
     const multiplier = probabilistic ? multipliers[item.key]?.multiplier ?? 1 : 1;
     const bufferedRequired = item.required;
@@ -2003,6 +2003,7 @@ export function computeCraftPlan({
   activeCrafts = [],
   craftSourceErrors = [],
   catalogWarnings = [],
+  routeViabilityMemo = new Map(),
 } = {}) {
   const normalized = preparedConfig ?? normalizeCraftPlanConfig(config);
   if (!normalized.enabled || normalized.targets.length === 0) {
@@ -2049,8 +2050,8 @@ export function computeCraftPlan({
   const confirmedStockTotals = stockTotalsWithActiveOutput(availableTotals, countedActiveTotals, "guaranteedTotal");
   const gatheredItemKeys = new Set();
   const calculationTargets = expandedPlanTargets(normalized.targets, normalized.buildingProgress);
-  const { required, steps, usages, warnings } = buildRequirementMap(calculationTargets, detailsByKey, normalized.routeOverrides, gatheredItemKeys, normalized.multipliers, planningStockTotals);
-  const confirmedRequirements = buildRequirementMap(calculationTargets, detailsByKey, normalized.routeOverrides, gatheredItemKeys, normalized.multipliers, confirmedStockTotals);
+  const { required, steps, usages, warnings } = buildRequirementMap(calculationTargets, detailsByKey, normalized.routeOverrides, gatheredItemKeys, normalized.multipliers, planningStockTotals, routeViabilityMemo);
+  const confirmedRequirements = buildRequirementMap(calculationTargets, detailsByKey, normalized.routeOverrides, gatheredItemKeys, normalized.multipliers, confirmedStockTotals, routeViabilityMemo);
 
   const targetKeys = new Set(normalized.targets.filter((target) => target.kind !== "building").map((target) => recipeKey(target.kind, target.id)));
   for (const target of calculationTargets) {
@@ -2066,6 +2067,7 @@ export function computeCraftPlan({
     activeTotals: countedActiveTotals,
     targetKeys,
     normalized,
+    viabilityMemo: routeViabilityMemo,
   };
   const materials = materialRowsForRequirements({ requirements: required, usages, ...materialOptions, countEstimatedOutput: true });
   const confirmedMaterials = materialRowsForRequirements({
