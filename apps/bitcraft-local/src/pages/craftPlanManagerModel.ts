@@ -60,6 +60,13 @@ export function canOpenCraftPlanManager(adminSession: AnyRecord | null | undefin
   return canEditCraftPlan(adminSession, ownsSelectedPlan) || canViewCraftPlanAudit(adminSession);
 }
 
+export function craftPlanUnavailableActions({ canOpenManager = false, canEdit = false } = {}) {
+  return {
+    retry: true,
+    managerLabel: canOpenManager ? canEdit ? "Manage Plan" : "View Audit" : null,
+  };
+}
+
 function emptySourceRules(): CraftPlanSourceRules {
   return {
     storageContainerIds: [],

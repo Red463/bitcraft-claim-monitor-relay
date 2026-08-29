@@ -6,6 +6,7 @@ import {
   craftPlanAuditInstant,
   craftPlanAuditLocalDateTime,
   craftPlanManagerWorkspaces,
+  craftPlanUnavailableActions,
   craftPlanMaterialPresentation,
   craftPlanNeedReviewTargets,
   craftPlanRecipeReviewHref,
@@ -16,6 +17,21 @@ import {
   orderCraftPlanRouteReviews,
   stageCraftPlanRouteRecommendations,
 } from "../src/pages/craftPlanManagerModel.ts";
+
+test("failed calculations keep the authorized audit action available", () => {
+  assert.deepEqual(craftPlanUnavailableActions({ canOpenManager: true, canEdit: false }), {
+    retry: true,
+    managerLabel: "View Audit",
+  });
+  assert.deepEqual(craftPlanUnavailableActions({ canOpenManager: true, canEdit: true }), {
+    retry: true,
+    managerLabel: "Manage Plan",
+  });
+  assert.deepEqual(craftPlanUnavailableActions({ canOpenManager: false, canEdit: false }), {
+    retry: true,
+    managerLabel: null,
+  });
+});
 
 test("audit datetime controls round-trip local wall time through an explicit ISO instant", () => {
   const localValue = craftPlanAuditLocalDateTime("2026-08-10T09:30:00.000Z");

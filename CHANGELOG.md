@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.5] - 2026-08-29
+
+### Fixed
+
+- Kept Craft Plan management and administrator audit access available when a live calculation cannot be published.
+
 ## [0.66.2-beta.4] - 2026-08-29
 
 ### Fixed

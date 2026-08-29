@@ -14,7 +14,7 @@ import { CraftPlanManagerDialog } from "./CraftPlanManagerDialog";
 import { CraftPlansDialog } from "./CraftPlansDialog";
 import { resolveCraftPlanSelection } from "./craftPlanSelection.mjs";
 import type { UserAuthState } from "../types/settings";
-import { canEditCraftPlan, canOpenCraftPlanManager, canViewCraftPlanAudit, craftPlanNeedCellPresentation, craftPlanNeedReviewTargets, craftPlanRecipeReviewHref } from "./craftPlanManagerModel";
+import { canEditCraftPlan, canOpenCraftPlanManager, canViewCraftPlanAudit, craftPlanNeedCellPresentation, craftPlanNeedReviewTargets, craftPlanRecipeReviewHref, craftPlanUnavailableActions } from "./craftPlanManagerModel";
 import { applyPersonalFishingView, normalizeFishingRoutePreference, type FishingRoutePreference } from "./craftPlanningFishingView";
 import { selectCraftPlanningEffortView } from "./craftPlanningEffortView";
 import { buildNeedsBoard, filterNeedsBoard, itemKey, itemName, NEED_COLUMNS, NEED_SECTIONS, type NeedCell, type NeedRow } from "./craftPlanningNeedsBoard";
@@ -626,8 +626,11 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     if (body.planRecord) setPlan((current) => current ? { ...current, plan: body.planRecord } : current);
   }
 
+  const managerDialog = canOpenSelectedPlanManager ? <CraftPlanManagerDialog open={managerOpen} onClose={closeManager} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} permissions={Array.isArray(adminAuth?.user?.permissions) ? adminAuth.user.permissions : []} canEdit={canEditSelectedPlan} initialWorkspace={canEditSelectedPlan ? managerOutputKey ? "recipes" : "goals" : canViewSelectedPlanAudit ? "audit" : "goals"} initialOutputKey={managerOutputKey} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null;
+  const unavailableActions = craftPlanUnavailableActions({ canOpenManager: canOpenSelectedPlanManager, canEdit: canEditSelectedPlan });
+
   if (error) {
-    return <div className="panel craft-planning-page"><div className="empty-state"><AlertTriangle size={36} /><strong>Craft plan unavailable</strong><span>{error}</span><button className="toolbar-button primary" type="button" onClick={() => { setError(null); setManagerRefreshToken((value) => value + 1); }}>Retry</button></div></div>;
+    return <div className="panel craft-planning-page"><div className="empty-state"><AlertTriangle size={36} /><strong>Craft plan unavailable</strong><span>{error}</span><div className="button-row">{unavailableActions.retry ? <button className="toolbar-button primary" type="button" onClick={() => { setError(null); setManagerRefreshToken((value) => value + 1); }}>Retry</button> : null}{unavailableActions.managerLabel ? <button className="toolbar-button" type="button" onClick={() => { setManagerOutputKey(""); setManagerOpen(true); }}>{unavailableActions.managerLabel}</button> : null}</div></div>{managerDialog}</div>;
   }
 
   if (loading && !plan) {
@@ -812,7 +815,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
       )}
       {needDetailDialog}
       {sectionOverrideDialog}
-      {canOpenSelectedPlanManager ? <CraftPlanManagerDialog open={managerOpen} onClose={closeManager} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} permissions={Array.isArray(adminAuth?.user?.permissions) ? adminAuth.user.permissions : []} canEdit={canEditSelectedPlan} initialWorkspace={canEditSelectedPlan ? managerOutputKey ? "recipes" : "goals" : canViewSelectedPlanAudit ? "audit" : "goals"} initialOutputKey={managerOutputKey} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null}
+      {managerDialog}
       <CraftPlansDialog open={plansOpen} plans={plans} selectedPlanId={selectedPlanId} userCsrfToken={auth.csrfToken} adminCsrfToken={adminAuth?.csrfToken} currentUserId={auth.user?.id} onClose={() => setPlansOpen(false)} onSelect={selectPlan} onChanged={(planId) => void refreshPlans(planId).then((resolved) => { if (resolved) selectPlan(resolved); })} />
     </div>
   );
