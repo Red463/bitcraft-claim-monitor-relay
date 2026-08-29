@@ -101,11 +101,13 @@ export function buildNeedsBoard(materials: AnyRecord[], targets: AnyRecord[]): N
   for (const material of materials) {
     const taxonomy = plannerTaxonomyFor(material);
     if (taxonomy.hidden) continue;
-    const missing = Number(material.missing) || 0;
-    const required = Number(material.bufferedRequired ?? material.required) || 0;
+    const missing = Number(material.missingNow ?? material.missing) || 0;
+    const required = Number(material.planRequired ?? material.bufferedRequired ?? material.requiredNow ?? material.required) || 0;
+    const baselineOnly = Number(material.planRequired) > 0
+      && (Number(material.requiredNow ?? material.required) || 0) === 0;
     const hasRecipeUsages = Boolean(material.hasRecipeUsages || (Array.isArray(material.recipeUsages) && material.recipeUsages.length > 0));
     if (material.isTarget || targetKeys.has(itemKey(material))) continue;
-    if (required <= 0 || (missing <= 0 && !hasRecipeUsages)) continue;
+    if (required <= 0 || (missing <= 0 && !hasRecipeUsages && !baselineOnly)) continue;
     const apiName = rowNameForNeed(material);
     const rowOverrideKey = rowOverrideKeyForNeed(material);
     const suppliedOverrideKey = material.sectionOverrideKey == null ? null : String(material.sectionOverrideKey);

@@ -13,6 +13,33 @@ function fixture() {
   return { db, repository: createCraftPlanRepository(db, { randomUUID: () => "new-plan-id", now: () => "2026-08-27T10:00:00.000Z" }) };
 }
 
+function concurrentFixture() {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  applySchemaBootstrap(db);
+  applyCraftPlanRecordsMigration(db, { now: () => "2026-08-27T10:00:00.000Z" });
+  let beforeNextBegin = null;
+  const transactionalDb = new Proxy(db, {
+    get(target, property) {
+      if (property === "exec") return (sql) => {
+        if (String(sql).trim() === "BEGIN IMMEDIATE" && beforeNextBegin) {
+          const inject = beforeNextBegin;
+          beforeNextBegin = null;
+          inject(target);
+        }
+        return target.exec(sql);
+      };
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return {
+    db,
+    repository: createCraftPlanRepository(transactionalDb, { randomUUID: () => "new-plan-id", now: () => "2026-08-27T10:00:00.000Z" }),
+    beforeBegin(inject) { beforeNextBegin = inject; },
+  };
+}
+
 test("migration promotes the singleton config to the primary shared plan", () => {
   const db = new DatabaseSync(":memory:");
   applySchemaBootstrap(db);
@@ -90,6 +117,52 @@ test("repository rejects stale updates and protects the primary plan", () => {
   assert.equal(nextPrimary.revision, 2);
   assert.equal(repository.getAdmin(primary.id).primary, false);
   assert.equal(repository.getAdmin(primary.id).revision, 4);
+  db.close();
+});
+
+test("update rechecks the expected revision inside its write transaction", () => {
+  const { db, repository, beforeBegin } = concurrentFixture();
+  const primary = repository.primary();
+  beforeBegin((connection) => connection.prepare("UPDATE craft_plans SET name = 'Concurrent', revision = 2 WHERE id = ?").run(primary.id));
+
+  assert.throws(() => repository.update(primary.id, { name: "Overwritten", config: { enabled: false } }, {
+    expectedRevision: 1,
+    admin: true,
+  }), (error) => error.code === "craft_plan_revision_conflict" && error.conflict.currentRevision === 2);
+  const stored = repository.getAdmin(primary.id);
+  assert.equal(stored.name, "Concurrent");
+  assert.equal(stored.revision, 2);
+  assert.deepEqual({ ...stored.config, name: undefined }, { ...primary.config, name: undefined });
+  db.close();
+});
+
+test("delete rechecks the expected revision before deleting related state", () => {
+  const { db, repository, beforeBegin } = concurrentFixture();
+  const secondary = repository.createShared({ name: "Secondary" }, { admin: true });
+  db.prepare(`INSERT INTO craft_plan_progress_audit_snapshots (
+    claim_id, plan_id, captured_at, baseline_revision, fingerprint, payload_gzip, app_version, build_id
+  ) VALUES ('claim', ?, 'now', 'baseline', 'fingerprint', X'00', 'test', 'test')`).run(secondary.id);
+  beforeBegin((connection) => connection.prepare("UPDATE craft_plans SET name = 'Concurrent', revision = 2 WHERE id = ?").run(secondary.id));
+
+  assert.throws(() => repository.remove(secondary.id, { expectedRevision: 1, admin: true }),
+    (error) => error.code === "craft_plan_revision_conflict" && error.conflict.currentRevision === 2);
+  assert.equal(repository.getAdmin(secondary.id).name, "Concurrent");
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").get(secondary.id).count, 1);
+  db.close();
+});
+
+test("primary selection rechecks the expected revision before switching plans", () => {
+  const { db, repository, beforeBegin } = concurrentFixture();
+  const originalPrimary = repository.primary();
+  const secondary = repository.createShared({ name: "Secondary" }, { admin: true });
+  beforeBegin((connection) => connection.prepare("UPDATE craft_plans SET name = 'Concurrent', revision = 2 WHERE id = ?").run(secondary.id));
+
+  assert.throws(() => repository.setPrimary(secondary.id, { expectedRevision: 1, admin: true }),
+    (error) => error.code === "craft_plan_revision_conflict" && error.conflict.currentRevision === 2);
+  assert.equal(repository.getAdmin(originalPrimary.id).primary, true);
+  assert.equal(repository.getAdmin(originalPrimary.id).revision, 1);
+  assert.equal(repository.getAdmin(secondary.id).primary, false);
+  assert.equal(repository.getAdmin(secondary.id).revision, 2);
   db.close();
 });
 

@@ -313,6 +313,8 @@ export function selectedPlayerInventoryIds(sourceRules = {}) {
     ...(Array.isArray(sourceRules.bankPlayerIds) ? sourceRules.bankPlayerIds : []),
     ...(Array.isArray(sourceRules.bankContainerIds) ? sourceRules.bankContainerIds : [])
       .map(playerIdFromBankSourceId),
+    ...(Array.isArray(sourceRules.deployableContainerIds) ? sourceRules.deployableContainerIds : [])
+      .map((sourceId) => String(sourceId).split(":", 1)[0]),
   ].map(String).map((value) => value.trim()).filter(Boolean))];
 }
 

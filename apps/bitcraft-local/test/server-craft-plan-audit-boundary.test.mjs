@@ -24,13 +24,12 @@ test("Craft Plan saves persist structured toggle audit details", () => {
   assert.match(route, /otherSettingsChanged: auditDetails\.otherSettingsChanged/);
 });
 
-test("Craft Plan audit endpoint filters rows and normalizes legacy details", () => {
+test("Craft Plan audit endpoint returns Task 2 lifetime config history for the selected plan", () => {
   const route = routeSource(
     'if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/audit")',
     'if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan")',
   );
-  assert.match(route, /craftPlanAuditLimit\(url\.searchParams\.get\("limit"\)\)/);
-  assert.match(route, /WHERE action = \?/);
-  assert.match(route, /craft_plan\.update/);
-  assert.match(route, /normalizeCraftPlanAuditRows/);
+  assert.match(route, /craftPlanConfigAudit\.listForPlan\(planId\)/);
+  assert.match(route, /configHistory/);
+  assert.doesNotMatch(route, /admin_audit_log|normalizeCraftPlanAuditRows/);
 });

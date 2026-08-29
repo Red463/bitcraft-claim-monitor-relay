@@ -38,6 +38,45 @@ export function createPreparedStatements(db) {
     VALUES (?, ?, ?, ?)
     ON CONFLICT(plan_key) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at
   `),
+  insertCraftPlanConfigAudit: db.prepare(`
+    INSERT INTO craft_plan_config_audit (
+      plan_id, claim_id, actor_type, actor_id, actor_display_name, occurred_at,
+      previous_revision, new_revision, action, changes_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  listCraftPlanConfigAudit: db.prepare(`
+    SELECT * FROM craft_plan_config_audit
+    WHERE plan_id = ?
+    ORDER BY occurred_at ASC, id ASC
+  `),
+  deleteCraftPlanConfigAudit: db.prepare("DELETE FROM craft_plan_config_audit WHERE plan_id = ?"),
+  anonymizeCraftPlanConfigAuditActor: db.prepare(`
+    UPDATE craft_plan_config_audit
+    SET actor_id = NULL, actor_display_name = ?
+    WHERE actor_type = 'user_account' AND actor_id = ?
+  `),
+  listCraftPlanRouteReviews: db.prepare(`
+    SELECT * FROM craft_plan_route_reviews WHERE plan_id = ? ORDER BY output_key
+  `),
+  deleteCraftPlanRouteReview: db.prepare(`
+    DELETE FROM craft_plan_route_reviews WHERE plan_id = ? AND output_key = ?
+  `),
+  upsertCraftPlanRouteReview: db.prepare(`
+    INSERT INTO craft_plan_route_reviews (
+      plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
+      review_status, reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(plan_id, output_key) DO UPDATE SET
+      signature_fingerprint = excluded.signature_fingerprint,
+      selected_route_id = excluded.selected_route_id,
+      confirmed_fingerprint = excluded.confirmed_fingerprint,
+      review_status = excluded.review_status,
+      reviewer_type = excluded.reviewer_type,
+      reviewer_id = excluded.reviewer_id,
+      reviewer_display_name = excluded.reviewer_display_name,
+      reviewed_at = excluded.reviewed_at,
+      configuration_revision = excluded.configuration_revision
+  `),
   insertCraftPlanProgressSnapshot: db.prepare(`
     INSERT INTO craft_plan_progress_audit_snapshots (
       claim_id, plan_id, captured_at, baseline_revision, fingerprint, full_snapshot,
@@ -56,11 +95,28 @@ export function createPreparedStatements(db) {
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `),
+  listCraftPlanProgressSnapshotsBefore: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_snapshots
+    WHERE claim_id = ? AND plan_id = ? AND captured_at <= ?
+    ORDER BY captured_at DESC, id DESC
+  `),
+  craftPlanProgressSnapshotAt: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_snapshots
+    WHERE claim_id = ? AND plan_id = ? AND captured_at = ?
+    ORDER BY id DESC
+    LIMIT 1
+  `),
   listLatestCraftPlanProgressSnapshots: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
     WHERE claim_id = ? AND plan_id = ?
     ORDER BY captured_at DESC, id DESC
     LIMIT ?
+  `),
+  pageLatestCraftPlanProgressSnapshots: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_snapshots
+    WHERE claim_id = ? AND plan_id = ?
+    ORDER BY captured_at DESC, id DESC
+    LIMIT ? OFFSET ?
   `),
   listCraftPlanProgressSnapshotsSince: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_snapshots
@@ -72,11 +128,78 @@ export function createPreparedStatements(db) {
       claim_id, plan_id, captured_at, baseline_revision, event_type, summary, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
+  insertCraftPlanProgressCausalGroup: db.prepare(`
+    INSERT OR IGNORE INTO craft_plan_progress_audit_causal_groups (
+      claim_id, plan_id, group_id, from_captured_at, to_captured_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  exportCraftPlanProgressCausalGroups: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_causal_groups
+    WHERE claim_id = ? AND plan_id = ? AND to_captured_at >= ? AND to_captured_at <= ?
+    ORDER BY to_captured_at DESC, id DESC
+  `),
+  countCraftPlanProgressCausalGroupsFiltered: db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM craft_plan_progress_audit_causal_groups AS causal
+    WHERE causal.claim_id = ? AND causal.plan_id = ?
+      AND causal.to_captured_at >= ? AND causal.to_captured_at <= ?
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.observedTriggers')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.derivedEffects')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.materialKeys')
+        WHERE value = ?
+      ))
+      AND (? = 0 OR COALESCE(json_array_length(json_extract(
+        CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END,
+        '$.unresolvedRelationships'
+      )), 0) > 0)
+  `),
+  pageCraftPlanProgressCausalGroupsFiltered: db.prepare(`
+    SELECT causal.*
+    FROM craft_plan_progress_audit_causal_groups AS causal
+    WHERE causal.claim_id = ? AND causal.plan_id = ?
+      AND causal.to_captured_at >= ? AND causal.to_captured_at <= ?
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.observedTriggers')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.derivedEffects')
+        WHERE json_extract(value, '$.category') = ?
+      ))
+      AND (? = '' OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END, '$.materialKeys')
+        WHERE value = ?
+      ))
+      AND (? = 0 OR COALESCE(json_array_length(json_extract(
+        CASE WHEN json_valid(causal.payload_json) THEN causal.payload_json ELSE '{}' END,
+        '$.unresolvedRelationships'
+      )), 0) > 0)
+    ORDER BY causal.to_captured_at DESC, causal.id DESC
+    LIMIT ? OFFSET ?
+  `),
   listCraftPlanProgressEvents: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_events
+    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ? AND captured_at <= ?
+    ORDER BY captured_at ASC, id ASC
+    LIMIT ?
+  `),
+  latestCraftPlanProgressFailureEvent: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_events
+    WHERE claim_id = ? AND plan_id = ? AND event_type = 'source_failure'
+    ORDER BY captured_at DESC, id DESC
+    LIMIT 1
+  `),
+  exportCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
     WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
     ORDER BY captured_at ASC, id ASC
-    LIMIT ?
   `),
   latestCraftPlanBaselineChange: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
@@ -125,6 +248,15 @@ export function createPreparedStatements(db) {
     WHERE id IN (
       SELECT id FROM craft_plan_progress_audit_events
       WHERE captured_at < ?
+      ORDER BY id ASC
+      LIMIT ?
+    )
+  `),
+  pruneCraftPlanProgressCausalGroups: db.prepare(`
+    DELETE FROM craft_plan_progress_audit_causal_groups
+    WHERE id IN (
+      SELECT id FROM craft_plan_progress_audit_causal_groups
+      WHERE to_captured_at < ?
       ORDER BY id ASC
       LIMIT ?
     )

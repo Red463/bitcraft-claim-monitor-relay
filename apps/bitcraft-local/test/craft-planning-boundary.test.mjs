@@ -83,7 +83,9 @@ test("Craft Planning page renders selectable plans with owner-aware management",
   assert.match(page, /newly built/);
   assert.match(page, /Tracking pending/);
   assert.match(page, /needed/);
-  assert.match(page, /quantity\(planningSupplied\).*quantity\(cell\.required\)/s);
+  assert.match(page, /<strong>\{quantity\(cell\.missing\)\}/);
+  assert.match(page, /<small>Plan total \{quantity\(cell\.required\)\}<\/small>/);
+  assert.match(page, /Stock \{quantity\(cell\.available\)\} · Guaranteed \{quantity\(cell\.guaranteedInProgress\)\} · Estimated \{quantity\(cell\.estimatedInProgress\)\}/);
   assert.match(page, /craft-plan-needs-board/);
   assert.match(page, /craft-plan-section-filters/);
   assert.match(page, /craft-plan-needs-search/);
@@ -98,8 +100,8 @@ test("Craft Planning page renders selectable plans with owner-aware management",
   assert.match(page, /craft-plan-needs-section-row/);
   assert.match(page, /craft-plan-needs-legend/);
   assert.doesNotMatch(page, /planned secondary outputs|plannedOutput/);
-  assert.match(page, /in stock/);
-  assert.match(page, /guaranteed active output/);
+  assert.match(page, /Stock \{quantity\(cell\.available\)\}/);
+  assert.match(page, /Guaranteed craft output/);
   assert.match(page, /guaranteed/);
   assert.match(page, /estimated/);
   assert.match(page, /craft-plan-row-section-button/);
@@ -117,9 +119,10 @@ test("Craft Planning page renders selectable plans with owner-aware management",
   assert.match(page, /<Dialog[\s\S]*craft-plan-need-detail/);
   assert.match(page, /craft-plan-need-detail/);
   assert.match(page, /How to get this/);
-  assert.match(page, /<CraftPlanningRouteChooser/);
-  assert.match(page, /routeSavePendingId/);
-  assert.match(page, /await openNeedDetail\(openCell\)/);
+  assert.doesNotMatch(page, /<CraftPlanningRouteChooser/);
+  assert.doesNotMatch(page, /routeSavePendingId/);
+  assert.match(page, /craft-plan-route-readonly/);
+  assert.match(page, /await openNeedDetail\(selectedNeedRef\.current, true\)/);
   assert.doesNotMatch(page, /Treat this cell as gathered/);
   assert.doesNotMatch(page, /cellItemKeys/);
   assert.doesNotMatch(page, /gatheredCellState/);
@@ -215,7 +218,7 @@ test("Craft Planning keeps the preferred fishing route browser-local", () => {
   assert.doesNotMatch(page.match(/async function saveRouteOverride[\s\S]*?\n  }\n\n  if \(loading/)?.[0] ?? "", /setFishingRoute/);
 });
 
-test("Craft Planning manager owns full admin editing controls", () => {
+test("Craft Planning manager consolidates editing into four staged workspaces", () => {
   const manager = readFileSync(new URL("../src/pages/CraftPlanManagerDialog.tsx", import.meta.url), "utf8");
   const admin = readFileSync(new URL("../src/components/admin/AdminCraftPlanSection.tsx", import.meta.url), "utf8");
   const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
@@ -234,11 +237,16 @@ test("Craft Planning manager owns full admin editing controls", () => {
   assert.match(manager, /tierPresets/);
   assert.match(manager, /Target items/);
   assert.doesNotMatch(manager, /craft-plan-item-icon"><ItemIcon item=\{target\} \/><\/span><ItemLabel item=\{target\} \/>/);
+  assert.match(manager, /aria-label="Craft plan workspaces"/);
+  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit, canEdit \}\)/);
+  assert.match(manager, /All edits remain staged until Save Plan/);
+  assert.match(manager, /Save Plan/);
+  assert.match(manager, /Counted Sources/);
+  assert.match(manager, /Recipe Review/);
   assert.match(manager, /Settlement storage/);
-  assert.match(manager, /Players & deployables/);
+  assert.match(manager, /Player inventory and crafts/);
   assert.match(manager, /bankPlayerIds/);
   assert.match(manager, /bankContainerIds/);
-  assert.match(manager, /const TABS = \[[^\]]*"banks"/);
   assert.match(manager, /\/admin\/craft-plan\/player-banks\?playerId=/);
   assert.match(manager, /BANK_LOAD_CONCURRENCY\s*=\s*3/);
   assert.match(manager, /Tracked only/);
@@ -254,8 +262,9 @@ test("Craft Planning manager owns full admin editing controls", () => {
   assert.match(manager, /craft-plan-deployable-group/);
   assert.match(manager, /function itemTypeLabel/);
   assert.match(manager, /meta=\{itemTypeLabel\(item\)\}/);
-  assert.match(manager, /Chance-drop safety buffers/);
-  assert.match(manager, /How to get this/);
+  assert.match(manager, /Material buffer \(% extra\)/);
+  assert.match(manager, /Production route for \{review\.outputKey\}/);
+  assert.match(manager, /Confirm review/);
   assert.match(manager, /Loading plan data/);
   assert.match(manager, /Saving plan/);
   assert.match(manager, /Refreshing plan data/);
@@ -298,35 +307,27 @@ test("Craft Planning reads current members and inventories from Relay-owned serv
   assert.doesNotMatch(liveResponse, /fetchBitjita\(`\/players\/\$\{encodeURIComponent\(playerId\)\}\/inventories/);
 });
 
-test("Craft Planning manager exposes a lazy, resilient audit history tab", () => {
+test("Craft Planning manager exposes permission-gated causal audit tooling", () => {
   const manager = readFileSync(new URL("../src/pages/CraftPlanManagerDialog.tsx", import.meta.url), "utf8");
 
-  assert.match(manager, /const TABS = \[[^\]]*"audit"/);
+  assert.match(manager, /permissions\.includes\("audit\.view"\)/);
+  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit, canEdit \}\)/);
   assert.match(manager, /<History size=\{15\} \/>/);
-  assert.match(manager, /\/admin\/craft-plan\/audit\?limit=100/);
-  assert.match(manager, /gathered_item:\s*"Gathered item"/);
-  assert.match(manager, /gatheredItemKeys:\s*string\[\]/);
-  assert.match(manager, /activeTab !== "audit" \|\| auditLoaded \|\| auditLoading/);
-  assert.match(manager, /Audit history/);
-  assert.match(manager, /No craft plan changes have been recorded yet\./);
-  assert.match(manager, /Retry audit/);
-  assert.match(manager, /Other plan settings changed/);
-  assert.match(manager, /enabled/);
-  assert.match(manager, /disabled/);
-  assert.match(manager, /setAuditLoaded\(false\)/);
   assert.match(manager, /\/admin\/craft-plan\/progress-audit/);
-  assert.match(manager, /Progress diagnostics/);
-  assert.match(manager, /Last successful calculation/);
-  assert.match(manager, /Full checkpoints/);
-  assert.match(manager, /Recent progress events/);
-  assert.match(manager, /Download diagnostics/);
-  assert.match(manager, /\["24h", "3d", "7d", "all"\]/);
+  assert.match(manager, /<h5>Observed<\/h5>/);
+  assert.match(manager, /<h5>Derived<\/h5>/);
+  assert.match(manager, /Unresolved details/);
+  assert.match(manager, /Dependency paths/);
+  assert.match(manager, /Compare checkpoints/);
+  assert.match(manager, /\/admin\/craft-plan\/progress-audit\/compare/);
+  assert.match(manager, /permissions\.includes\("data\.export"\)/);
   assert.match(manager, /progress-audit\/export\?range=/);
   assert.match(manager, /URL\.createObjectURL/);
   assert.match(manager, /URL\.revokeObjectURL/);
-  assert.match(manager, /Confirmed progress/);
-  assert.match(manager, /Projected progress/);
-  assert.match(manager, /Audit storage/);
+  assert.match(manager, />Previous<\/button>/);
+  assert.match(manager, />Next<\/button>/);
+  assert.match(manager, /No causal groups match/);
+  assert.match(manager, /Retry audit/);
 });
 
 test("Craft Planning manager renders presets as compact tier-only controls", () => {
@@ -462,13 +463,14 @@ test("Craft Planning explains unavailable producer yields and labels logistics r
   assert.match(presentation, /isTransportRoute[\s\S]*?Logistics/);
 });
 
-test("Craft Planning route feedback is scoped to the opened item", () => {
+test("Craft Planning item details deep-link to staged Recipe Review editing", () => {
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /type ItemDetailFeedback = \{/);
-  assert.match(page, /itemDetailFeedback\?\.itemKey === selectedNeedKey/);
-  assert.match(page, /setItemDetailFeedback\(null\)/);
-  assert.match(page, /itemKey: outputKey/);
-  assert.doesNotMatch(page, /const \[routeStatus, setRouteStatus\]/);
-  assert.doesNotMatch(page, /const \[routeError, setRouteError\]/);
+  assert.match(page, /craftPlanRecipeReviewHref\(\{ planId: selectedPlanId, outputKey \}\)/);
+  assert.match(page, /Open in Recipe Review/);
+  assert.match(page, /Route selection is read-only here\. Authorized editors can compare and stage changes in Recipe Review\./);
+  assert.match(page, /Buffer changes are staged in Recipe Review and persist only through Save Plan\./);
+  assert.doesNotMatch(page, /ItemDetailFeedback/);
+  assert.doesNotMatch(page, /saveRouteOverride/);
+  assert.doesNotMatch(page, /saveMultiplier/);
 });

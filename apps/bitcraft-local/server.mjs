@@ -115,10 +115,12 @@ import { normalizeMarketDealWatchSettings } from "./src/server/marketDealWatchSe
 import { evaluateLiveDealWatches, sameEnabledDealWatchRevision } from "./src/server/liveDealWatch.mjs";
 import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
-import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress } from "./src/server/craftPlanning.mjs";
+import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanCatalogTargets, craftPlanDetailResponse, finalizeCraftPlanPublication, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, reconcileCraftPlanRequiredSourceStatus } from "./src/server/craftPlanning.mjs";
 import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor.mjs";
 import { refreshFailureEntry, refreshRetryAllowed, serveLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
+import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
+import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -135,8 +137,10 @@ import {
   buildCraftPlanProgressSnapshot,
   createCraftPlanProgressAuditRepository,
   normalizeCraftPlanAuditRange,
-  staleCraftPlanProgress,
+  normalizeCraftPlanAuditWindow,
 } from "./src/server/craftPlanProgressAudit.mjs";
+import { createCraftPlanLastGoodPublicationRepository, resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
+import { craftPlanSaveErrorBody, orchestrateCraftPlanSave } from "./src/server/craftPlanSaveOrchestration.mjs";
 import { buildCraftPlanDiscordEmbed, buildCraftPlanDiscordReport, buildUnavailableCraftPlanDiscordReport, craftPlanReportProfessions, dueCraftPlanReportOccurrence, nextCraftPlanReportOccurrenceIso, normalizeCraftPlanReportProfession, validateCraftPlanReportSettings } from "./src/server/craftPlanDiscordReports.mjs";
 import { craftPlanInteractionDiagnostic, deferredDiscordInteractionResult, editDiscordInteractionOriginal, preflightCraftPlanInteraction, runDiscordTaskAfterResponse } from "./src/server/discordCraftPlanInteractions.mjs";
 import { buildWorkstationPresets, normalizeCatalogWorkstationTarget } from "./src/server/craftPlanWorkstationPresets.mjs";
@@ -628,7 +632,10 @@ cleanupRetiredRegionalMarketState();
 installRetiredTableAuthorizer(db);
 
 const statements = createPreparedStatements(db);
-const craftPlans = createCraftPlanRepository(db);
+const craftPlanConfigAudit = createCraftPlanConfigAuditRepository(db, { statements });
+const craftPlanRouteReviews = createCraftPlanRouteReviewRepository(db, { statements });
+const craftPlanLastGoodPublications = createCraftPlanLastGoodPublicationRepository(db);
+const craftPlans = createCraftPlanRepository(db, { configAudit: craftPlanConfigAudit, routeReviews: craftPlanRouteReviews, lastGoodPublications: craftPlanLastGoodPublications });
 const discordOutboxLeaser = createDiscordOutboxLeaser(db, {
   workerId: `${processRole}:${os.hostname()}:${process.pid}:${randomBytes(8).toString("hex")}`,
   leaseMs: discordNotificationLeaseMs,
@@ -1173,9 +1180,11 @@ async function persistRelayRuntimeDomainHeartbeats(runtimeHealth, domains) {
 }
 const craftPlanProgressAudit = createCraftPlanProgressAuditRepository(db, {
   statements,
-  retentionDays: 14,
+  retentionDays: 30,
 });
 let craftPlanProgressAuditWriteWarning = null;
+const craftPlanCalculationValidationWarnings = new Map();
+const craftPlanLastGoodLimitations = new Map();
 const gameCatalogRepository = createGameCatalogRepository(db);
 const empireMembershipRepository = createEmpireMembershipRepository(db);
 
@@ -1814,6 +1823,18 @@ function audit(user, action, details = {}) {
   statements.insertAudit.run(user?.id ?? null, user?.username ?? "system", action, JSON.stringify(details), new Date().toISOString());
 }
 
+function adminCraftPlanActor(user) {
+  return { type: "admin", id: String(user?.id ?? ""), displayName: String(user?.username ?? "Administrator") };
+}
+
+function userCraftPlanActor(user) {
+  return {
+    type: "user_account",
+    id: String(user?.id ?? ""),
+    displayName: String(user?.discord_global_name ?? user?.discord_username ?? user?.character_name ?? "User"),
+  };
+}
+
 const SLOW_REQUEST_LOG_MS = Math.max(1000, Number(process.env.SLOW_REQUEST_LOG_MS ?? 8000));
 
 const CRAFT_PLAN_RESPONSE_CACHE_TTL_MS = Math.max(1000, Number(process.env.CRAFT_PLAN_RESPONSE_CACHE_MS ?? 60_000));
@@ -1859,15 +1880,25 @@ function storedCraftPlanConfig(planId) {
   return normalizeCraftPlanConfig(plan ? { ...plan.config, name: plan.name } : {});
 }
 
-function saveCraftPlanConfig(config, planId) {
+async function saveCraftPlanConfig(config, planId, actor = null) {
   const existing = selectedCraftPlan(planId);
   if (!existing) throw Object.assign(new Error("Craft plan not found"), { statusCode: 404 });
   const normalized = normalizeCraftPlanConfig(config);
-  const updated = craftPlans.update(existing.id, { name: normalized.name, config: normalized }, { expectedRevision: existing.revision, admin: true });
-  craftPlanResponseGeneration += 1;
-  craftPlanResponseCache.clear();
-  craftPlanEffortBaselineCache.clear();
-  return normalizeCraftPlanConfig(updated.config);
+  const resolvedActor = actor ?? { type: "system", id: null, displayName: "Building progress reconciliation" };
+  const { planRecord } = await orchestrateCraftPlanSave({
+    planId: existing.id,
+    body: { expectedRevision: existing.revision, name: normalized.name, config: normalized },
+    currentPlan: existing,
+    configInput: normalized,
+    normalizeConfig: normalizeCraftPlanConfig,
+    previewConfig: previewCraftPlanConfig,
+    updatePlan: (...args) => craftPlans.update(...args),
+    invalidate: invalidateCraftPlanResponses,
+    subject: { admin: true },
+    actor: resolvedActor,
+    claimId: getSettings().claimId,
+  });
+  return normalizeCraftPlanConfig(planRecord.config);
 }
 
 function invalidateCraftPlanResponses() {
@@ -2165,6 +2196,28 @@ async function craftPlanAdminResponse(claimId = getSettings().claimId, planId) {
   return response;
 }
 
+async function previewCraftPlanConfig(planId, inputConfig, subject) {
+  const staged = craftPlans.stage(planId, normalizeCraftPlanConfig(inputConfig), subject);
+  const plan = await computedCraftPlanResponseFresh(getSettings().claimId, {
+    planId: staged.plan.id,
+    configOverride: staged.config,
+    preview: true,
+  });
+  const preview = buildCraftPlanPreview({
+    plan,
+    scope: staged.plan.scope,
+    configurationRevision: staged.plan.revision,
+    baselineRevision: plan?.effortProgress?.baselineRevision,
+    validation: plan.validation,
+  });
+  const reviewState = craftPlanRouteReviews.previewState(staged.plan.id, preview.routeReviews, []);
+  const confirmedKeys = new Set(reviewState.confirmed.map((entry) => entry.outputKey));
+  return {
+    ...preview,
+    routeReviews: preview.routeReviews.map((entry) => ({ ...entry, confirmed: confirmedKeys.has(entry.outputKey) })),
+  };
+}
+
 async function craftPlanPlayerBankResponse(playerId, claimId = getSettings().claimId) {
   return resolveCraftPlanPlayerBanks({
     playerId,
@@ -2276,7 +2329,16 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const generation = craftPlanResponseGeneration;
   const startedAt = Date.now();
   plannerTelemetry.freshCalculations += 1;
-  const promise = computedCraftPlanResponseFresh(normalizedClaimId, { forceRefresh, planId }).then((plan) => {
+  const retained = cached?.workspace?.plan
+    ? { plan: cached.workspace.plan, limitation: null }
+    : craftPlanLastGoodPublications.load(normalizedClaimId, planId);
+  if (retained.limitation) craftPlanLastGoodLimitations.set(planId, retained.limitation);
+  else craftPlanLastGoodLimitations.delete(planId);
+  const promise = computedCraftPlanResponseFresh(normalizedClaimId, {
+    forceRefresh,
+    planId,
+    lastGoodPlan: retained.plan,
+  }).then((plan) => {
     const workspace = createCraftPlanResponseWorkspace(plan);
     plannerTelemetry.lastDurationMs = Date.now() - startedAt;
     plannerTelemetry.lastCompletedAt = new Date().toISOString();
@@ -2327,17 +2389,23 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const forceRefresh = options.forceRefresh === true;
   const planId = String(options.planId ?? craftPlans.primary()?.id ?? "");
   const planRecord = selectedCraftPlan(planId);
-  let config = storedCraftPlanConfig(planId);
+  let config = options.configOverride
+    ? normalizeCraftPlanConfig(options.configOverride)
+    : storedCraftPlanConfig(planId);
   if (!config.enabled || !config.targets.length) {
     const plan = computeCraftPlan({ config });
     plan.plan = planRecord ? { id: planRecord.id, name: planRecord.name, scope: planRecord.scope, primary: planRecord.primary, revision: planRecord.revision } : null;
     plan.effortProgress = calculateCraftPlanEffortProgress({ baselinePlan: plan, currentPlan: plan, weights: new Map() });
+    plan.effortProgress.baselineRevision = craftPlanBaselineRevision(config, "", CRAFT_PLAN_EFFORT_MODEL_VERSION);
+    plan.validation = { valid: true, baselineRevision: plan.effortProgress.baselineRevision, errors: [] };
     return plan;
   }
   try {
     const buildingsPayload = currentClaimBuildingsProjection(claimId);
     const reconciled = reconcileCraftPlanBuildingProgress(config, buildingsPayload);
-    config = reconciled.changed ? saveCraftPlanConfig(reconciled.config, planId) : reconciled.config;
+    config = reconciled.changed && !options.preview
+      ? await saveCraftPlanConfig(reconciled.config, planId)
+      : reconciled.config;
   } catch {
     // Keep prior baselines and observed completions while the first Relay building generation loads.
   }
@@ -2366,9 +2434,6 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   if (Array.isArray(craftsPayload.warnings)) {
     catalogWarnings.push(...craftsPayload.warnings);
   }
-  const sourceFailures = [inventoriesResult, craftsResult]
-    .filter((result) => result.error)
-    .map((result) => ({ ...result.source, error: result.error }));
   const memberNames = new Map(unwrap(membersPayload, "members", []).map((member) => {
     const playerId = String(member.playerEntityId ?? member.entityId ?? "");
     return [playerId, String(member.userName ?? member.username ?? playerId)];
@@ -2401,12 +2466,6 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       deployableSources.push(...enrichCraftPlanSourcesFromLocalCatalog(gameCatalogRepository, sources.deployables, catalogWarnings));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      sourceFailures.push({
-        sourceId: playerId,
-        label: `${label} inventories`,
-        type: "Player inventories",
-        error: message,
-      });
       if (inventoryPlayerIds.has(playerId)) {
         playerSources.push({ sourceId: playerId, label: `${label} inventory`, type: "Player inventory", unavailable: true, error: message, items: [] });
       }
@@ -2443,12 +2502,13 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const currentPlanRecord = selectedCraftPlan(planId);
   livePlan.plan = currentPlanRecord ? { id: currentPlanRecord.id, name: currentPlanRecord.name, scope: currentPlanRecord.scope, primary: currentPlanRecord.primary, revision: currentPlanRecord.revision } : null;
   const storedEffortModelVersion = Number(statements.getSetting.get("game_catalog_effort_model_version")?.value ?? 0);
-  if (storedEffortModelVersion !== CRAFT_PLAN_EFFORT_MODEL_VERSION) {
-    livePlan.effortProgress = unavailableCraftPlanEffortProgress();
-    return livePlan;
-  }
-  const catalogRevision = gameCatalogRepository.getEffortWeightRevision(CRAFT_PLAN_EFFORT_MODEL_VERSION);
-  const weights = gameCatalogRepository.getEffortWeights(CRAFT_PLAN_EFFORT_MODEL_VERSION);
+  const effortModelAvailable = storedEffortModelVersion === CRAFT_PLAN_EFFORT_MODEL_VERSION;
+  const catalogRevision = effortModelAvailable
+    ? gameCatalogRepository.getEffortWeightRevision(CRAFT_PLAN_EFFORT_MODEL_VERSION)
+    : "";
+  const weights = effortModelAvailable
+    ? gameCatalogRepository.getEffortWeights(CRAFT_PLAN_EFFORT_MODEL_VERSION)
+    : new Map();
   const baselineRevision = craftPlanBaselineRevision(config, catalogRevision, CRAFT_PLAN_EFFORT_MODEL_VERSION);
   const baselineConfig = craftPlanBaselineConfig(config);
   const baselineKey = `${planId}:${craftPlanEffortBaselineKey(baselineConfig, catalogRevision, CRAFT_PLAN_EFFORT_MODEL_VERSION)}`;
@@ -2464,26 +2524,31 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   plannerTelemetry.baselineInflightReuse = baselineStats.inflightReuse;
   plannerTelemetry.baselineEntries = baselineStats.entries;
   plannerTelemetry.baselineBytes = baselineStats.bytes;
-  livePlan.effortProgress = {
-    ...calculateCraftPlanEffortProgress({ baselinePlan, currentPlan: livePlan, weights }),
-    baselineRevision,
-  };
+  livePlan.effortProgress = effortModelAvailable
+    ? {
+        ...calculateCraftPlanEffortProgress({ baselinePlan, currentPlan: livePlan, weights }),
+        baselineRevision,
+      }
+    : {
+        ...unavailableCraftPlanEffortProgress(),
+        baselineRevision,
+      };
 
-  const sourceStatus = [
+  const discoveredSourceStatus = [
     ...storageSources,
     ...playerSources,
     ...bankSources,
     ...deployableSources,
   ].map((source) => ({
     sourceId: String(source?.sourceId ?? ""),
+    playerId: source?.playerId == null ? undefined : String(source.playerId),
+    legacySourceIds: Array.isArray(source?.legacySourceIds) ? source.legacySourceIds.map(String) : [],
     label: String(source?.label ?? source?.sourceId ?? "Planner source"),
     type: String(source?.type ?? "Planner source"),
     available: source?.unavailable !== true,
     error: source?.unavailable ? String(source?.error ?? "Unavailable") : "",
   }));
-  sourceStatus.push(
-    { ...inventoriesResult.source, available: !inventoriesResult.error, error: inventoriesResult.error },
-    { ...craftsResult.source, available: !craftsResult.error, error: craftsResult.error },
+  discoveredSourceStatus.push(
     ...config.sourceRules.craftPlayerIds.flatMap((playerId) => [{
       sourceId: `${String(playerId)}:crafts`,
       label: `${memberNames.get(String(playerId)) ?? playerId} crafts`,
@@ -2498,14 +2563,35 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       error: craftsResult.error,
     }]),
   );
+  const sourceStatus = reconcileCraftPlanRequiredSourceStatus(config, discoveredSourceStatus);
+  const sourceFailures = sourceStatus
+    .filter((source) => source?.available !== true)
+    .map((source) => ({ ...source, error: String(source?.error ?? "Unavailable") }));
 
   const capturedAt = new Date().toISOString();
-  if (!sourceFailures.length) {
+  const completedPublication = finalizeCraftPlanPublication({
+    candidatePlan: livePlan,
+    baselinePlan,
+    requiredSources: sourceStatus,
+    lastGoodPlan: options.lastGoodPlan,
+    baselineRevision,
+  });
+  livePlan.materials = completedPublication.candidatePlan.materials;
+  livePlan.gatherNext = completedPublication.candidatePlan.gatherNext;
+  const validation = completedPublication.validation;
+  const publication = completedPublication;
+  if (options.preview) return { ...livePlan, validation };
+  if (validation.valid) {
+    craftPlanCalculationValidationWarnings.delete(planId);
+  }
+
+  const publicationFailed = !validation.valid || sourceFailures.length > 0;
+  if (!publicationFailed && effortModelAvailable) {
     livePlan.effortProgress.lastSuccessfulAt = capturedAt;
     try {
       const auditResult = craftPlanProgressAudit.recordSuccess(buildCraftPlanProgressSnapshot({
         claimId,
-        plan: livePlan,
+        plan: { ...livePlan, validation },
         sourceStatus,
         weights,
         metadata: {
@@ -2528,38 +2614,42 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       };
       console.warn(`Craft Plan progress audit write failed: ${craftPlanProgressAuditWriteWarning.error}`);
     }
-  } else {
+  } else if (publicationFailed) {
     try {
-      craftPlanProgressAudit.recordFailure(claimId, sourceFailures, capturedAt, planId);
-      craftPlanProgressAuditWriteWarning = null;
+      const failedPublication = resolveFailedCraftPlanPublication({
+        claimId,
+        planId,
+        candidatePlan: livePlan,
+        publication,
+        validation,
+        sourceFailures,
+        capturedAt,
+        validationWarnings: craftPlanCalculationValidationWarnings,
+        progressAudit: craftPlanProgressAudit,
+        baselineChange: ({ planId: failedPlanId }) => craftPlanBaselineChangeSince(
+          claimId,
+          new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          failedPlanId,
+        ),
+      });
+      craftPlanProgressAuditWriteWarning = failedPublication.auditError;
+      if (craftPlanProgressAuditWriteWarning) {
+        console.warn(`Craft Plan progress audit failure handling failed: ${craftPlanProgressAuditWriteWarning.error}`);
+      }
+      return failedPublication.plan;
     } catch (error) {
-      craftPlanProgressAuditWriteWarning = {
-        at: capturedAt,
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
-      };
-      console.warn(`Craft Plan progress audit failure write failed: ${craftPlanProgressAuditWriteWarning.error}`);
+      if (error?.auditError) craftPlanProgressAuditWriteWarning = error.auditError;
+      throw error;
     }
-    let lastSuccess = null;
-    try {
-      lastSuccess = craftPlanProgressAudit.latestSuccess(claimId, planId);
-    } catch (error) {
-      craftPlanProgressAuditWriteWarning = {
-        at: capturedAt,
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
-      };
-      console.warn(`Craft Plan progress audit recovery read failed: ${craftPlanProgressAuditWriteWarning.error}`);
-    }
-    livePlan.effortProgress = lastSuccess?.effortProgress
-      ? staleCraftPlanProgress(lastSuccess.effortProgress, sourceFailures, capturedAt)
-      : unavailableCraftPlanEffortProgress();
-    livePlan.effortProgress.baselineChange = craftPlanBaselineChangeSince(
-      claimId,
-      new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    );
-    livePlan.unavailableSources = [
-      ...(Array.isArray(livePlan.unavailableSources) ? livePlan.unavailableSources : []),
-      ...sourceFailures,
-    ];
+  }
+  try {
+    craftPlanLastGoodPublications.store(claimId, planId, livePlan, capturedAt);
+    craftPlanLastGoodLimitations.delete(planId);
+  } catch (error) {
+    craftPlanLastGoodLimitations.set(planId, {
+      at: capturedAt,
+      error: `Craft Plan last-good publication write failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300),
+    });
   }
   return livePlan;
 }
@@ -8504,17 +8594,25 @@ const server = createServer(async (req, res) => {
       const appUser = req.method === "GET" ? requireAppUserSession(req, res) : requireAppUser(req, res);
       if (!appUser) return;
       const userPlanSuffix = url.pathname.slice("/api/local/user/craft-plans/".length);
-      const userPlanMatch = userPlanSuffix.match(/^([^/]+)(?:\/(player-banks|workstation-preset))?$/);
+      const userPlanMatch = userPlanSuffix.match(/^([^/]+)(?:\/(player-banks|workstation-preset|preview))?$/);
       const planId = decodeURIComponent(userPlanMatch?.[1] ?? "");
       try {
         if (req.method === "POST" && url.pathname === "/api/local/user/craft-plans") {
           const body = await readJson(req, BODY_LIMITS.settings);
-          const created = craftPlans.createPersonal({ ownerUserId: appUser.id, name: body.name, duplicateFromPlanId: body.duplicateFromPlanId });
+          const created = craftPlans.createPersonal({ ownerUserId: appUser.id, name: body.name, duplicateFromPlanId: body.duplicateFromPlanId }, {
+            actor: userCraftPlanActor(appUser),
+            claimId: getSettings().claimId,
+          });
           invalidateCraftPlanResponses();
           return send(res, 201, created);
         }
         const planRecord = craftPlans.getVisible(planId, { userId: appUser.id });
         if (!planRecord || planRecord.scope !== "personal" || planRecord.ownerUserId !== Number(appUser.id)) return send(res, 404, { error: "Craft plan not found" });
+        if (req.method === "POST" && userPlanMatch?.[2] === "preview") {
+          if (!rateLimit(req, res, "craft-plan-preview", RATE_LIMITS.expensiveLocal)) return;
+          const body = await readJson(req, BODY_LIMITS.settings);
+          return send(res, 200, await previewCraftPlanConfig(planId, body.config ?? body, { userId: appUser.id }), { "cache-control": "no-store" });
+        }
         if (req.method === "GET" && userPlanMatch?.[2] === "player-banks") {
           const playerId = String(url.searchParams.get("playerId") ?? "");
           if (!appUser.character_player_id || playerId !== String(appUser.character_player_id)) return send(res, 404, { error: "Craft plan not found" });
@@ -8532,11 +8630,20 @@ const server = createServer(async (req, res) => {
         }
         const body = await readJson(req, BODY_LIMITS.settings);
         if (req.method === "PUT") {
-          const changes = { name: body.name };
-          if (Object.prototype.hasOwnProperty.call(body, "config")) changes.config = normalizeCraftPlanConfig(body.config);
-          const planRecord = craftPlans.update(planId, changes, { expectedRevision: body.expectedRevision, userId: appUser.id });
-          invalidateCraftPlanResponses();
-          return send(res, 200, { planRecord });
+          const { planRecord: updatedPlanRecord } = await orchestrateCraftPlanSave({
+            planId,
+            body,
+            currentPlan: planRecord,
+            configInput: Object.prototype.hasOwnProperty.call(body, "config") ? body.config : undefined,
+            normalizeConfig: normalizeCraftPlanConfig,
+            previewConfig: previewCraftPlanConfig,
+            updatePlan: (...args) => craftPlans.update(...args),
+            invalidate: invalidateCraftPlanResponses,
+            subject: { userId: appUser.id },
+            actor: userCraftPlanActor(appUser),
+            claimId: getSettings().claimId,
+          });
+          return send(res, 200, { planRecord: updatedPlanRecord });
         }
         if (req.method === "DELETE") {
           craftPlans.remove(planId, { expectedRevision: body.expectedRevision, userId: appUser.id });
@@ -8544,7 +8651,7 @@ const server = createServer(async (req, res) => {
           return send(res, 200, { ok: true });
         }
       } catch (error) {
-        return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code });
+        return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
       }
     }
     if (req.method === "POST" && url.pathname === "/api/local/auth/privacy/reauth/start") {
@@ -9591,13 +9698,61 @@ const server = createServer(async (req, res) => {
         const claimId = getSettings().claimId;
         const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "legacy-primary");
         if (!craftPlans.getAdmin(planId)) return send(res, 404, { error: "Craft plan not found" });
+        let range;
+        try {
+          range = normalizeCraftPlanAuditRange(url.searchParams.get("range"), new Date().toISOString());
+        } catch (error) {
+          return send(res, 400, { error: error instanceof Error ? error.message : "Invalid audit range." });
+        }
+        let window;
+        try {
+          window = normalizeCraftPlanAuditWindow({
+            range: range.label,
+            since: String(url.searchParams.get("since") || ""),
+            until: String(url.searchParams.get("until") || ""),
+            now: new Date().toISOString(),
+          });
+        } catch (error) {
+          return send(res, 400, { error: error instanceof Error ? error.message : "Invalid audit window." });
+        }
+        const { since, until } = window;
+        const causal = craftPlanProgressAudit.queryCausalGroups(claimId, {
+          planId,
+          since,
+          until,
+          page: url.searchParams.get("page"),
+          pageSize: url.searchParams.get("pageSize"),
+          triggerCategory: String(url.searchParams.get("triggerCategory") ?? ""),
+          effectCategory: String(url.searchParams.get("effectCategory") ?? ""),
+          materialKey: String(url.searchParams.get("materialKey") ?? ""),
+          unresolvedOnly: url.searchParams.get("unresolvedOnly") === "true",
+        });
+        const auditStatus = craftPlanProgressAudit.status(claimId, planId);
         return send(res, 200, {
           status: {
-            ...craftPlanProgressAudit.status(claimId, planId),
+            ...auditStatus,
             writeWarning: craftPlanProgressAuditWriteWarning,
+            validationWarning: craftPlanCalculationValidationWarnings.get(planId) ?? auditStatus.validationWarning ?? null,
+            lastGoodLimitation: craftPlanLastGoodLimitations.get(planId) ?? null,
           },
-          events: craftPlanProgressAudit.listEvents(claimId, { limit: 100, planId }),
+          events: craftPlanProgressAudit.listEvents(claimId, { since, until, limit: 100, planId }),
+          causalGroups: causal.causalGroups,
+          pagination: causal.pagination,
         });
+      }
+      if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/progress-audit/compare") {
+        const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "legacy-primary");
+        if (!craftPlans.getAdmin(planId)) return send(res, 404, { error: "Craft plan not found" });
+        const comparison = craftPlanProgressAudit.compareCheckpoints(getSettings().claimId, {
+          planId,
+          from: url.searchParams.get("from"),
+          to: url.searchParams.get("to"),
+        });
+        if (!comparison.ok) {
+          const statusCode = comparison.error?.code === "missing_evidence" ? 404 : 422;
+          return send(res, statusCode, comparison);
+        }
+        return send(res, 200, comparison);
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/progress-audit/export") {
         if (!rateLimit(req, res, "craft-plan-progress-audit-export", RATE_LIMITS.expensiveLocal)) return;
@@ -9617,18 +9772,9 @@ const server = createServer(async (req, res) => {
         });
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/audit") {
-        const limit = craftPlanAuditLimit(url.searchParams.get("limit"));
         const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "legacy-primary");
         if (!craftPlans.getAdmin(planId)) return send(res, 404, { error: "Craft plan not found" });
-        const rows = db.prepare(`
-          SELECT id, username, details_json, occurred_at
-          FROM admin_audit_log
-          WHERE action = ?
-            AND (json_extract(details_json, '$.planId') = ? OR (? = 'legacy-primary' AND json_extract(details_json, '$.planId') IS NULL))
-          ORDER BY occurred_at DESC, id DESC
-          LIMIT ?
-        `).all("craft_plan.update", planId, planId, limit);
-        return send(res, 200, { auditLog: normalizeCraftPlanAuditRows(rows) });
+        return send(res, 200, { configHistory: craftPlanConfigAudit.listForPlan(planId).reverse() });
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan") {
         return send(res, 200, await craftPlanAdminResponse(getSettings().claimId, url.searchParams.get("planId") || undefined));
@@ -9636,29 +9782,63 @@ const server = createServer(async (req, res) => {
       if (url.pathname === "/api/local/admin/craft-plans" || url.pathname.startsWith("/api/local/admin/craft-plans/")) {
         const suffix = url.pathname.slice("/api/local/admin/craft-plans/".length);
         const primaryMatch = suffix.match(/^([^/]+)\/primary$/);
-        const planId = decodeURIComponent(primaryMatch?.[1] ?? suffix);
+        const previewMatch = suffix.match(/^([^/]+)\/preview$/);
+        const planId = decodeURIComponent(primaryMatch?.[1] ?? previewMatch?.[1] ?? suffix);
         try {
           if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plans") return send(res, 200, { plans: craftPlans.listAdmin({ scope: url.searchParams.get("scope") ?? "", query: url.searchParams.get("query") ?? "" }) });
           if (req.method === "POST" && url.pathname === "/api/local/admin/craft-plans") {
             const body = await readJson(req, BODY_LIMITS.settings);
-            const planRecord = craftPlans.createShared({ name: body.name, duplicateFromPlanId: body.duplicateFromPlanId }, { admin: true });
+            const duplicateSource = body.duplicateFromPlanId ? craftPlans.getAdmin(body.duplicateFromPlanId) : null;
+            const preview = duplicateSource
+              ? await previewCraftPlanConfig(duplicateSource.id, duplicateSource.config, { admin: true })
+              : null;
+            const planRecord = craftPlans.createShared({ name: body.name, duplicateFromPlanId: body.duplicateFromPlanId }, {
+              admin: true,
+              actor: adminCraftPlanActor(user),
+              claimId: getSettings().claimId,
+              routeReviewState: preview ? {
+                routeReviews: preview.routeReviews,
+                confirmations: Array.isArray(body.routeReviewConfirmations) ? body.routeReviewConfirmations : [],
+                reviewer: adminCraftPlanActor(user),
+              } : null,
+            });
             invalidateCraftPlanResponses();
             audit(user, "craft_plan.create", { planId: planRecord.id, name: planRecord.name, scope: planRecord.scope });
             return send(res, 201, { planRecord });
           }
           const body = req.method === "GET" ? {} : await readJson(req, BODY_LIMITS.settings);
           if (req.method === "POST" && primaryMatch) {
-            const planRecord = craftPlans.setPrimary(planId, { expectedRevision: body.expectedRevision, admin: true });
+            const planRecord = craftPlans.setPrimary(planId, {
+              expectedRevision: body.expectedRevision,
+              admin: true,
+              actor: adminCraftPlanActor(user),
+              claimId: getSettings().claimId,
+            });
             invalidateCraftPlanResponses();
             audit(user, "craft_plan.primary", { planId: planRecord.id, name: planRecord.name });
             return send(res, 200, { planRecord });
           }
+          if (req.method === "POST" && previewMatch) {
+            if (!rateLimit(req, res, "craft-plan-preview", RATE_LIMITS.expensiveLocal)) return;
+            const body = await readJson(req, BODY_LIMITS.settings);
+            return send(res, 200, await previewCraftPlanConfig(planId, body.config ?? body, { admin: true }), { "cache-control": "no-store" });
+          }
           if (req.method === "GET") return send(res, 200, await craftPlanAdminResponse(getSettings().claimId, planId));
           if (req.method === "PUT") {
-            const changes = { name: body.name };
-            if (Object.prototype.hasOwnProperty.call(body, "config")) changes.config = normalizeCraftPlanConfig(body.config);
-            const planRecord = craftPlans.update(planId, changes, { expectedRevision: body.expectedRevision, admin: true });
-            invalidateCraftPlanResponses();
+            const existing = craftPlans.getAdmin(planId);
+            const { planRecord } = await orchestrateCraftPlanSave({
+              planId,
+              body,
+              currentPlan: existing,
+              configInput: Object.prototype.hasOwnProperty.call(body, "config") ? body.config : undefined,
+              normalizeConfig: normalizeCraftPlanConfig,
+              previewConfig: previewCraftPlanConfig,
+              updatePlan: (...args) => craftPlans.update(...args),
+              invalidate: invalidateCraftPlanResponses,
+              subject: { admin: true },
+              actor: adminCraftPlanActor(user),
+              claimId: getSettings().claimId,
+            });
             audit(user, "craft_plan.update", { planId: planRecord.id, name: planRecord.name, scope: planRecord.scope });
             return send(res, 200, { planRecord });
           }
@@ -9670,7 +9850,7 @@ const server = createServer(async (req, res) => {
             return send(res, 200, { ok: true });
           }
         } catch (error) {
-          return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code });
+          return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
         }
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/player-banks") {
@@ -9687,28 +9867,53 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "PUT" && url.pathname === "/api/local/admin/craft-plan") {
         const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "");
-        const previousConfig = storedCraftPlanConfig(planId);
-        const body = await readJson(req, BODY_LIMITS.settings);
-        let submittedConfig = normalizeCraftPlanConfig(body);
         try {
-          const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
-          submittedConfig = reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
-        } catch {
-          // Leave newly added building targets pending until a complete Relay building generation commits.
+          const existing = craftPlans.getAdmin(planId);
+          const previousConfig = storedCraftPlanConfig(planId);
+          const body = await readJson(req, BODY_LIMITS.settings);
+          const configInput = Object.prototype.hasOwnProperty.call(body, "config") ? body.config : { ...body };
+          if (!Object.prototype.hasOwnProperty.call(body, "config")) {
+            delete configInput.expectedRevision;
+            delete configInput.routeReviewConfirmations;
+          }
+          const { planRecord } = await orchestrateCraftPlanSave({
+            planId,
+            body,
+            currentPlan: existing,
+            configInput,
+            normalizeConfig: normalizeCraftPlanConfig,
+            prepareConfig: async (submittedConfig) => {
+              try {
+                const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
+                return reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
+              } catch {
+                return submittedConfig;
+              }
+            },
+            previewConfig: previewCraftPlanConfig,
+            updatePlan: (...args) => craftPlans.update(...args),
+            invalidate: invalidateCraftPlanResponses,
+            subject: { admin: true },
+            actor: adminCraftPlanActor(user),
+            claimId: getSettings().claimId,
+            resolveName: (submittedConfig) => submittedConfig.name,
+          });
+          const config = normalizeCraftPlanConfig({ ...planRecord.config, name: planRecord.name });
+          const response = await craftPlanAdminResponse(getSettings().claimId, planId);
+          const auditDetails = craftPlanAuditDetails(previousConfig, config, craftPlanAuditLabels(response.sources, response.plan?.materials));
+          audit(user, "craft_plan.update", {
+            planId,
+            targets: config.targets.length,
+            players: config.sourceRules.playerIds.length,
+            banks: config.sourceRules.bankContainerIds.length + config.sourceRules.bankPlayerIds.length,
+            deployables: config.sourceRules.deployableContainerIds.length,
+            changes: auditDetails.changes,
+            otherSettingsChanged: auditDetails.otherSettingsChanged,
+          });
+          return send(res, 200, response);
+        } catch (error) {
+          return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
         }
-        const config = saveCraftPlanConfig(submittedConfig, planId);
-        const response = await craftPlanAdminResponse(getSettings().claimId, planId);
-        const auditDetails = craftPlanAuditDetails(previousConfig, config, craftPlanAuditLabels(response.sources, response.plan?.materials));
-        audit(user, "craft_plan.update", {
-          planId,
-          targets: config.targets.length,
-          players: config.sourceRules.playerIds.length,
-          banks: config.sourceRules.bankContainerIds.length + config.sourceRules.bankPlayerIds.length,
-          deployables: config.sourceRules.deployableContainerIds.length,
-          changes: auditDetails.changes,
-          otherSettingsChanged: auditDetails.otherSettingsChanged,
-        });
-        return send(res, 200, response);
       }
       if (req.method === "PUT" && url.pathname === "/api/local/admin/access-control") {
         const body = await readJson(req, BODY_LIMITS.settings);

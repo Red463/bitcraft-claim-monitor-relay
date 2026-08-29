@@ -666,13 +666,15 @@ function recipeMatchesOverride(recipe, overrideId) {
   return recipeId(recipe) === selected || String(recipe?.recipeKey ?? recipe?.catalogRecipeKey ?? "") === selected;
 }
 
-function selectedRecipeForTarget(recipes, overrideId, blockedKeys = []) {
+function recipeIsSelectable(recipe, blockedKeys = []) {
   const blocked = new Set(blockedKeys);
-  const isValid = (recipe) => !recipeInputs(recipe)
-    .some((input) => blocked.has(recipeKey(stackKind(input), stackId(input))));
+  return !recipeInputs(recipe).some((input) => blocked.has(recipeKey(stackKind(input), stackId(input))));
+}
+
+function selectedRecipeForTarget(recipes, overrideId, blockedKeys = []) {
   const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
-  if (overridden && isValid(overridden)) return overridden;
-  return recipes.find((recipe) => !recipeLooksTransportRoute(recipe) && isValid(recipe)) ?? null;
+  if (overridden && recipeIsSelectable(overridden, blockedKeys)) return overridden;
+  return recipes.find((recipe) => !recipeLooksTransportRoute(recipe) && recipeIsSelectable(recipe, blockedKeys)) ?? null;
 }
 
 function mergeDetailTarget(detail, target) {
@@ -733,8 +735,52 @@ function sectionOverrideKeyForItem(item) {
   return plannerOverrideKeyFor(item, recipeKey(item?.kind, item?.id));
 }
 
-function routeAlternativesForUi(recipes) {
-  return recipes;
+function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, depth = 0, maxDepth = 64, memo = new Map()) {
+  if (!recipeIsSelectable(recipe, blockedKeys) || depth >= maxDepth) return false;
+  const memoKey = JSON.stringify({
+    route: recipeId(recipe),
+    outputs: recipeOutputs(recipe).map((output) => recipeKey(stackKind(output), stackId(output))).sort(),
+    inputs: recipeInputs(recipe).map((input) => recipeKey(stackKind(input), stackId(input))).sort(),
+    blocked: [...blockedKeys].sort(),
+    depth,
+  });
+  if (memo.has(memoKey)) return memo.get(memoKey);
+  memo.set(memoKey, false);
+  for (const [index, input] of recipeInputs(recipe).entries()) {
+    const inputKey = recipeKey(stackKind(input), stackId(input));
+    if (blockedKeys.includes(inputKey)) return false;
+    const detail = detailsByKey.get(inputKey);
+    if (!detail) continue;
+    const material = mergeDetailTarget(detail, stackDisplay(input, recipe.consumedItems, index));
+    const recipes = recipesForTarget(detail, material, detailsByKey);
+    if (!recipes.length) continue;
+    const nextBlockedKeys = [...blockedKeys, inputKey];
+    const productionRecipes = recipes.filter((candidate) => !recipeLooksTransportRoute(candidate));
+    if (!productionRecipes.length) continue;
+    const overridden = productionRecipes.find((candidate) => recipeMatchesOverride(candidate, routeOverrides[inputKey]));
+    if (overridden && recipeExpansionIsSelectable(overridden, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth, memo)) continue;
+    if (!productionRecipes.some((candidate) => candidate !== overridden
+      && recipeExpansionIsSelectable(candidate, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth, memo))) return false;
+  }
+  memo.set(memoKey, true);
+  return true;
+}
+
+function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, detailsByKey, routeOverrides) {
+  const memo = new Map();
+  const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
+  if (overridden && recipeExpansionIsSelectable(overridden, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo)) return overridden;
+  return recipes.find((recipe) => !recipeLooksTransportRoute(recipe)
+    && recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo))
+    ?? selectedRecipeForTarget(recipes, overrideId, blockedKeys);
+}
+
+function routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides) {
+  const memo = new Map();
+  return recipes.map((recipe) => ({
+    ...recipe,
+    isSelectable: recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo),
+  }));
 }
 
 function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredItemKeys) {
@@ -744,9 +790,9 @@ function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredIte
   const normalizedTarget = mergeDetailTarget(detail, target);
   const key = recipeKey(normalizedTarget.kind, normalizedTarget.id);
   const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
-  const selected = selectedRecipeForTarget(recipes, routeOverrides[key], [key]);
+  const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], [key], detailsByKey, routeOverrides);
   if (!selected) return [];
-  const visibleRecipes = routeAlternativesForUi(recipes, selected);
+  const visibleRecipes = routeAlternativesForUi(recipes, [key], detailsByKey, routeOverrides);
   const gatheringSources = visibleRecipes
     .filter(routeIsGathering)
     .map((recipe) => ({
@@ -772,6 +818,7 @@ function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredIte
       id: recipeId(alternative),
       label: recipeLabel(alternative),
       ...routeMetadata(alternative, normalizedTarget),
+      isSelectable: alternative.isSelectable !== false,
       buildingName: alternative.buildingName ?? alternative.building_name ?? null,
       inputs: recipeInputs(alternative).map((input, index) => ({
         ...enrichDisplayFromDetails(stackDisplay(input, alternative.consumedItems, index), detailsByKey),
@@ -811,7 +858,8 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     remainingSupply.set(key, availableSupply - allocatedSupply);
     const quantityToCraft = Math.max(0, quantity - allocatedSupply);
     const recipes = recipesForTarget(detail, normalizedTarget, detailsByKey);
-    const selected = selectedRecipeForTarget(recipes, routeOverrides[key], [...stack, key]);
+    const blockedKeys = [...stack, key];
+    const selected = selectedViableRecipeForTarget(recipes, routeOverrides[key], blockedKeys, detailsByKey, routeOverrides);
     addRequired(required, normalizedTarget, quantity, sectionForMaterial(normalizedTarget, selected ?? parentRecipe));
     if (quantityToCraft <= 0) return;
     if (!selected) {
@@ -832,11 +880,12 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     const multiplier = selected.isProbabilistic === true ? multipliers[key]?.multiplier ?? 1 : 1;
     const craftCount = Math.ceil(quantityToCraft * multiplier / outputPerCraft);
     const section = sectionForMaterial(normalizedTarget, selected);
-    const visibleRecipes = routeAlternativesForUi(recipes, selected);
+    const visibleRecipes = routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides);
     const alternatives = visibleRecipes.map((recipe) => ({
       id: recipeId(recipe),
       label: String(recipe.name ?? normalizedTarget.name),
       ...routeMetadata(recipe, normalizedTarget),
+      isSelectable: recipe.isSelectable !== false,
       buildingName: recipe.buildingName ?? recipe.building_name ?? null,
       inputs: recipeInputs(recipe).map((input, index) => ({
         ...enrichDisplayFromDetails(stackDisplay(input, recipe.consumedItems, index), detailsByKey),
@@ -852,7 +901,13 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
         const detail = detailsByKey.get(recipeKey(material.kind, material.id));
         if (!detail) return 1;
         const recipes = recipesForTarget(detail, material, detailsByKey);
-        const producer = selectedRecipeForTarget(recipes, routeOverrides[recipeKey(material.kind, material.id)], [...stack, key, recipeKey(material.kind, material.id)]);
+        const producer = selectedViableRecipeForTarget(
+          recipes,
+          routeOverrides[recipeKey(material.kind, material.id)],
+          [...stack, key, recipeKey(material.kind, material.id)],
+          detailsByKey,
+          routeOverrides,
+        );
         return producer && recipeOutputs(producer).some((candidate) => siblingKeys.has(recipeKey(stackKind(candidate), stackId(candidate))) && !stackMatches(candidate, material)) ? 0 : 1;
       };
       return score(a) - score(b) || a.index - b.index;
@@ -905,6 +960,7 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
         id: recipeId(recipe),
         label: recipeLabel(recipe),
         ...routeMetadata(recipe, normalizedTarget),
+        isSelectable: recipe.isSelectable !== false,
         buildingName: recipe.buildingName ?? recipe.building_name ?? null,
         inputs: recipeInputs(recipe).map((input, index) => ({
           ...enrichDisplayFromDetails(stackDisplay(input, recipe.consumedItems, index), detailsByKey),
@@ -1581,6 +1637,357 @@ function materialRowsForRequirements({
   }).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name));
 }
 
+export function joinCraftPlanBaselineMaterials(livePlan = {}, baselinePlan = {}) {
+  const baselineMaterials = Array.isArray(baselinePlan?.materials) ? baselinePlan.materials : [];
+  const baselineRequirements = new Map(
+    baselineMaterials.map((material) => [
+      String(material?.key ?? ""),
+      material?.planRequired ?? material?.bufferedRequired ?? material?.required,
+    ]),
+  );
+  const enrichMaterial = (material) => ({
+    ...material,
+    planRequired: baselineRequirements.has(String(material?.key ?? ""))
+      ? baselineRequirements.get(String(material?.key ?? ""))
+      : 0,
+    requiredNow: material?.required,
+    missingNow: material?.missing,
+  });
+  const materials = (Array.isArray(livePlan?.materials) ? livePlan.materials : []).map(enrichMaterial);
+  const liveKeys = new Set(materials.map((material) => String(material?.key ?? "")));
+  for (const baselineMaterial of baselineMaterials) {
+    const key = String(baselineMaterial?.key ?? "");
+    if (!key || liveKeys.has(key)) continue;
+    materials.push({
+      ...baselineMaterial,
+      planRequired: baselineRequirements.get(key),
+      requiredNow: 0,
+      missingNow: 0,
+      required: 0,
+      missing: 0,
+      bufferedRequired: 0,
+      available: 0,
+      inProgress: 0,
+      guaranteedInProgress: 0,
+      estimatedInProgress: 0,
+      sources: [],
+      activeCraftSources: [],
+    });
+    liveKeys.add(key);
+  }
+  const materialsByKey = new Map(materials.map((material) => [String(material?.key ?? ""), material]));
+  return {
+    ...livePlan,
+    materials,
+    gatherNext: (Array.isArray(livePlan?.gatherNext) ? livePlan.gatherNext : []).map((group) => ({
+      ...group,
+      items: (Array.isArray(group?.items) ? group.items : []).map((material) => (
+        materialsByKey.get(String(material?.key ?? "")) ?? enrichMaterial(material)
+      )),
+    })),
+  };
+}
+
+const CRAFT_PLAN_CONFIGURED_SOURCE_TYPES = [
+  ["storageContainerIds", "Settlement storage"],
+  ["bankContainerIds", "Player bank"],
+  ["deployableContainerIds", "Player deployable"],
+];
+
+function sourceRuleValues(config, rule) {
+  return (Array.isArray(config?.sourceRules?.[rule]) ? config.sourceRules[rule] : [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+}
+
+function sourceMatchesSelectedRules(source, config) {
+  const sourceId = String(source?.sourceId ?? "").trim();
+  const aliases = new Set([sourceId, ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds.map(String) : [])]);
+  const exactIds = ["storageContainerIds", "bankContainerIds", "deployableContainerIds"]
+    .flatMap((rule) => sourceRuleValues(config, rule));
+  if (exactIds.some((id) => aliases.has(id))) return true;
+  if (sourceRuleValues(config, "playerIds").includes(sourceId)) return true;
+  if (sourceRuleValues(config, "craftPlayerIds").some((playerId) => sourceId === `${playerId}:crafts` || sourceId === `${playerId}:passive-crafts`)) return true;
+  if (String(source?.type ?? "") === "Player bank" && sourceRuleValues(config, "bankPlayerIds").some((playerId) => (
+    String(source?.playerId ?? "") === playerId || sourceId === `${playerId}:banks` || sourceId.startsWith(`${playerId}:`)
+  ))) return true;
+  if (String(source?.type ?? "") === "Player deployable" && sourceRuleValues(config, "deployableContainerIds").some((id) => {
+    const playerId = id.split(":")[0];
+    return sourceId === `${playerId}:deployables`;
+  })) return true;
+  return false;
+}
+
+export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = []) {
+  const statuses = (Array.isArray(sourceStatus) ? sourceStatus : [])
+    .filter((source) => sourceMatchesSelectedRules(source, config))
+    .map((source) => ({ ...source }));
+  const returnedIds = new Set(statuses.flatMap((source) => [
+    source?.sourceId,
+    ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds : []),
+  ]).map((sourceId) => String(sourceId ?? "").trim()).filter(Boolean));
+  for (const [rule, type] of CRAFT_PLAN_CONFIGURED_SOURCE_TYPES) {
+    for (const sourceId of config?.sourceRules?.[rule] ?? []) {
+      const id = String(sourceId ?? "").trim();
+      if (!id || returnedIds.has(id) || statuses.some((source) => sourceMatchesSelectedRules(source, { sourceRules: { [rule]: [id] } }))) continue;
+      statuses.push({
+        sourceId: id,
+        label: id,
+        type,
+        available: false,
+        error: "Configured source was not present in the completed source projection.",
+      });
+      returnedIds.add(id);
+    }
+  }
+  for (const playerId of sourceRuleValues(config, "playerIds")) {
+    if (returnedIds.has(playerId)) continue;
+    statuses.push({ sourceId: playerId, label: playerId, type: "Player inventory", available: false, error: "Configured source was not present in the completed source projection." });
+    returnedIds.add(playerId);
+  }
+  for (const playerId of sourceRuleValues(config, "craftPlayerIds")) {
+    for (const [suffix, type] of [["crafts", "Tracked crafts"], ["passive-crafts", "Tracked passive crafts"]]) {
+      const sourceId = `${playerId}:${suffix}`;
+      if (returnedIds.has(sourceId)) continue;
+      statuses.push({ sourceId, label: sourceId, type, available: false, error: "Configured source was not present in the completed source projection." });
+      returnedIds.add(sourceId);
+    }
+  }
+  for (const playerId of sourceRuleValues(config, "bankPlayerIds")) {
+    if (statuses.some((source) => String(source?.type ?? "") === "Player bank" && sourceMatchesSelectedRules(source, { sourceRules: { bankPlayerIds: [playerId] } }))) continue;
+    const sourceId = `${playerId}:banks`;
+    statuses.push({ sourceId, label: sourceId, type: "Player bank", available: false, error: "Configured source was not present in the completed source projection." });
+    returnedIds.add(sourceId);
+  }
+  return statuses;
+}
+
+const CRAFT_PLAN_TYPED_MATERIAL_KEY = /^(items|cargo):([0-9]+)$/;
+const CRAFT_PLAN_REQUIRED_MATERIAL_QUANTITIES = ["planRequired", "requiredNow", "missingNow", "required", "missing"];
+const CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES = [
+  "bufferedRequired",
+  "available",
+  "inProgress",
+  "guaranteedInProgress",
+  "estimatedInProgress",
+];
+
+function craftPlanValidationError(code, path, message, details = {}) {
+  return { code, path, message, ...details };
+}
+
+function completedPlanRoutes(plan) {
+  return [
+    ...(Array.isArray(plan?.steps) ? plan.steps.map((route, index) => ({ route, path: `steps[${index}]` })) : []),
+    ...(Array.isArray(plan?.materials) ? plan.materials.flatMap((material, materialIndex) => (
+      (Array.isArray(material?.sourceRoutes) ? material.sourceRoutes : []).map((route, routeIndex) => ({
+        route,
+        path: `materials[${materialIndex}].sourceRoutes[${routeIndex}]`,
+      }))
+    )) : []),
+  ];
+}
+
+function craftPlanProgressCompletion(progress, view, section = null) {
+  const branch = progress?.[view];
+  return section == null ? branch?.overall?.completion : branch?.sections?.[section]?.completion;
+}
+
+export function validateCompletedCraftPlan(plan = {}, {
+  requiredSources = [],
+  previousPlan = null,
+  baselineRevision = plan?.effortProgress?.baselineRevision,
+} = {}) {
+  const errors = [];
+  const topLevelMaterials = Array.isArray(plan?.materials) ? plan.materials : [];
+  const publishedMaterialRows = topLevelMaterials.map((material, index) => ({
+    material,
+    path: `materials[${index}]`,
+  }));
+  const seenMaterialObjects = new Set(topLevelMaterials.filter((material) => material && typeof material === "object"));
+  for (const [groupIndex, group] of (Array.isArray(plan?.gatherNext) ? plan.gatherNext : []).entries()) {
+    for (const [itemIndex, material] of (Array.isArray(group?.items) ? group.items : []).entries()) {
+      if (material && typeof material === "object" && seenMaterialObjects.has(material)) continue;
+      if (material && typeof material === "object") seenMaterialObjects.add(material);
+      publishedMaterialRows.push({ material, path: `gatherNext[${groupIndex}].items[${itemIndex}]` });
+    }
+  }
+  const materials = publishedMaterialRows.map(({ material }) => material);
+  const materialKeys = new Set();
+
+  for (const { material, path } of publishedMaterialRows) {
+    const rawKey = String(material?.key ?? "");
+    const key = rawKey.trim();
+    const match = CRAFT_PLAN_TYPED_MATERIAL_KEY.exec(key);
+    if (rawKey !== key
+      || !match
+      || (material?.kind != null && String(material.kind) !== match?.[1])
+      || (material?.id != null && String(material.id) !== match?.[2])) {
+      errors.push(craftPlanValidationError("invalid_material_key", `${path}.key`, "Material keys must be exact items:<id> or cargo:<id> identities.", { key }));
+    }
+    if (materialKeys.has(key)) {
+      errors.push(craftPlanValidationError("duplicate_material_key", `${path}.key`, `Material key ${key || "(empty)"} appears more than once.`, { key }));
+    }
+    materialKeys.add(key);
+
+    for (const field of [...CRAFT_PLAN_REQUIRED_MATERIAL_QUANTITIES, ...CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES]) {
+      if (CRAFT_PLAN_OPTIONAL_MATERIAL_QUANTITIES.includes(field) && material?.[field] == null) continue;
+      const value = material?.[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        errors.push(craftPlanValidationError("invalid_material_quantity", `${path}.${field}`, `${field} must be a finite non-negative number.`, { key, field, value }));
+      }
+    }
+    if (material?.requiredNow !== material?.required || material?.missingNow !== material?.missing) {
+      errors.push(craftPlanValidationError("material_alias_mismatch", path, "Compatibility aliases must match requiredNow and missingNow.", { key }));
+    }
+  }
+
+  const completedRoutes = completedPlanRoutes(plan);
+  for (const { route, path } of completedRoutes) {
+    const selectedRecipeId = String(route?.selectedRecipeId ?? "").trim();
+    const alternatives = Array.isArray(route?.alternatives) ? route.alternatives : [];
+    const selectedAlternative = alternatives.find((alternative) => String(alternative?.id ?? "").trim() === selectedRecipeId);
+    if (!selectedRecipeId || !selectedAlternative) {
+      errors.push(craftPlanValidationError("invalid_selected_route", `${path}.selectedRecipeId`, "The selected route must identify one of the completed route alternatives.", { selectedRecipeId }));
+    } else if (selectedAlternative?.probabilityStatus === "unavailable" || route?.probabilityStatus === "unavailable") {
+      errors.push(craftPlanValidationError("incomplete_recipe_expansion", `${path}.selectedRecipeId`, "The selected recipe cannot be published until its validated output rate is available.", {
+        selectedRecipeId,
+        outputKey: craftPlanItemKey(route?.output),
+      }));
+    }
+  }
+  for (const [outputKey, selectedRecipeId] of Object.entries(plan?.config?.routeOverrides ?? {})) {
+    const selectedRouteExists = completedRoutes.some(({ route }) => (
+      craftPlanItemKey(route?.output) === outputKey
+      && String(route?.selectedRecipeId ?? "").trim() === String(selectedRecipeId ?? "").trim()
+    ));
+    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey)) || !selectedRouteExists) {
+      errors.push(craftPlanValidationError("invalid_selected_route", `config.routeOverrides.${outputKey}`, "The configured route must match the completed selected route for its typed output.", {
+        outputKey,
+        selectedRecipeId: String(selectedRecipeId ?? ""),
+      }));
+    }
+  }
+
+  for (const [index, source] of (Array.isArray(requiredSources) ? requiredSources : []).entries()) {
+    const path = `requiredSources[${index}]`;
+    if (!source || typeof source !== "object"
+      || !String(source.sourceId ?? "").trim()
+      || !String(source.label ?? "").trim()
+      || !String(source.type ?? "").trim()
+      || typeof source.available !== "boolean") {
+      errors.push(craftPlanValidationError("required_source_incomplete", path, "Required source status is incomplete."));
+    } else if (source.available !== true) {
+      errors.push(craftPlanValidationError("required_source_unavailable", path, "A required planner source is unavailable.", {
+        sourceId: String(source.sourceId),
+        error: String(source.error ?? "Unavailable"),
+      }));
+    }
+  }
+  for (const [index, source] of (Array.isArray(plan?.unavailableSources) ? plan.unavailableSources : []).entries()) {
+    errors.push(craftPlanValidationError("required_source_unavailable", `unavailableSources[${index}]`, "A required planner source is unavailable.", {
+      sourceId: String(source?.sourceId ?? ""),
+      error: String(source?.error ?? "Unavailable"),
+    }));
+  }
+
+  const normalizedBaselineRevision = String(baselineRevision ?? "").trim();
+  const previousBaselineRevision = String(previousPlan?.effortProgress?.baselineRevision ?? "").trim();
+  if (previousPlan && normalizedBaselineRevision && normalizedBaselineRevision === previousBaselineRevision) {
+    const previousRequirements = new Map(
+      (Array.isArray(previousPlan?.materials) ? previousPlan.materials : [])
+        .map((material) => [String(material?.key ?? ""), material?.planRequired])
+        .filter(([key]) => CRAFT_PLAN_TYPED_MATERIAL_KEY.test(key)),
+    );
+    const currentRequirements = new Map(
+      topLevelMaterials
+        .map((material, index) => [String(material?.key ?? ""), { index, planRequired: material?.planRequired }])
+        .filter(([key]) => CRAFT_PLAN_TYPED_MATERIAL_KEY.test(key)),
+    );
+    for (const [key, { index, planRequired }] of currentRequirements.entries()) {
+      if (!previousRequirements.has(key)) {
+        errors.push(craftPlanValidationError("unstable_baseline_material", `materials[${index}].planRequired`, `Canonical material ${key} was added within baseline revision ${normalizedBaselineRevision}.`, {
+          key,
+          previousPlanRequired: null,
+          planRequired,
+          change: "added",
+        }));
+        continue;
+      }
+      if (previousRequirements.get(key) !== planRequired) {
+        errors.push(craftPlanValidationError("unstable_baseline_material", `materials[${index}].planRequired`, `Canonical requirement for ${key} changed within baseline revision ${normalizedBaselineRevision}.`, {
+          key,
+          previousPlanRequired: previousRequirements.get(key),
+          planRequired,
+          change: "changed",
+        }));
+      }
+    }
+    for (const [key, previousPlanRequired] of previousRequirements.entries()) {
+      if (currentRequirements.has(key)) continue;
+      errors.push(craftPlanValidationError("unstable_baseline_material", "materials", `Canonical material ${key} was removed within baseline revision ${normalizedBaselineRevision}.`, {
+        key,
+        previousPlanRequired,
+        planRequired: null,
+        change: "removed",
+      }));
+    }
+  }
+
+  const progress = plan?.effortProgress ?? {};
+  const sections = new Set([
+    ...Object.keys(progress?.confirmed?.sections ?? {}),
+    ...Object.keys(progress?.projected?.sections ?? {}),
+  ]);
+  for (const section of [null, ...sections]) {
+    const confirmed = craftPlanProgressCompletion(progress, "confirmed", section);
+    const projected = craftPlanProgressCompletion(progress, "projected", section);
+    if (typeof confirmed === "number" && Number.isFinite(confirmed)
+      && typeof projected === "number" && Number.isFinite(projected)
+      && projected < confirmed) {
+      const suffix = section == null ? "overall" : `sections.${section}`;
+      errors.push(craftPlanValidationError("projected_progress_regression", `effortProgress.projected.${suffix}.completion`, "Projected progress must not be below confirmed progress.", {
+        section,
+        confirmed,
+        projected,
+      }));
+    }
+  }
+
+  return { valid: errors.length === 0, baselineRevision: normalizedBaselineRevision, errors };
+}
+
+export function selectCraftPlanPublication({ candidatePlan, lastGoodPlan = null, validation = { valid: true } } = {}) {
+  if (validation?.valid === true) {
+    return { plan: candidatePlan, retainedLastGood: false, diagnostic: null };
+  }
+  return {
+    plan: lastGoodPlan,
+    retainedLastGood: Boolean(lastGoodPlan),
+    diagnostic: validation,
+  };
+}
+
+export function finalizeCraftPlanPublication({
+  candidatePlan,
+  baselinePlan = {},
+  requiredSources = [],
+  lastGoodPlan = null,
+  baselineRevision = candidatePlan?.effortProgress?.baselineRevision,
+} = {}) {
+  const completedCandidate = joinCraftPlanBaselineMaterials(candidatePlan, baselinePlan);
+  const validation = validateCompletedCraftPlan(completedCandidate, {
+    requiredSources,
+    previousPlan: lastGoodPlan,
+    baselineRevision,
+  });
+  return {
+    candidatePlan: completedCandidate,
+    validation,
+    ...selectCraftPlanPublication({ candidatePlan: completedCandidate, lastGoodPlan, validation }),
+  };
+}
+
 export function computeCraftPlan({
   config,
   preparedConfig = null,
@@ -1603,7 +2010,7 @@ export function computeCraftPlan({
   addSourceTotals(availableTotals, playerSources, "Player inventory", unavailableSources);
   addSourceTotals(availableTotals, bankSources, "Player bank", unavailableSources);
   addSourceTotals(availableTotals, deployableSources, "Player deployable", unavailableSources);
-  unavailableSources.push(...(craftSourceErrors ?? []).map((source) => ({
+  unavailableSources.push(...(normalized.sourceRules.craftPlayerIds.length ? craftSourceErrors ?? [] : []).map((source) => ({
     sourceId: String(source?.sourceId ?? "tracked-crafts"),
     label: String(source?.label ?? "Tracked crafts"),
     type: String(source?.type ?? "Tracked crafts"),
