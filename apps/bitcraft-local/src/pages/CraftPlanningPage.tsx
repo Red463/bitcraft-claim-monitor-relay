@@ -626,6 +626,10 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     if (body.planRecord) setPlan((current) => current ? { ...current, plan: body.planRecord } : current);
   }
 
+  if (error) {
+    return <div className="panel craft-planning-page"><div className="empty-state"><AlertTriangle size={36} /><strong>Craft plan unavailable</strong><span>{error}</span><button className="toolbar-button primary" type="button" onClick={() => { setError(null); setManagerRefreshToken((value) => value + 1); }}>Retry</button></div></div>;
+  }
+
   if (loading && !plan) {
     return <div className="panel craft-planning-page" aria-busy="true"><section className="craft-plan-loading" role="status" aria-live="polite">
       <header><span className="craft-plan-loading-icon"><ClipboardList size={24} /><LoaderCircle className="is-spinning" size={15} /></span><span><strong>Loading craft plan</strong><small>Checking targets, stock sources, active crafts, and materials.</small></span></header>
@@ -635,10 +639,6 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
         <div className="craft-plan-loading-board"><i />{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div>
       </div>
     </section></div>;
-  }
-
-  if (error) {
-    return <div className="panel craft-planning-page"><div className="empty-state"><AlertTriangle size={36} /><strong>Craft plan unavailable</strong><span>{error}</span></div></div>;
   }
 
   const hasPlan = Boolean(plan?.enabled && targets.length);

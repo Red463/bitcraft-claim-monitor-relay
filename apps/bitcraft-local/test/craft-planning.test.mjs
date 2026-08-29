@@ -186,7 +186,6 @@ test("completed craft plan validation reports every calculation invariant withou
     ["invalid selected route", "invalid_selected_route", (plan) => { plan.steps[0].selectedRecipeId = "route-b"; }],
     ["selected route with unavailable probability expansion", "incomplete_recipe_expansion", (plan) => { plan.steps[0].alternatives[0].probabilityStatus = "unavailable"; }],
     ["selected route does not satisfy its configured override", "invalid_selected_route", (plan) => { plan.config.routeOverrides["items:7"] = "route-b"; }],
-    ["unavailable required source", "required_source_unavailable", (_plan, sources) => { sources[0].available = false; }],
     ["incomplete required source", "required_source_incomplete", (_plan, sources) => { delete sources[0].sourceId; }],
     ["changed canonical total in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials[0].planRequired = 11; }],
     ["added canonical material in the same baseline revision", "unstable_baseline_material", (plan) => { plan.materials.push({ ...plan.materials[0], key: "cargo:7", kind: "cargo" }); }],
@@ -344,7 +343,7 @@ test("invalid completed craft plans retain the exact last-good publication and o
   });
 });
 
-test("configured planner sources missing from a completed projection fail validation and retain last-good", () => {
+test("configured planner sources missing from a completed projection remain explicit source-health warnings", () => {
   assert.equal(typeof craftPlanning.reconcileCraftPlanRequiredSourceStatus, "function");
   const config = normalizeCraftPlanConfig({
     sourceRules: {
@@ -378,18 +377,17 @@ test("configured planner sources missing from a completed projection fail valida
     unavailableSources: [],
     effortProgress: { baselineRevision: "baseline-1" },
   };
-  const lastGoodPlan = { marker: "last-good" };
   const validation = craftPlanning.validateCompletedCraftPlan(candidatePlan, { requiredSources });
-  const publication = craftPlanning.selectCraftPlanPublication({ candidatePlan, lastGoodPlan, validation });
+  const publication = craftPlanning.selectCraftPlanPublication({ candidatePlan, validation });
 
   assert.deepEqual(
     requiredSources.filter((source) => source.available === false).map((source) => source.sourceId),
     ["storage-missing", "player-1:bank-missing", "player-1:cart-missing"],
   );
-  assert.equal(validation.valid, false);
-  assert.equal(validation.errors.filter((error) => error.code === "required_source_unavailable").length, 3);
-  assert.strictEqual(publication.plan, lastGoodPlan);
-  assert.equal(publication.retainedLastGood, true);
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.errors, []);
+  assert.strictEqual(publication.plan, candidatePlan);
+  assert.equal(publication.retainedLastGood, false);
 });
 
 test("configured deployable canonical and legacy aliases are both recognized as present", () => {
@@ -417,7 +415,7 @@ test("configured deployable canonical and legacy aliases are both recognized as 
   }]);
 });
 
-test("required-source validation ignores unselected categories and retains selected personal scopes", () => {
+test("required-source reconciliation ignores unselected categories and retains selected personal scopes", () => {
   const shared = craftPlanning.reconcileCraftPlanRequiredSourceStatus(normalizeCraftPlanConfig({
     sourceRules: { storageContainerIds: ["selected-store"] },
   }), [
@@ -437,7 +435,7 @@ test("required-source validation ignores unselected categories and retains selec
     { sourceId: "settlement-crafts", label: "Settlement crafts", type: "Tracked crafts", available: false },
   ]);
   assert.deepEqual(personal.map(({ sourceId }) => sourceId), ["player-1", "player-1:crafts", "player-1:passive-crafts"]);
-  assert.equal(craftPlanning.validateCompletedCraftPlan({ materials: [], gatherNext: [], steps: [], unavailableSources: [] }, { requiredSources: personal }).valid, false);
+  assert.equal(craftPlanning.validateCompletedCraftPlan({ materials: [], gatherNext: [], steps: [], unavailableSources: [] }, { requiredSources: personal }).valid, true);
 });
 
 test("unselected craft collection failures do not make a plan unavailable", () => {

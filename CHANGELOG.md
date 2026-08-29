@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.3] - 2026-08-29
+
+### Fixed
+
+- Fixed a surviving Craft Plan becoming unavailable after another plan was deleted when one of its counted sources was temporarily unavailable.
+- Kept Craft Plan load errors visible during automatic retries and added an explicit retry action.
+
 ## [0.66.2-beta.2] - 2026-08-29
 
 ### Fixed

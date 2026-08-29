@@ -192,6 +192,17 @@ test("Craft Planning page renders selectable plans with owner-aware management",
   assert.match(page, /CraftPlanManagerDialog/);
 });
 
+test("Craft Planning keeps a settled load error visible while background retries run", () => {
+  const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
+  const errorGuard = page.indexOf("if (error)");
+  const loadingGuard = page.indexOf("if (loading && !plan)");
+
+  assert.ok(errorGuard > 0);
+  assert.ok(loadingGuard > 0);
+  assert.ok(errorGuard < loadingGuard, "the error state must render before the retry loading state");
+  assert.match(page, /Retry/);
+});
+
 test("Craft Planning acquisition routes use accessible comparable cards", () => {
   const chooser = readFileSync(new URL("../src/pages/CraftPlanningRouteChooser.tsx", import.meta.url), "utf8");
 
