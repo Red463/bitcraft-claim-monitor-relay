@@ -251,7 +251,7 @@ export function browserVisibleChangedDomains(domains: DomainKey[]): DomainKey[] 
   const visible: DomainKey[] = [];
   const seen = new Set<DomainKey>();
   for (const domain of domains) {
-    const exposed = domain === "inventory-banks" ? "inventories" : domain;
+    const exposed = domain === "inventory-banks" || domain === "inventory-storages" ? "inventories" : domain;
     if (seen.has(exposed)) continue;
     seen.add(exposed);
     visible.push(exposed);
@@ -261,6 +261,9 @@ export function browserVisibleChangedDomains(domains: DomainKey[]): DomainKey[] 
 
 export function generationSourceDomains(domains: DomainKey[]): DomainKey[] {
   const sources = [...domains];
+  if (domains.includes("inventories") && !sources.includes("inventory-storages")) {
+    sources.push("inventory-storages");
+  }
   if (domains.includes("inventories") && !sources.includes("inventory-banks")) {
     sources.push("inventory-banks");
   }

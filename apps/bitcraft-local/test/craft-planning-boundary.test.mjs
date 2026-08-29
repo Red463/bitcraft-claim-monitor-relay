@@ -295,6 +295,8 @@ test("Craft Planning reads current members and inventories from Relay-owned serv
 
   assert.match(server, /function currentMembersProjection/);
   assert.match(server, /function currentInventoryProjection/);
+  assert.match(server, /const storage = currentLiveStorageOverlay\(claimId\);[\s\S]*mergeClaimInventoryWithLiveStorages\(\s*current\.data,\s*storage\.data/);
+  assert.match(server, /readSubscriptionHealth\(snapshot\.provenance\.sourceKey, "inventory-storages"\)/);
   assert.match(adminResponse, /currentMembersProjection\(claimId\)/);
   assert.match(adminResponse, /currentInventoryProjection\(claimId\)/);
   assert.match(adminResponse, /relayPlayerDataService\.inventory/);
@@ -393,6 +395,7 @@ test("Craft Planning reads the continuously projected Relay catalog without a sc
   assert.match(computedCraftPlan, /memberNames/);
   assert.match(computedCraftPlan, /currentCraftPlanProjection\(claimId\)/);
   assert.match(computedCraftPlan, /craftPlanCurrentSourceRevision\(normalizedClaimId\)/);
+  assert.match(computedCraftPlan, /\["members", "inventories", "inventory-storages", "crafts", "construction", "catalogs"\]/);
   assert.match(computedCraftPlan, /cached\.sourceRevision === sourceRevision/);
   assert.match(computedCraftPlan, /existing\?\.sourceRevision === sourceRevision/);
   assert.match(computedCraftPlan, /domains:\s*\["inventories",\s*"crafts"\]/);

@@ -80,6 +80,95 @@ export function mergeClaimInventoryWithBanks(
   return { ...shared, buildings };
 }
 
+export function mergeClaimInventoryWithLiveStorages(
+  claimInventory: unknown,
+  liveInventories: unknown,
+): Record<string, unknown> {
+  const shared = claimInventory && typeof claimInventory === "object" && !Array.isArray(claimInventory)
+    ? claimInventory as Record<string, unknown>
+    : {};
+  const hasLiveSnapshot = Boolean(liveInventories && typeof liveInventories === "object" && !Array.isArray(liveInventories));
+  if (!hasLiveSnapshot) return shared;
+  const live = liveInventories as Record<string, unknown>;
+  const liveBuildings = (Array.isArray(live.buildings) ? live.buildings : [])
+    .filter((building): building is Record<string, unknown> => Boolean(building && typeof building === "object" && !Array.isArray(building)));
+  const liveById = new Map(liveBuildings.map((building) => [String(building.entityId ?? ""), building]));
+  const mergeBuilding = (building: unknown) => {
+    if (!building || typeof building !== "object" || Array.isArray(building)) return building;
+    const current = building as Record<string, unknown>;
+    const replacement = liveById.get(String(current.entityId ?? ""));
+    return replacement
+      ? { ...current, ...replacement }
+      : { ...current, items: [], inventory: [] };
+  };
+  const buildings = (Array.isArray(shared.buildings) ? shared.buildings : []).map(mergeBuilding);
+  const knownIds = new Set(buildings.flatMap((building) => (
+    building && typeof building === "object" && !Array.isArray(building)
+      ? [String((building as Record<string, unknown>).entityId ?? "")]
+      : []
+  )).filter(Boolean));
+  for (const building of liveBuildings) {
+    const entityId = String(building.entityId ?? "");
+    if (!entityId || knownIds.has(entityId)) continue;
+    knownIds.add(entityId);
+    buildings.push({
+      name: `Storage #${entityId}`,
+      nickname: "",
+      ...building,
+    });
+  }
+  const dimensions = (Array.isArray(shared.dimensions) ? shared.dimensions : []).map((dimension) => {
+    if (!dimension || typeof dimension !== "object" || Array.isArray(dimension)) return dimension;
+    const current = dimension as Record<string, unknown>;
+    return {
+      ...current,
+      buildings: (Array.isArray(current.buildings) ? current.buildings : []).map(mergeBuilding),
+    };
+  });
+  return { ...shared, dimensions, buildings };
+}
+
+export function resolveLiveStorageOverlay(
+  snapshot: {
+    data: unknown;
+    confidence: unknown;
+    generation: number;
+    lastError: string | null;
+  } | null,
+  subscriptionHealth: {
+    connected: boolean;
+    generation: number;
+    lastError: string | null;
+    updatedAt: string;
+  } | null,
+  options: { now?: Date; liveForMs?: number } = {},
+): { data: unknown | null; freshness: "live" | "stale" | "unavailable"; warning: string | null } {
+  if (!snapshot) {
+    return {
+      data: null,
+      freshness: "unavailable",
+      warning: "Live settlement storage inventories have not loaded yet; using the latest Relay HTTP snapshot.",
+    };
+  }
+  const now = options.now ?? new Date();
+  const liveForMs = Math.max(1, Number(options.liveForMs) || 45_000);
+  const heartbeatMs = Date.parse(String(subscriptionHealth?.updatedAt ?? ""));
+  const heartbeatFresh = Number.isFinite(heartbeatMs)
+    && Math.max(0, now.getTime() - heartbeatMs) <= liveForMs;
+  const live = snapshot.confidence === "authoritative"
+    && snapshot.lastError == null
+    && subscriptionHealth?.connected === true
+    && subscriptionHealth.lastError == null
+    && heartbeatFresh;
+  return live
+    ? { data: snapshot.data, freshness: "live", warning: null }
+    : {
+        data: null,
+        freshness: "stale",
+        warning: "Live settlement storage inventories are stale or unavailable; using the latest Relay HTTP snapshot.",
+      };
+}
+
 function inventoryStacks(inventory: unknown): CatalogStack[] {
   if (!inventory || typeof inventory !== "object" || Array.isArray(inventory)) return [];
   const source = inventory as Record<string, unknown>;

@@ -197,6 +197,8 @@ import {
   mapSnapshotStatusCode,
   publicGenerationEvent,
   mergeClaimInventoryWithBanks,
+  mergeClaimInventoryWithLiveStorages,
+  resolveLiveStorageOverlay,
   normalizeClaimInventory,
   parseDomainKeys,
   RelayHttpClient,
@@ -1152,6 +1154,7 @@ const relayPrimaryRegionHeartbeatDomains = [
   "construction",
   "research",
   "recruitment",
+  "inventory-storages",
   "inventory-banks",
   "contributions",
 ];
@@ -2005,10 +2008,28 @@ function currentMembersProjection(claimId) {
 function currentInventoryProjection(claimId) {
   const current = currentStateRepository.read(String(claimId), "inventories");
   if (!current?.data) throw new Error("Relay settlement inventories have not loaded yet");
-  return enrichInventoryWithCatalog(
+  const storage = currentLiveStorageOverlay(claimId);
+  const inventory = mergeClaimInventoryWithLiveStorages(
     current.data,
+    storage.data,
+  );
+  return enrichInventoryWithCatalog(
+    inventory,
     (catalogKey) => providerCatalogRepository.getEntity(catalogKey),
   );
+}
+
+function currentLiveStorageOverlay(claimId) {
+  const snapshot = currentStateRepository.read(String(claimId), "inventory-storages");
+  const subscriptionHealth = snapshot
+    ? currentStateRepository.readSubscriptionHealth(snapshot.provenance.sourceKey, "inventory-storages")
+    : null;
+  return {
+    snapshot,
+    ...resolveLiveStorageOverlay(snapshot, subscriptionHealth, {
+      liveForMs: Math.max(relayHttpRefreshMs * 3, 30_000),
+    }),
+  };
 }
 
 function enrichMarketSnapshot(claimId, data) {
@@ -2267,7 +2288,7 @@ async function computedCompactCraftPlanResponse(claimId = getSettings().claimId,
 }
 
 function craftPlanCurrentSourceRevision(claimId) {
-  return ["members", "inventories", "crafts", "construction", "catalogs"]
+  return ["members", "inventories", "inventory-storages", "crafts", "construction", "catalogs"]
     .map((domain) => `${domain}:${currentStateRepository.read(String(claimId), domain)?.generation ?? 0}`)
     .join("|");
 }
@@ -6799,7 +6820,10 @@ function currentGameDataGenerationEvent(claimId, domains) {
     }, "") || null,
     changedDomains: domains.filter((domain) => (
       availableDomains.has(domain)
-      || (domain === "inventories" && availableDomains.has("inventory-banks"))
+      || (domain === "inventories" && (
+        availableDomains.has("inventory-storages")
+        || availableDomains.has("inventory-banks")
+      ))
     )),
   };
 }
@@ -8232,7 +8256,16 @@ const server = createServer(async (req, res) => {
         liveForMs: Math.max(relayHttpRefreshMs * 3, 30_000),
         transformDomain: (domain, data) => {
           if (domain === "inventories") {
+            const storage = currentLiveStorageOverlay(claimId);
+            const storageSnapshot = storage.snapshot;
             const bankSnapshot = currentStateRepository.read(claimId, "inventory-banks");
+            const storageWarnings = storageSnapshot
+              ? [
+                  ...storageSnapshot.warnings,
+                  ...(storageSnapshot.lastError ? [`Settlement storage inventories: ${storageSnapshot.lastError}`] : []),
+                  ...(storage.warning ? [storage.warning] : []),
+                ]
+              : [storage.warning];
             const bankWarnings = bankSnapshot
               ? [
                   ...bankSnapshot.warnings,
@@ -8241,14 +8274,19 @@ const server = createServer(async (req, res) => {
               : ["Town Bank inventories have not loaded yet."];
             return {
               data: enrichInventoryWithCatalog(
-                mergeClaimInventoryWithBanks(data, bankSnapshot?.data),
+                mergeClaimInventoryWithBanks(
+                  mergeClaimInventoryWithLiveStorages(data, storage.data),
+                  bankSnapshot?.data,
+                ),
                 (catalogKey) => providerCatalogRepository.getEntity(catalogKey),
               ),
-              ...(bankWarnings.length ? {
+              ...([...storageWarnings, ...bankWarnings].length ? {
                 confidence: "partial",
-                warnings: bankWarnings,
+                warnings: [...storageWarnings, ...bankWarnings],
               } : {}),
               dependencies: compositionDependencies.forDomain(domain, {
+                inventoryStorageSnapshot: storageSnapshot,
+                inventoryStorageFreshness: storage.freshness,
                 inventoryBankSnapshot: bankSnapshot,
               }),
             };

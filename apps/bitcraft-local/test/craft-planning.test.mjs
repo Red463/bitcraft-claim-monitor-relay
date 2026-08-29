@@ -210,6 +210,44 @@ test("completed craft plan validation reports every calculation invariant withou
   }
 });
 
+test("informational source routes with unavailable yields do not block an otherwise complete plan", () => {
+  const informationalRoute = {
+    selectedRecipeId: "gather-unknown-yield",
+    probabilityStatus: "unavailable",
+    alternatives: [{ id: "gather-unknown-yield", probabilityStatus: "unavailable" }],
+    output: { key: "items:7", id: "7", kind: "items" },
+  };
+  const plan = {
+    config: { routeOverrides: {} },
+    materials: [{
+      key: "items:7",
+      id: "7",
+      kind: "items",
+      planRequired: 1,
+      requiredNow: 1,
+      missingNow: 1,
+      required: 1,
+      missing: 1,
+      sourceRoutes: [informationalRoute],
+    }],
+    gatherNext: [],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { baselineRevision: "baseline-1" },
+  };
+
+  assert.deepEqual(craftPlanning.validateCompletedCraftPlan(plan), {
+    valid: true,
+    baselineRevision: "baseline-1",
+    errors: [],
+  });
+
+  plan.config.routeOverrides["items:7"] = "gather-unknown-yield";
+  const selected = craftPlanning.validateCompletedCraftPlan(plan);
+  assert.equal(selected.valid, false);
+  assert.ok(selected.errors.some((error) => error.code === "incomplete_recipe_expansion"));
+});
+
 test("gather-only invalid materials cannot publish while ordinary gather mirrors are not duplicates", () => {
   const topMaterial = {
     key: "items:7",

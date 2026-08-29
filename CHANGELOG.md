@@ -9,6 +9,18 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.1-beta.1] - 2026-08-29
+
+### Changed
+
+- Updated Craft Planning and Inventory from live settlement storage quantities, with the slower Relay HTTP inventory retained as a visible fallback.
+- Coalesced live storage changes into the existing near-live page refresh flow so transfers update without refresh bursts.
+
+### Fixed
+
+- Fixed informational gathering routes with unavailable yield data incorrectly making an otherwise valid Craft Plan unavailable.
+- Fixed settlement storage transfers leaving Craft Planning shortages out of sync for several minutes.
+
 ## [0.66.0-beta.1] - 2026-08-29
 
 ### Added
