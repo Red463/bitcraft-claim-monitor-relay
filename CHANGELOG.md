@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.4] - 2026-08-29
+
+### Fixed
+
+- Fixed saved recipe routes being rejected when current stock fully covered their live recipe branch.
+
 ## [0.66.2-beta.3] - 2026-08-29
 
 ### Fixed

@@ -209,6 +209,38 @@ test("completed craft plan validation reports every calculation invariant withou
   }
 });
 
+test("saved routes remain valid when live stock suppresses their recipe steps", () => {
+  const material = {
+    key: "items:7",
+    id: "7",
+    kind: "items",
+    required: 0,
+    missing: 0,
+  };
+  const candidatePlan = {
+    config: { routeOverrides: { "items:7": "route-a" } },
+    materials: [material],
+    gatherNext: [],
+    steps: [],
+    unavailableSources: [],
+    effortProgress: { baselineRevision: "baseline-1" },
+  };
+  const baselinePlan = {
+    materials: [{ ...material, required: 10, missing: 10 }],
+    steps: [{
+      selectedRecipeId: "route-a",
+      alternatives: [{ id: "route-a", probabilityStatus: "available" }],
+      output: { key: "items:7", id: "7", kind: "items" },
+    }],
+  };
+
+  const completed = craftPlanning.finalizeCraftPlanPublication({ candidatePlan, baselinePlan });
+
+  assert.equal(completed.validation.valid, true);
+  assert.deepEqual(completed.validation.errors, []);
+  assert.strictEqual(completed.plan, completed.candidatePlan);
+});
+
 test("informational source routes with unavailable yields do not block an otherwise complete plan", () => {
   const informationalRoute = {
     selectedRecipeId: "gather-unknown-yield",

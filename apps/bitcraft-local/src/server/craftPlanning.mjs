@@ -1797,6 +1797,7 @@ function craftPlanProgressCompletion(progress, view, section = null) {
 export function validateCompletedCraftPlan(plan = {}, {
   requiredSources = [],
   previousPlan = null,
+  baselinePlan = null,
   baselineRevision = plan?.effortProgress?.baselineRevision,
 } = {}) {
   const errors = [];
@@ -1844,6 +1845,15 @@ export function validateCompletedCraftPlan(plan = {}, {
   }
 
   const completedRoutes = completedPlanRoutes(plan);
+  const completedRouteKeys = new Set(completedRoutes.map(({ route }) => (
+    `${craftPlanItemKey(route?.output)}\n${String(route?.selectedRecipeId ?? "").trim()}`
+  )));
+  for (const baselineRoute of completedPlanRoutes(baselinePlan)) {
+    const routeKey = `${craftPlanItemKey(baselineRoute.route?.output)}\n${String(baselineRoute.route?.selectedRecipeId ?? "").trim()}`;
+    if (completedRouteKeys.has(routeKey)) continue;
+    completedRouteKeys.add(routeKey);
+    completedRoutes.push({ ...baselineRoute, path: `baselinePlan.${baselineRoute.path}` });
+  }
   for (const { route, path, expanded } of completedRoutes) {
     const selectedRecipeId = String(route?.selectedRecipeId ?? "").trim();
     const alternatives = Array.isArray(route?.alternatives) ? route.alternatives : [];
@@ -1972,6 +1982,7 @@ export function finalizeCraftPlanPublication({
   const validation = validateCompletedCraftPlan(completedCandidate, {
     requiredSources,
     previousPlan: lastGoodPlan,
+    baselinePlan,
     baselineRevision,
   });
   return {
