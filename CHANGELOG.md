@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.2] - 2026-08-29
+
+### Fixed
+
+- Fixed large Craft Plans exceeding the calculation deadline by reusing repeated recipe-route checks.
+
 ## [0.66.2-beta.1] - 2026-08-29
 
 ### Fixed

@@ -3996,3 +3996,54 @@ test("collectLocalCatalogCraftPlanDetails queries shared completed subgraphs onc
 
   assert.equal(calls.get(recipeKey("items", "8403")), 1);
 });
+
+test("computeCraftPlan reuses route viability across repeated target branches", () => {
+  const depth = 36;
+  const alternatives = 64;
+  const detailsByKey = new Map();
+  for (let level = 0; level <= depth; level += 1) {
+    const id = String(20_000 + level);
+    const nextId = String(20_000 + level + 1);
+    detailsByKey.set(recipeKey("items", id), {
+      item: { id, itemType: 0, name: `Part ${level}`, tag: "Part", tier: 7 },
+      craftingRecipes: level === depth
+        ? []
+        : Array.from({ length: alternatives }, (_, routeIndex) => ({
+            id: `route-${level}-${routeIndex}`,
+            name: `Route ${level}-${routeIndex}`,
+            craftedItemStacks: [{ item_id: id, item_type: "item", quantity: 1 }],
+            craftedItems: [{ id, itemType: 0, name: `Part ${level}`, tag: "Part", tier: 7 }],
+            consumedItemStacks: [{ item_id: nextId, item_type: "item", quantity: 1 }],
+            consumedItems: [{ id: nextId, itemType: 0, name: `Part ${level + 1}`, tag: "Part", tier: 7 }],
+          })),
+    });
+  }
+  const targets = Array.from({ length: 50 }, () => ({
+    id: "20000",
+    kind: "items",
+    itemType: 0,
+    name: "Part 0",
+    quantity: 1,
+  }));
+
+  class CountingMap extends Map {
+    hits = 0;
+    misses = 0;
+
+    has(key) {
+      const found = super.has(key);
+      if (found) this.hits += 1;
+      else this.misses += 1;
+      return found;
+    }
+  }
+  const routeViabilityMemo = new CountingMap();
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({ enabled: true, targets }),
+    detailsByKey,
+    routeViabilityMemo,
+  });
+
+  assert.equal(plan.materials.find((material) => material.key === "items:20015")?.required, 50);
+  assert.ok(routeViabilityMemo.hits > routeViabilityMemo.misses, `expected shared route cache hits, received ${routeViabilityMemo.hits} hits and ${routeViabilityMemo.misses} misses`);
+});
