@@ -444,6 +444,60 @@ test("source failure falls back from corrupt state evidence to the latest valid 
   db.close();
 });
 
+test("recent events honor an exact until bound", () => {
+  const { db, statements } = database();
+  const repository = createCraftPlanProgressAuditRepository(db, { statements });
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "offline" }], "2026-08-28T10:00:00.000Z", "legacy-primary");
+  repository.recordFailure("42", [{ sourceId: "storage-1", label: "Storage", error: "still offline" }], "2026-08-28T11:00:00.000Z", "legacy-primary");
+
+  const events = repository.listEvents("42", {
+    planId: "legacy-primary",
+    since: "2026-08-28T09:00:00.000Z",
+    until: "2026-08-28T10:30:00.000Z",
+    limit: 100,
+  });
+
+  assert.deepEqual(events.map((event) => event.capturedAt), ["2026-08-28T10:00:00.000Z"]);
+  db.close();
+});
+
+test("structured validation diagnostics survive repository reconstruction", () => {
+  const { db, statements } = database();
+  createCraftPlanProgressAuditRepository(db, { statements }).recordFailure("42", [{
+    sourceId: "craft-plan-validation",
+    label: "Craft Plan calculation validation",
+    type: "Planner validation",
+    error: "1 calculation invariant failed.",
+    diagnostic: {
+      baselineRevision: "baseline-a",
+      retainedLastGood: true,
+      errors: [{
+        code: "incomplete_recipe_expansion",
+        path: "steps[0].selectedRecipeId",
+        message: "Selected recipe expansion is incomplete.",
+        outputKey: "items:9",
+        token: "must-not-persist",
+      }],
+      authorization: "Bearer must-not-persist",
+    },
+  }], "2026-08-28T10:05:00.000Z", "legacy-primary");
+
+  const reconstructed = createCraftPlanProgressAuditRepository(db, { statements });
+  assert.deepEqual(reconstructed.status("42", "legacy-primary").validationWarning, {
+    at: "2026-08-28T10:05:00.000Z",
+    planId: "legacy-primary",
+    baselineRevision: "baseline-a",
+    retainedLastGood: true,
+    errors: [{
+      code: "incomplete_recipe_expansion",
+      path: "steps[0].selectedRecipeId",
+      message: "Selected recipe expansion is incomplete.",
+      outputKey: "items:9",
+    }],
+  });
+  db.close();
+});
+
 test("source failure scans past more than 25 corrupt checkpoints to older valid evidence", () => {
   const { db, statements } = database();
   const repository = createCraftPlanProgressAuditRepository(db, { statements });

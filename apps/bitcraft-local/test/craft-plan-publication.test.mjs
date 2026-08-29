@@ -56,6 +56,11 @@ test("server publication failure records diagnostics and returns cached last-goo
 
   assert.equal(state.recordedFailures.length, 1);
   assert.equal(state.recordedFailures[0][0], "claim-1");
+  assert.deepEqual(state.recordedFailures[0][1].at(-1).diagnostic, {
+    baselineRevision: "baseline-1",
+    retainedLastGood: true,
+    errors: invalidValidation().errors,
+  });
   assert.equal(state.validationWarnings.get("plan-1").retainedLastGood, true);
   assert.equal(state.validationWarnings.get("plan-1").errors[0].path, "gatherNext[0].items[0].requiredNow");
   assert.equal(result.plan.marker, "last-good");

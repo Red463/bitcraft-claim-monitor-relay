@@ -31,7 +31,7 @@ test("server validates completed planner results and retains the cached last-goo
   assert.match(computedCraftPlan, /livePlan\.gatherNext = completedPublication\.candidatePlan\.gatherNext/);
   assert.match(server, /const craftPlanCalculationValidationWarnings = new Map\(\)/);
   assert.match(computedCraftPlan, /craftPlanCalculationValidationWarnings\.(?:set|delete)\(planId/);
-  assert.match(server, /validationWarning: craftPlanCalculationValidationWarnings\.get\(planId\) \?\? null/);
+  assert.match(server, /validationWarning: craftPlanCalculationValidationWarnings\.get\(planId\) \?\? auditStatus\.validationWarning \?\? null/);
   assert.match(computedCraftPlan, /lastGoodPlan/);
   assert.match(computedCraftPlan, /validationWarnings: craftPlanCalculationValidationWarnings/);
 });
@@ -46,6 +46,7 @@ test("server exposes authenticated progress audit status and gzip export routes"
   assert.match(server, /progress-audit\/compare/);
   assert.match(server, /compareCheckpoints/);
   assert.match(server, /queryCausalGroups/);
+  assert.match(server, /listEvents\(claimId, \{ since, until, limit: 100, planId \}\)/);
   for (const filter of ["page", "pageSize", "since", "until", "triggerCategory", "effectCategory", "materialKey", "unresolvedOnly"]) {
     assert.match(server, new RegExp(`searchParams\\.get\\(\"${filter}\"\\)`), filter);
   }

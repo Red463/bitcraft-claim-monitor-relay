@@ -1846,8 +1846,14 @@ export function validateCompletedCraftPlan(plan = {}, {
   for (const { route, path } of completedRoutes) {
     const selectedRecipeId = String(route?.selectedRecipeId ?? "").trim();
     const alternatives = Array.isArray(route?.alternatives) ? route.alternatives : [];
-    if (!selectedRecipeId || !alternatives.some((alternative) => String(alternative?.id ?? "").trim() === selectedRecipeId)) {
+    const selectedAlternative = alternatives.find((alternative) => String(alternative?.id ?? "").trim() === selectedRecipeId);
+    if (!selectedRecipeId || !selectedAlternative) {
       errors.push(craftPlanValidationError("invalid_selected_route", `${path}.selectedRecipeId`, "The selected route must identify one of the completed route alternatives.", { selectedRecipeId }));
+    } else if (selectedAlternative?.probabilityStatus === "unavailable" || route?.probabilityStatus === "unavailable") {
+      errors.push(craftPlanValidationError("incomplete_recipe_expansion", `${path}.selectedRecipeId`, "The selected recipe cannot be published until its validated output rate is available.", {
+        selectedRecipeId,
+        outputKey: craftPlanItemKey(route?.output),
+      }));
     }
   }
   for (const [outputKey, selectedRecipeId] of Object.entries(plan?.config?.routeOverrides ?? {})) {

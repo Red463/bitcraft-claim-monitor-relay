@@ -811,6 +811,9 @@ function normalizeFailures(failures = []) {
     label: text(failure?.label ?? failure?.sourceId ?? "Unknown source"),
     type: text(failure?.type || "Planner source"),
     error: text(failure?.error || "Refresh failed").slice(0, 300),
+    ...(failure?.diagnostic && typeof failure.diagnostic === "object"
+      ? { diagnostic: sanitized(failure.diagnostic) }
+      : {}),
   })).sort((left, right) => `${left.type}:${left.sourceId}:${left.label}`
     .localeCompare(`${right.type}:${right.sourceId}:${right.label}`));
 }
@@ -1067,17 +1070,24 @@ export function createCraftPlanProgressAuditRepository(db, {
 
   function listEvents(claimId, {
     since = new Date(new Date(now()).getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString(),
+    until = "9999-12-31T23:59:59.999Z",
     limit = 100,
     planId = "legacy-primary",
   } = {}) {
     return statements.listCraftPlanProgressEvents
-      .all(text(claimId), text(planId), text(since), Math.min(10_000, Math.max(1, Math.trunc(number(limit) || 100))))
+      .all(text(claimId), text(planId), text(since), text(until), Math.min(10_000, Math.max(1, Math.trunc(number(limit) || 100))))
       .map(parseEventRow);
   }
 
   function status(claimId, planId = "legacy-primary") {
     const state = stateFor(claimId, planId);
     const latest = latestSuccess(claimId, planId);
+    const failureEvent = state?.last_failure_fingerprint
+      ? statements.latestCraftPlanProgressFailureEvent.get(text(claimId), text(planId))
+      : null;
+    const validationDiagnostic = failureEvent
+      ? parseEventRow(failureEvent).failures?.find((failure) => failure?.sourceId === "craft-plan-validation")?.diagnostic
+      : null;
     const counts = statements.craftPlanProgressAuditCounts.get(
       text(claimId),
       text(planId),
@@ -1101,6 +1111,11 @@ export function createCraftPlanProgressAuditRepository(db, {
       baselineRevision: text(latest?.baselineRevision) || null,
       confirmedCompletion: latest ? number(latest?.progress?.confirmed ?? latest?.effortProgress?.confirmed?.overall?.completion) : null,
       projectedCompletion: latest ? number(latest?.progress?.projected ?? latest?.effortProgress?.projected?.overall?.completion) : null,
+      validationWarning: validationDiagnostic ? {
+        at: text(failureEvent.captured_at),
+        planId: text(planId),
+        ...validationDiagnostic,
+      } : null,
     };
   }
 

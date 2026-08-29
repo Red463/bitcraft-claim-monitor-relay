@@ -9643,14 +9643,15 @@ const server = createServer(async (req, res) => {
           materialKey: String(url.searchParams.get("materialKey") ?? ""),
           unresolvedOnly: url.searchParams.get("unresolvedOnly") === "true",
         });
+        const auditStatus = craftPlanProgressAudit.status(claimId, planId);
         return send(res, 200, {
           status: {
-            ...craftPlanProgressAudit.status(claimId, planId),
+            ...auditStatus,
             writeWarning: craftPlanProgressAuditWriteWarning,
-            validationWarning: craftPlanCalculationValidationWarnings.get(planId) ?? null,
+            validationWarning: craftPlanCalculationValidationWarnings.get(planId) ?? auditStatus.validationWarning ?? null,
             lastGoodLimitation: craftPlanLastGoodLimitations.get(planId) ?? null,
           },
-          events: craftPlanProgressAudit.listEvents(claimId, { since, limit: 100, planId }),
+          events: craftPlanProgressAudit.listEvents(claimId, { since, until, limit: 100, planId }),
           causalGroups: causal.causalGroups,
           pagination: causal.pagination,
         });

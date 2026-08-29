@@ -184,6 +184,7 @@ test("completed craft plan validation reports every calculation invariant withou
     ["non-finite quantity", "invalid_material_quantity", (plan) => { plan.materials[0].requiredNow = Number.NaN; }],
     ["negative quantity", "invalid_material_quantity", (plan) => { plan.materials[0].missingNow = -1; }],
     ["invalid selected route", "invalid_selected_route", (plan) => { plan.steps[0].selectedRecipeId = "route-b"; }],
+    ["selected route with unavailable probability expansion", "incomplete_recipe_expansion", (plan) => { plan.steps[0].alternatives[0].probabilityStatus = "unavailable"; }],
     ["selected route does not satisfy its configured override", "invalid_selected_route", (plan) => { plan.config.routeOverrides["items:7"] = "route-b"; }],
     ["unavailable required source", "required_source_unavailable", (_plan, sources) => { sources[0].available = false; }],
     ["incomplete required source", "required_source_incomplete", (_plan, sources) => { delete sources[0].sourceId; }],

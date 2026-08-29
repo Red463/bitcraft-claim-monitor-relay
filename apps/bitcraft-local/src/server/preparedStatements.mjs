@@ -186,9 +186,15 @@ export function createPreparedStatements(db) {
   `),
   listCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events
-    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ?
+    WHERE claim_id = ? AND plan_id = ? AND captured_at >= ? AND captured_at <= ?
     ORDER BY captured_at ASC, id ASC
     LIMIT ?
+  `),
+  latestCraftPlanProgressFailureEvent: db.prepare(`
+    SELECT * FROM craft_plan_progress_audit_events
+    WHERE claim_id = ? AND plan_id = ? AND event_type = 'source_failure'
+    ORDER BY captured_at DESC, id DESC
+    LIMIT 1
   `),
   exportCraftPlanProgressEvents: db.prepare(`
     SELECT * FROM craft_plan_progress_audit_events

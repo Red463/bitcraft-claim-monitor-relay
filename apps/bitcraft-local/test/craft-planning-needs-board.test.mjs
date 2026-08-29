@@ -186,6 +186,30 @@ test("buildNeedsBoard ignores fully stocked items that are not used by the curre
 
   assert.deepEqual(board, []);
 });
+
+test("buildNeedsBoard keeps canonical baseline-only rows with zero live demand", () => {
+  const board = buildNeedsBoard([{
+    key: "items:102001",
+    id: "102001",
+    kind: "items",
+    name: "Simple Plank",
+    tag: "Plank",
+    tier: 1,
+    section: "Carpentry",
+    planRequired: 1880,
+    requiredNow: 0,
+    missingNow: 0,
+    required: 0,
+    missing: 0,
+    available: 0,
+    inProgress: 0,
+  }], []);
+
+  assert.equal(board.length, 1);
+  const cell = board[0].rows[0].cells.get("T1");
+  assert.equal(cell?.required, 1880);
+  assert.equal(cell?.missing, 0);
+});
 test("buildNeedsBoard splits generic trade-good tags by actual item name", () => {
   const board = buildNeedsBoard([
     {

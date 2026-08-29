@@ -83,6 +83,11 @@ function validationSourceFailure(validation = {}) {
     label: "Craft Plan calculation validation",
     type: "Planner validation",
     error: `${count} calculation invariant${count === 1 ? "" : "s"} failed.`,
+    diagnostic: {
+      baselineRevision: validation?.baselineRevision ?? "",
+      retainedLastGood: false,
+      errors: validation?.errors ?? [],
+    },
   };
 }
 
@@ -106,6 +111,7 @@ export function resolveFailedCraftPlanPublication({
   baselineChange = () => null,
 } = {}) {
   const validationFailure = validationSourceFailure(validation);
+  if (validationFailure) validationFailure.diagnostic.retainedLastGood = publication?.retainedLastGood === true;
   const publicationFailures = validationFailure ? [...sourceFailures, validationFailure] : [...sourceFailures];
   if (!publicationFailures.length) return { plan: candidatePlan, publicationFailures, auditError: null };
 
