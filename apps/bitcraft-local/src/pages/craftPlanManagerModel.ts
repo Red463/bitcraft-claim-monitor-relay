@@ -119,6 +119,90 @@ export function craftPlanNeedCellPresentation(cell: AnyRecord) {
   };
 }
 
+export function craftPlanNeedReviewTargets(cell: AnyRecord) {
+  const seen = new Set<string>();
+  return (Array.isArray(cell?.items) ? cell.items : []).flatMap((item: AnyRecord) => {
+    const outputKey = String(item.key ?? "").trim();
+    if (!outputKey || seen.has(outputKey)) return [];
+    seen.add(outputKey);
+    return [{ outputKey, label: String(item.name ?? item.label ?? outputKey) }];
+  });
+}
+
+export type CraftPlanDraftConflict = { path: string; base: unknown; local: unknown; server: unknown };
+
+type StructuredChange = { path: string; value: unknown };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function pointerSegment(value: string) {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function structuredChanges(base: unknown, next: unknown, path = ""): StructuredChange[] {
+  if (sameValue(base, next)) return [];
+  if (isPlainObject(base) && isPlainObject(next)) {
+    return [...new Set([...Object.keys(base), ...Object.keys(next)])].flatMap((key) => structuredChanges(base[key], next[key], `${path}/${pointerSegment(key)}`));
+  }
+  return [{ path, value: next }];
+}
+
+function pointerParts(path: string) {
+  return path.split("/").slice(1).map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
+}
+
+function valueAtPath(value: unknown, path: string) {
+  return pointerParts(path).reduce<unknown>((current, part) => isPlainObject(current) ? current[part] : undefined, value);
+}
+
+function applyStructuredChange<T>(value: T, change: StructuredChange): T {
+  if (!change.path) return structuredClone(change.value) as T;
+  const result = structuredClone(value) as Record<string, unknown>;
+  const parts = pointerParts(change.path);
+  let parent = result;
+  for (const part of parts.slice(0, -1)) {
+    if (!isPlainObject(parent[part])) parent[part] = {};
+    parent = parent[part] as Record<string, unknown>;
+  }
+  const leaf = parts.at(-1)!;
+  if (change.value === undefined) delete parent[leaf];
+  else parent[leaf] = structuredClone(change.value);
+  return result as T;
+}
+
+function pathsOverlap(left: string, right: string) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+export function rebaseCraftPlanDraft<T>({ base, local, server }: { base: T; local: T; server: T }) {
+  const serverChanges = structuredChanges(base, server);
+  const conflicts: CraftPlanDraftConflict[] = [];
+  let config = structuredClone(server);
+  for (const change of structuredChanges(base, local)) {
+    if (serverChanges.some((serverChange) => pathsOverlap(change.path, serverChange.path))) {
+      conflicts.push({
+        path: change.path,
+        base: valueAtPath(base, change.path),
+        local: change.value,
+        server: valueAtPath(server, change.path),
+      });
+      continue;
+    }
+    config = applyStructuredChange(config, change);
+  }
+  return { config, conflicts };
+}
+
+export function resolveCraftPlanDraftConflict<T>(config: T, conflict: CraftPlanDraftConflict, choice: "local" | "server") {
+  return choice === "local" ? applyStructuredChange(config, { path: conflict.path, value: conflict.local }) : config;
+}
+
 export function craftPlanRecipeReviewHref({ planId, outputKey }: { planId: string; outputKey: string }) {
   const params = new URLSearchParams({ page: "planning", plan: String(planId), manager: "recipe-review", output: String(outputKey) });
   return `/?${params.toString()}`;

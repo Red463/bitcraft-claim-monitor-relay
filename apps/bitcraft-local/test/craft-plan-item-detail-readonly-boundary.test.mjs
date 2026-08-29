@@ -7,6 +7,10 @@ test("item-detail recipe information is read-only and links editors to exact Rec
   const detail = page.match(/const needDetailDialog[\s\S]+?React\.useEffect\(\(\) => \{/i)?.[0] ?? "";
 
   assert.match(detail, /Open in Recipe Review/);
+  assert.match(detail, /selectedNeedReviewTargets\.map/);
+  assert.match(detail, /outputKey: target\.outputKey/);
+  assert.match(detail, /openRecipeReview\(target\.outputKey\)/);
+  assert.doesNotMatch(detail, /outputKey: selectedNeedKey/);
   assert.match(detail, /craftPlanRecipeReviewHref/);
   assert.doesNotMatch(detail, /saveRouteOverride/);
   assert.doesNotMatch(detail, /saveMultiplier/);

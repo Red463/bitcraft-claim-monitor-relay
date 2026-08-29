@@ -110,3 +110,16 @@ No migration or manual VPS action is required.
 - The requested one isolated follow-up of `deployment-runtime.test.mjs` passed 8/8, including the previously timed-out worker-exit case in 1.49 seconds. The aggregate suite was not rerun.
 - Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung; dependencies remain unchanged.
 - Final self-review found no remaining Task 4 correctness, authorization, audit-contract, request-loop, publication-gate, schema, migration, dependency, changelog, or version issue.
+
+## Independent Task 4 fourth-review correction
+
+- RED: the model regression could not import the requested three-way rebase or grouped-output helpers; the grouped item-detail boundary still linked only the first item; and the deferred preview race made one request instead of queuing the changed draft (`1 !== 2`). The conflict UI test also exposed that the former “reload latest” behavior silently retained overlapping stale local fields.
+- GREEN: conflict recovery now retains the loaded base, computes structured base-to-local and base-to-server changes, applies non-overlapping local route/buffer changes onto the authoritative server configuration, and preserves concurrent server target/source edits. Overlapping JSON-pointer paths retain the server value, display both choices, and disable Save until explicitly resolved.
+- GREEN: preview application is bound to both request identity and the exact staged-config signature. Every staged configuration mutation updates that signature immediately, so even a response resolving between the edit event and the next React render is ignored; after it settles, the latest draft preview is requested and may apply.
+- GREEN: grouped Needs Board detail renders one Recipe Review link for every unique exact typed output, preserving item/cargo identity and later grouped items instead of always selecting `items[0]`.
+- Focused fourth-review files: 24 passed, 0 failed. The tightened immediate-edit preview race also passed in isolation.
+- Broader craft-plan regression set: 429 passed, 0 failed.
+- Production build: passed after the final race hardening, including server/provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
+- One uninterrupted aggregate suite completed before the final mutation-time signature tightening: 2,749 total; 2,746 passed, 0 failed, and 3 environment-skipped. Per instruction, it was not rerun; the affected focused files and production build were rerun afterward and passed.
+- Browser automation was not retried because the two earlier bounded Task 4 smoke attempts hung. Dependencies remain unchanged.
+- Final self-review found no further Task 4 correctness, authorization, race, typed-identity, schema, migration, dependency, changelog, or version issue.

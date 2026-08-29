@@ -324,7 +324,7 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     if (String(url).endsWith("/preview")) return jsonResponse(preview);
     if (options.method === "PUT") {
       putBodies.push(JSON.parse(options.body));
-      if (putBodies.length === 1) return jsonResponse({ error: "Changed elsewhere", code: "craft_plan_revision_conflict", conflict: { currentRevision: 5, plan: { id: "plan-a", name: "Server plan", scope: "shared", updatedAt: "2026-08-29T12:00:00.000Z" }, config: { name: "Server plan", targets: [] } } }, { ok: false, status: 409 });
+      if (putBodies.length === 1) return jsonResponse({ error: "Changed elsewhere", code: "craft_plan_revision_conflict", conflict: { currentRevision: 5, plan: { id: "plan-a", name: "Saved plan", scope: "shared", updatedAt: "2026-08-29T12:00:00.000Z" }, config: { enabled: true, name: "Saved plan", targets: [{ id: "1", kind: "items", name: "Stone", quantity: 9 }], sourceRules: { storageContainerIds: ["storage-a"] } } } }, { ok: false, status: 409 });
       return jsonResponse({ planRecord: { id: "plan-a", revision: 6 } });
     }
     return jsonResponse(plan);
@@ -334,12 +334,6 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [] };
     await harness.render(CraftPlanManagerDialog, props);
     let tree = await harness.render(CraftPlanManagerDialog, props);
-    findElements(tree, (element) => element.type === "input" && element.props.value === "Saved plan")[0].props.onChange({ target: { value: "Unsaved plan" } });
-    findElements(tree, (element) => element.type === "input" && element.props.type === "number")[0].props.onChange({ target: { value: "7" } });
-    tree = await harness.render(CraftPlanManagerDialog, props);
-    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Counted Sources")[0].props.onClick();
-    tree = await harness.render(CraftPlanManagerDialog, props);
-    findElements(tree, (element) => element.type === "input" && element.props.type === "checkbox" && element.props.checked === false)[0].props.onChange({ target: { checked: true } });
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Recipe Review")[0].props.onClick();
     await harness.render(CraftPlanManagerDialog, props);
     tree = await harness.render(CraftPlanManagerDialog, props);
@@ -354,15 +348,57 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     assert.match(elementText(tree), /Reload latest/);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Reload latest")[0].props.onClick();
     tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.match(elementText(tree), /latest revision.*draft.*preserved/i);
+    assert.match(elementText(tree), /server changes.*draft changes were preserved/i);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(putBodies[1].expectedRevision, 5);
-    assert.equal(putBodies[1].config.name, "Unsaved plan");
-    assert.equal(putBodies[1].config.targets[0].quantity, 7);
+    assert.equal(putBodies[1].config.name, "Saved plan");
+    assert.equal(putBodies[1].config.targets[0].quantity, 9);
     assert.deepEqual(putBodies[1].config.sourceRules.storageContainerIds, ["storage-a"]);
     assert.equal(putBodies[1].config.routeOverrides["items:7"], "risky");
     assert.equal(putBodies[1].config.multipliers["items:7"].multiplier, 1.25);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("overlapping conflict paths remain explicit and block saving", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const putBodies = [];
+  const plan = loadedPlan({ config: { routeOverrides: { "items:7": "safe" } } });
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/preview")) return jsonResponse(preview);
+    if (options.method === "PUT") {
+      putBodies.push(JSON.parse(options.body));
+      return jsonResponse({ error: "Changed elsewhere", code: "craft_plan_revision_conflict", conflict: { currentRevision: 5, plan: { id: "plan-a", name: "Saved plan", scope: "shared" }, config: { ...plan.config, routeOverrides: { "items:7": "server-route" } } } }, { ok: false, status: 409 });
+    }
+    return jsonResponse(plan);
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    const review = findElements(tree, (element) => element.type === "article" && /items:7/.test(elementText(element)))[0];
+    findElements(review, (element) => element.type === "input" && element.props.type === "radio" && /Risky forge/.test(String(element.props["aria-label"])))[0].props.onChange();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Reload latest")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /Conflicting changes need resolution.*\/routeOverrides\/items:7.*server-route.*risky/s);
+    const saveButton = findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0];
+    assert.equal(saveButton.props.disabled, true);
+    saveButton.props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(putBodies.length, 1, "unresolved overlap must not issue another save");
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();
@@ -523,6 +559,50 @@ test("preview responses are bound to the open lifecycle and selected plan", asyn
     freshPreview.resolve(jsonResponse({ ...preview, routeReviews: [{ outputKey: "items:7", ambiguous: false, selectedRouteId: "fresh", preselectedRouteId: "fresh", fingerprint: "fresh", alternatives: [{ id: "fresh", label: "Fresh B route", inputs: [] }] }] }));
     await new Promise((resolve) => setImmediate(resolve));
     tree = await harness.render(CraftPlanManagerDialog, propsB);
+    assert.match(elementText(tree), /Fresh B route/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("an in-flight preview cannot apply after the staged draft changes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const previewA = deferred();
+  const previewB = deferred();
+  const previewBodies = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/preview")) {
+      previewBodies.push(JSON.parse(options.body));
+      return previewBodies.length === 1 ? previewA.promise : previewB.promise;
+    }
+    return jsonResponse(loadedPlan());
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["settings.manage"], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Goals")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "input" && element.props.value === "Saved plan")[0].props.onChange({ target: { value: "Draft B" } });
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Recipe Review")[0].props.onClick();
+
+    previewA.resolve(jsonResponse({ ...preview, routeReviews: [{ outputKey: "items:7", ambiguous: false, selectedRouteId: "stale", preselectedRouteId: "stale", fingerprint: "stale", alternatives: [{ id: "stale", label: "Stale A route", inputs: [] }] }] }));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.equal(previewBodies.length, 2, "settling A must trigger the queued Draft B preview");
+    assert.equal(previewBodies[1].config.name, "Draft B");
+    assert.doesNotMatch(elementText(tree), /Stale A route/);
+
+    previewB.resolve(jsonResponse({ ...preview, routeReviews: [{ outputKey: "items:7", ambiguous: false, selectedRouteId: "fresh", preselectedRouteId: "fresh", fingerprint: "fresh", alternatives: [{ id: "fresh", label: "Fresh B route", inputs: [] }] }] }));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
     assert.match(elementText(tree), /Fresh B route/);
   } finally {
     globalThis.fetch = originalFetch;

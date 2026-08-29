@@ -7,7 +7,7 @@ import type { AnyRecord } from "../main-app-data";
 import { dateLabel, formatNumber, timeAgo } from "../utils/format";
 import { createDelayedRefreshTask } from "../refresh/pageRefresh.mjs";
 import { buildCraftPlanBankGroups, finalizeLegacyBankMigrations, initiallyExpandedBankPlayerIds, mergeLegacyBankDiscovery, runBankDiscoveryQueue } from "./craftPlanBankSelection.mjs";
-import { applyCraftPlanSourceSuggestion, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, orderCraftPlanRouteReviews, stageCraftPlanRouteRecommendations, type CraftPlanManagerWorkspace } from "./craftPlanManagerModel";
+import { applyCraftPlanSourceSuggestion, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace } from "./craftPlanManagerModel";
 
 const LOCAL_API = "/api/local";
 const BANK_LOAD_CONCURRENCY = 3;
@@ -280,6 +280,8 @@ export function CraftPlanManagerDialog({
   const [publicRouteGate, setPublicRouteGate] = React.useState<AnyRecord[] | null>(null);
   const [revisionConflict, setRevisionConflict] = React.useState<AnyRecord | null>(null);
   const [conflictDraft, setConflictDraft] = React.useState<CraftPlanConfig | null>(null);
+  const [baseConfig, setBaseConfig] = React.useState<CraftPlanConfig>(emptyConfig);
+  const [draftConflicts, setDraftConflicts] = React.useState<CraftPlanDraftConflict[]>([]);
   const [auditFilters, setAuditFilters] = React.useState({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
   const [comparisonFrom, setComparisonFrom] = React.useState("");
   const [comparisonTo, setComparisonTo] = React.useState("");
@@ -288,8 +290,17 @@ export function CraftPlanManagerDialog({
   const loadRequestId = React.useRef(0);
   const previewRequestId = React.useRef(0);
   const previewAttemptSignature = React.useRef("");
+  const configSignatureRef = React.useRef(JSON.stringify(config));
+  configSignatureRef.current = JSON.stringify(config);
   const auditRequestId = React.useRef(0);
   const comparisonRequestId = React.useRef(0);
+  function updateConfig(update: React.SetStateAction<CraftPlanConfig>) {
+    setConfig((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      configSignatureRef.current = JSON.stringify(next);
+      return next;
+    });
+  }
   const draftDirty = Boolean(savedConfigSignature) && JSON.stringify(config) !== savedConfigSignature;
   const canViewAudit = permissions.includes("*") || permissions.includes("audit.view");
   const canExportAudit = canViewAudit && (permissions.includes("*") || permissions.includes("data.export"));
@@ -326,7 +337,8 @@ export function CraftPlanManagerDialog({
       if (requestId !== loadRequestId.current) return;
       const loadedConfig = managerConfigFromResult(result);
       setState(result);
-      setConfig(loadedConfig);
+      updateConfig(loadedConfig);
+      setBaseConfig(loadedConfig);
       setSavedConfigSignature(JSON.stringify(loadedConfig));
       setRefreshConfirmationOpen(false);
       setBankLoads({});
@@ -339,6 +351,7 @@ export function CraftPlanManagerDialog({
       setPublicRouteGate(null);
       setRevisionConflict(null);
       setConflictDraft(null);
+      setDraftConflicts([]);
     } catch (err) {
       if (requestId === loadRequestId.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -378,7 +391,8 @@ export function CraftPlanManagerDialog({
 
   const loadPreview = React.useCallback(async (draft: CraftPlanConfig = config) => {
     const requestId = ++previewRequestId.current;
-    previewAttemptSignature.current = JSON.stringify(draft);
+    const draftSignature = JSON.stringify(draft);
+    previewAttemptSignature.current = draftSignature;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -386,12 +400,12 @@ export function CraftPlanManagerDialog({
         ? `/user/craft-plans/${encodeURIComponent(planId)}/preview`
         : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
       const result = await adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
-      if (requestId !== previewRequestId.current) return null;
+      if (requestId !== previewRequestId.current || draftSignature !== configSignatureRef.current) return null;
       setPreview(result);
-      setConfig((current) => stageCraftPlanRouteRecommendations(current, result.routeReviews));
+      updateConfig((current) => stageCraftPlanRouteRecommendations(current, result.routeReviews));
       return result;
     } catch (err) {
-      if (requestId === previewRequestId.current) setPreviewError(err instanceof Error ? err.message : String(err));
+      if (requestId === previewRequestId.current && draftSignature === configSignatureRef.current) setPreviewError(err instanceof Error ? err.message : String(err));
       return null;
     } finally {
       if (requestId === previewRequestId.current) setPreviewLoading(false);
@@ -463,7 +477,7 @@ export function CraftPlanManagerDialog({
     auditRequestId.current += 1;
     comparisonRequestId.current += 1;
     setState(null);
-    setConfig(emptyConfig());
+    updateConfig(emptyConfig());
     setBusy(false);
     setOperation(null);
     setStatus(null);
@@ -496,6 +510,8 @@ export function CraftPlanManagerDialog({
     setPublicRouteGate(null);
     setRevisionConflict(null);
     setConflictDraft(null);
+    setBaseConfig(emptyConfig());
+    setDraftConflicts([]);
     setAuditFilters({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
     setComparisonFrom("");
     setComparisonTo("");
@@ -529,7 +545,7 @@ export function CraftPlanManagerDialog({
       const result = await adminApi(ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}/player-banks?playerId=${encodeURIComponent(playerId)}` : `/admin/craft-plan/player-banks?playerId=${encodeURIComponent(playerId)}`);
       const banks = Array.isArray(result.banks) ? result.banks : [];
       setBankLoads((current) => ({ ...current, [playerId]: { status: "loaded", banks, warnings: Array.isArray(result.warnings) ? result.warnings.map(String) : [] } }));
-      setConfig((current) => {
+      updateConfig((current) => {
         const sourceRules = mergeLegacyBankDiscovery(current.sourceRules, playerId, banks);
         return sourceRules === current.sourceRules ? current : { ...current, sourceRules };
       });
@@ -597,7 +613,7 @@ export function CraftPlanManagerDialog({
   }
 
   function patchConfig(patch: Partial<CraftPlanConfig>) {
-    setConfig((current) => ({ ...current, ...patch }));
+    updateConfig((current) => ({ ...current, ...patch }));
   }
 
   function requestRefresh() {
@@ -609,7 +625,7 @@ export function CraftPlanManagerDialog({
   }
 
   function updateSource(kind: "storageContainerIds" | "playerIds" | "craftPlayerIds" | "bankPlayerIds" | "bankContainerIds" | "deployableContainerIds", id: string, checked: boolean) {
-    setConfig((current) => {
+    updateConfig((current) => {
       const currentValues = current.sourceRules[kind] ?? [];
       const nextValues = checked ? [...new Set([...currentValues, id])] : currentValues.filter((value) => value !== id);
       return { ...current, sourceRules: { ...current.sourceRules, [kind]: nextValues } };
@@ -617,19 +633,19 @@ export function CraftPlanManagerDialog({
   }
 
   function addTargets(items: AnyRecord[], message: string) {
-    setConfig((current) => ({ ...current, targets: mergeTargets(current.targets, items) }));
+    updateConfig((current) => ({ ...current, targets: mergeTargets(current.targets, items) }));
     setStatus(message);
   }
 
   function applySuggestedSources() {
     const suggestion = craftPlanSourceSuggestion({ personal, sources: state?.sources ?? {} });
-    setConfig((current) => applyCraftPlanSourceSuggestion(current, suggestion));
+    updateConfig((current) => applyCraftPlanSourceSuggestion(current, suggestion));
     setSuggestionConfirmationOpen(false);
     setStatus("Suggested sources added to the draft. Save Plan to persist them.");
   }
 
   function selectRoute(review: AnyRecord, routeId: string) {
-    setConfig((current) => ({ ...current, routeOverrides: { ...current.routeOverrides, [String(review.outputKey)]: routeId } }));
+    updateConfig((current) => ({ ...current, routeOverrides: { ...current.routeOverrides, [String(review.outputKey)]: routeId } }));
     setRouteConfirmations((current) => {
       const next = { ...current };
       delete next[String(review.outputKey)];
@@ -643,7 +659,7 @@ export function CraftPlanManagerDialog({
   }
 
   function resetRoute(outputKey: string) {
-    setConfig((current) => {
+    updateConfig((current) => {
       const routeOverrides = { ...current.routeOverrides };
       delete routeOverrides[outputKey];
       return { ...current, routeOverrides };
@@ -658,7 +674,7 @@ export function CraftPlanManagerDialog({
 
   function updateMaterialBuffer(outputKey: string, rawPercent: string) {
     const percent = Math.max(0, Math.min(1900, Number(rawPercent) || 0));
-    setConfig((current) => {
+    updateConfig((current) => {
       const multipliers = { ...current.multipliers };
       if (percent > 0) multipliers[outputKey] = { multiplier: 1 + percent / 100, note: `${percent}% gathering safety buffer` };
       else delete multipliers[outputKey];
@@ -684,6 +700,7 @@ export function CraftPlanManagerDialog({
       config: { ...(revisionConflict.config ?? {}), name: revisionConflict.plan?.name ?? revisionConflict.config?.name },
     });
     const draft = conflictDraft ?? config;
+    const rebased = rebaseCraftPlanDraft({ base: baseConfig, local: draft, server: authoritativeConfig });
     setState((current) => ({
       ...(current ?? {}),
       planRecord: {
@@ -693,7 +710,9 @@ export function CraftPlanManagerDialog({
       },
       config: authoritativeConfig,
     }));
-    setConfig(draft);
+    updateConfig(rebased.config);
+    setBaseConfig(authoritativeConfig);
+    setDraftConflicts(rebased.conflicts);
     setSavedConfigSignature(JSON.stringify(authoritativeConfig));
     previewRequestId.current += 1;
     previewAttemptSignature.current = "";
@@ -704,7 +723,14 @@ export function CraftPlanManagerDialog({
     setPublicRouteGate(null);
     setRevisionConflict(null);
     setConflictDraft(null);
-    setStatus("Latest revision loaded; your local draft was preserved and is ready to save again.");
+    setStatus(rebased.conflicts.length
+      ? "Latest revision loaded. Resolve the overlapping changes before saving."
+      : "Latest revision loaded; server changes and your non-overlapping draft changes were preserved.");
+  }
+
+  function resolveDraftConflict(conflict: CraftPlanDraftConflict, choice: "local" | "server") {
+    updateConfig((current) => resolveCraftPlanDraftConflict(current, conflict, choice));
+    setDraftConflicts((current) => current.filter((entry) => entry.path !== conflict.path));
   }
 
   async function addWorkstationPreset(preset: AnyRecord) {
@@ -723,7 +749,7 @@ export function CraftPlanManagerDialog({
       });
       const added = additions.length;
       const existing = incoming.length - additions.length;
-      setConfig((current) => ({ ...current, targets: [...current.targets, ...additions] }));
+      updateConfig((current) => ({ ...current, targets: [...current.targets, ...additions] }));
       setStatus(`Added ${added} T${preset.tier} workstations${existing ? `; ${existing} already tracked` : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -734,6 +760,7 @@ export function CraftPlanManagerDialog({
   }
 
   async function save(confirmPublicRoutes = false) {
+    if (draftConflicts.length) return;
     setBusy(true);
     setOperation("saving");
     setError(null);
@@ -749,7 +776,7 @@ export function CraftPlanManagerDialog({
       let confirmations = Object.values(routeConfirmations);
       if (confirmPublicRoutes) {
         submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, publicRouteGate ?? []);
-        setConfig(submittedConfig);
+        updateConfig(submittedConfig);
         const latestPreview = await loadPreview(submittedConfig);
         const gatedKeys = new Set((publicRouteGate ?? []).map((entry) => String(entry.outputKey)));
         confirmations = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : [])
@@ -819,7 +846,7 @@ export function CraftPlanManagerDialog({
           <span className="legend">{canEdit ? "All edits remain staged until Save Plan." : "Audit is read-only."}</span>
           <div className="craft-plan-manager-buttons">
             <button className="toolbar-button" type="button" onClick={requestRefresh} disabled={busy}>{operation === "refreshing" ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} {operation === "refreshing" ? "Refreshing…" : "Refresh"}</button>
-            {canEdit ? <button className="toolbar-button primary" type="button" onClick={() => void save(Boolean(publicRouteGate))} disabled={busy}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : publicRouteGate ? "Confirm routes and Save Plan" : "Save Plan"}</button> : null}
+            {canEdit ? <button className="toolbar-button primary" type="button" onClick={() => void save(Boolean(publicRouteGate))} disabled={busy || draftConflicts.length > 0}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : publicRouteGate ? "Confirm routes and Save Plan" : "Save Plan"}</button> : null}
           </div>
         </div>
         {refreshConfirmationOpen ? <div className="alert warning craft-plan-refresh-confirmation" role="group" aria-labelledby="craft-plan-refresh-confirmation-title"><div><strong id="craft-plan-refresh-confirmation-title">Discard unsaved changes?</strong><span>Refreshing reloads the last saved plan and replaces your current edits.</span></div><div><button className="toolbar-button" type="button" onClick={() => setRefreshConfirmationOpen(false)}>Keep editing</button><button className="toolbar-button danger" type="button" onClick={() => { setRefreshConfirmationOpen(false); void load("refreshing"); }}>Discard and refresh</button></div></div> : null}
@@ -828,6 +855,7 @@ export function CraftPlanManagerDialog({
         {status ? <div className="alert success">{status}</div> : null}
         {publicRouteGate ? <div className="alert warning craft-plan-public-gate" role="alert"><div><strong>Public route review required</strong><span>New ambiguous routes must be explicitly confirmed before this public plan can be updated. Your draft is unchanged; use the Save action above to confirm and publish it.</span></div></div> : null}
         {revisionConflict ? <div className="alert warning craft-plan-conflict" role="alert"><div><strong>Plan changed elsewhere</strong><span>The server is now at revision {String(revisionConflict.currentRevision ?? "unknown")}. Your unsaved edits are still here.</span></div><div><button className="toolbar-button" type="button" onClick={() => { setRevisionConflict(null); setConflictDraft(null); }}>Keep draft</button><button className="toolbar-button danger" type="button" onClick={rebaseConflictDraft}>Reload latest</button></div></div> : null}
+        {draftConflicts.length ? <div className="alert warning craft-plan-conflict" role="alert"><div><strong>Conflicting changes need resolution</strong><span>The same plan fields changed here and on the server. Saving is disabled until you choose each value.</span></div>{draftConflicts.map((conflict) => <div key={conflict.path}><code>{conflict.path}</code><span>Server: {JSON.stringify(conflict.server)} · Yours: {JSON.stringify(conflict.local)}</span><div><button className="toolbar-button" type="button" onClick={() => resolveDraftConflict(conflict, "server")}>Keep server value</button><button className="toolbar-button" type="button" onClick={() => resolveDraftConflict(conflict, "local")}>Use my value</button></div></div>)}</div> : null}
         <nav className="craft-plan-manager-tabs" aria-label="Craft plan workspaces">
           {workspaces.map(({ id, label }) => <button key={id} type="button" aria-current={activeTab === id ? "page" : undefined} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{id === "goals" ? <Target size={15} /> : id === "sources" ? <Package size={15} /> : id === "recipes" ? <Route size={15} /> : <History size={15} />}{label}</button>)}
         </nav>
@@ -863,8 +891,8 @@ export function CraftPlanManagerDialog({
               {config.targets.length ? config.targets.map((target, index) => <div className="craft-plan-target-editor-row" key={itemKey(target)}>
                 <ItemLabel item={target} />
                 <div className="craft-plan-target-editor-actions">
-                  <label className="field compact-field"><span>Quantity</span><input type="number" min={1} value={target.quantity ?? 1} onChange={(event) => setConfig((current) => ({ ...current, targets: current.targets.map((row, i) => i === index ? { ...row, quantity: Math.max(1, Math.ceil(Number(event.target.value) || 1)) } : row) }))} /></label>
-                  <button className="toolbar-button danger" type="button" onClick={() => setConfig((current) => {
+                  <label className="field compact-field"><span>Quantity</span><input type="number" min={1} value={target.quantity ?? 1} onChange={(event) => updateConfig((current) => ({ ...current, targets: current.targets.map((row, i) => i === index ? { ...row, quantity: Math.max(1, Math.ceil(Number(event.target.value) || 1)) } : row) }))} /></label>
+                  <button className="toolbar-button danger" type="button" onClick={() => updateConfig((current) => {
                     const targets = current.targets.filter((_, i) => i !== index);
                     if (itemKind(target) !== "building") return { ...current, targets };
                     const nextProgress = { ...current.buildingProgress };

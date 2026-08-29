@@ -5,7 +5,10 @@ import {
   applyCraftPlanSourceSuggestion,
   craftPlanManagerWorkspaces,
   craftPlanMaterialPresentation,
+  craftPlanNeedReviewTargets,
   craftPlanRecipeReviewHref,
+  rebaseCraftPlanDraft,
+  resolveCraftPlanDraftConflict,
   craftPlanRouteSelection,
   craftPlanSourceSuggestion,
   orderCraftPlanRouteReviews,
@@ -161,4 +164,64 @@ test("item-detail editor links preserve the exact typed output in Recipe Review"
   assert.equal(url.searchParams.get("plan"), "shared plan");
   assert.equal(url.searchParams.get("manager"), "recipe-review");
   assert.equal(url.searchParams.get("output"), "cargo:7");
+});
+
+test("three-way draft rebase preserves non-overlapping server and local changes", () => {
+  const base = {
+    targets: [{ key: "items:1", quantity: 1 }],
+    sourceRules: { storageContainerIds: [] },
+    routeOverrides: { "items:7": "safe" },
+    multipliers: {},
+  };
+  const local = {
+    ...structuredClone(base),
+    routeOverrides: { "items:7": "risky" },
+    multipliers: { "items:7": { multiplier: 1.25 } },
+  };
+  const server = {
+    ...structuredClone(base),
+    targets: [{ key: "items:1", quantity: 9 }],
+    sourceRules: { storageContainerIds: ["server-store"] },
+  };
+
+  assert.deepEqual(rebaseCraftPlanDraft({ base, local, server }), {
+    config: {
+      targets: [{ key: "items:1", quantity: 9 }],
+      sourceRules: { storageContainerIds: ["server-store"] },
+      routeOverrides: { "items:7": "risky" },
+      multipliers: { "items:7": { multiplier: 1.25 } },
+    },
+    conflicts: [],
+  });
+});
+
+test("three-way draft rebase keeps overlapping server values explicit until resolved", () => {
+  const result = rebaseCraftPlanDraft({
+    base: { routeOverrides: { "items:7": "safe" }, multipliers: {} },
+    local: { routeOverrides: { "items:7": "risky" }, multipliers: { "items:7": { multiplier: 1.25 } } },
+    server: { routeOverrides: { "items:7": "server-route" }, multipliers: {} },
+  });
+
+  assert.deepEqual(result.config, {
+    routeOverrides: { "items:7": "server-route" },
+    multipliers: { "items:7": { multiplier: 1.25 } },
+  });
+  assert.deepEqual(result.conflicts, [{ path: "/routeOverrides/items:7", base: "safe", local: "risky", server: "server-route" }]);
+  assert.deepEqual(resolveCraftPlanDraftConflict(result.config, result.conflicts[0], "local"), {
+    routeOverrides: { "items:7": "risky" },
+    multipliers: { "items:7": { multiplier: 1.25 } },
+  });
+});
+
+test("grouped detail review targets retain every exact typed output", () => {
+  assert.deepEqual(craftPlanNeedReviewTargets({ items: [
+    { key: "items:7", name: "Item Seven" },
+    { key: "cargo:7", name: "Cargo Seven" },
+    { key: "items:9", name: "Later Grouped Item" },
+    { key: "items:7", name: "Duplicate" },
+  ] }), [
+    { outputKey: "items:7", label: "Item Seven" },
+    { outputKey: "cargo:7", label: "Cargo Seven" },
+    { outputKey: "items:9", label: "Later Grouped Item" },
+  ]);
 });

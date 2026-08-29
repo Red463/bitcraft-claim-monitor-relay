@@ -14,7 +14,7 @@ import { CraftPlanManagerDialog } from "./CraftPlanManagerDialog";
 import { CraftPlansDialog } from "./CraftPlansDialog";
 import { resolveCraftPlanSelection } from "./craftPlanSelection.mjs";
 import type { UserAuthState } from "../types/settings";
-import { canEditCraftPlan, canOpenCraftPlanManager, canViewCraftPlanAudit, craftPlanNeedCellPresentation, craftPlanRecipeReviewHref } from "./craftPlanManagerModel";
+import { canEditCraftPlan, canOpenCraftPlanManager, canViewCraftPlanAudit, craftPlanNeedCellPresentation, craftPlanNeedReviewTargets, craftPlanRecipeReviewHref } from "./craftPlanManagerModel";
 import { applyPersonalFishingView, normalizeFishingRoutePreference, type FishingRoutePreference } from "./craftPlanningFishingView";
 import { selectCraftPlanningEffortView } from "./craftPlanningEffortView";
 import { buildNeedsBoard, filterNeedsBoard, itemKey, itemName, NEED_COLUMNS, NEED_SECTIONS, type NeedCell, type NeedRow } from "./craftPlanningNeedsBoard";
@@ -312,6 +312,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const selectedNeedSourceRoutes = selectedNeed ? groupNeedCellSourceRoutes(selectedNeed, detailSteps) : [];
   const selectedNeedUsages = selectedNeed ? groupNeedCellRecipeUsages(selectedNeed) : [];
   const selectedNeedKey = selectedNeed?.items?.[0]?.key ?? (selectedNeed ? itemKey(selectedNeed.item) : "");
+  const selectedNeedReviewTargets = selectedNeed ? craftPlanNeedReviewTargets(selectedNeed) : [];
   const selectedMultiplier = Number(config.multipliers?.[selectedNeedKey]?.multiplier) || 1;
   const selectedMaterialPresentation = selectedNeed ? craftPlanNeedCellPresentation(selectedNeed) : null;
   React.useEffect(() => {
@@ -431,7 +432,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
           </section>
           <div className="craft-plan-need-detail-side">
             <section className="form-card nested-card">
-              <div className="split-header"><h3><Factory size={16} /> How to get this</h3>{canEditSelectedPlan ? <a className="toolbar-button" href={craftPlanRecipeReviewHref({ planId: selectedPlanId, outputKey: selectedNeedKey })} onClick={(event) => { event.preventDefault(); openRecipeReview(selectedNeedKey); }}>Open in Recipe Review</a> : null}</div>
+              <div className="split-header"><h3><Factory size={16} /> How to get this</h3>{canEditSelectedPlan ? <div className="craft-plan-review-links">{selectedNeedReviewTargets.map((target) => <a className="toolbar-button" key={target.outputKey} href={craftPlanRecipeReviewHref({ planId: selectedPlanId, outputKey: target.outputKey })} onClick={(event) => { event.preventDefault(); openRecipeReview(target.outputKey); }}>Open in Recipe Review · {target.label}</a>)}</div> : null}</div>
               {selectedNeedSourceRoutes.length ? selectedNeedSourceRoutes.map((route, index) => {
                 const alternatives = Array.isArray(route.alternatives) ? route.alternatives : [];
                 const routeType = String(route.routeType ?? "craft");
