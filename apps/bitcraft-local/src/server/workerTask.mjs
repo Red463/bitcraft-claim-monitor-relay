@@ -21,18 +21,13 @@ function executeWorkerTask(workerUrl, workerData, { WorkerClass, timeoutMs, sign
       if (settled) return;
       settled = true;
       cleanup();
-      if (!terminate) {
-        callback(value);
-        return;
-      }
-      let termination;
+      callback(value);
+      if (!terminate) return;
       try {
-        termination = worker.terminate();
+        void Promise.resolve(worker.terminate()).catch(() => {});
       } catch {
-        callback(value);
-        return;
+        // The task result is already settled; termination is best-effort cleanup.
       }
-      Promise.resolve(termination).then(() => callback(value), () => callback(value));
     };
     worker.once("message", (message) => {
       if (message?.error) {

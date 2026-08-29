@@ -117,7 +117,7 @@ import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
 import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanCatalogTargets, craftPlanDetailResponse, finalizeCraftPlanPublication, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, reconcileCraftPlanRequiredSourceStatus } from "./src/server/craftPlanning.mjs";
 import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor.mjs";
-import { refreshFailureEntry, refreshRetryAllowed, serveLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
+import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
 import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
@@ -2323,14 +2323,21 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const cached = craftPlanResponseCache.get(cacheKey);
   const forceRefresh = options.forceRefresh === true;
   const refreshId = String(options.refreshId ?? "");
+  const retained = cached?.workspace?.plan
+    ? { plan: cached.workspace.plan, limitation: null }
+    : craftPlanLastGoodPublications.load(normalizedClaimId, planId);
+  if (retained.limitation) craftPlanLastGoodLimitations.set(planId, retained.limitation);
+  else craftPlanLastGoodLimitations.delete(planId);
   let sourceRevision = craftPlanCurrentSourceRevision(normalizedClaimId);
   if (cached && cached.expiresAt > now && cached.sourceRevision === sourceRevision && (!forceRefresh || cached.refreshId === refreshId)) { plannerTelemetry.cacheHits += 1; return cached.workspace; }
   if (cached && !refreshRetryAllowed(cached, { now, forceRefresh })) { plannerTelemetry.cacheHits += 1; return cached.workspace; }
   const existing = craftPlanResponseInflight.get(cacheKey);
   if (existing?.generation === craftPlanResponseGeneration && existing?.sourceRevision === sourceRevision && (!forceRefresh || existing.refreshId === refreshId)) {
     plannerTelemetry.inflightReuse += 1;
-    return serveLastGoodOrWait({
-      lastGood: cached?.workspace,
+    return serveRetainedLastGoodOrWait({
+      cached: cached?.workspace,
+      retained: retained.plan,
+      project: createCraftPlanResponseWorkspace,
       refresh: existing.promise,
       forceRefresh,
     });
@@ -2350,11 +2357,6 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const generation = craftPlanResponseGeneration;
   const startedAt = Date.now();
   plannerTelemetry.freshCalculations += 1;
-  const retained = cached?.workspace?.plan
-    ? { plan: cached.workspace.plan, limitation: null }
-    : craftPlanLastGoodPublications.load(normalizedClaimId, planId);
-  if (retained.limitation) craftPlanLastGoodLimitations.set(planId, retained.limitation);
-  else craftPlanLastGoodLimitations.delete(planId);
   const promise = computedCraftPlanResponseFresh(normalizedClaimId, {
     forceRefresh,
     planId,
@@ -2399,8 +2401,10 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
     promise,
     refreshId: forceRefresh ? refreshId : "",
   });
-  return serveLastGoodOrWait({
-    lastGood: cached?.workspace,
+  return serveRetainedLastGoodOrWait({
+    cached: cached?.workspace,
+    retained: retained.plan,
+    project: createCraftPlanResponseWorkspace,
     refresh: promise,
     forceRefresh,
   });
