@@ -102,6 +102,25 @@ function auditResult(groupId) {
   };
 }
 
+function configHistory(planId = "plan-a") {
+  return [{
+    id: 91,
+    planId,
+    actor: { type: "admin", id: "5", displayName: "Operator Alice" },
+    occurredAt: "2026-08-29T12:00:00.000Z",
+    previousRevision: 4,
+    newRevision: 5,
+    action: "update",
+    changes: { patch: [
+      { path: "/config/targets", before: [{ id: "7", quantity: 1 }], after: [{ id: "7", quantity: 3 }] },
+      { path: "/config/routeOverrides/items:7", before: "risky", after: "safe" },
+      { path: "/config/multipliers/items:7", before: null, after: { multiplier: 1.25 } },
+      { path: "/config/sourceRules/storageContainerIds", before: [], after: ["storage-a"] },
+      { path: "/config/enabled", before: false, after: true },
+    ] },
+  }];
+}
+
 function loadedPlan({ personal = false, config = {} } = {}) {
   return {
     planRecord: { id: "plan-a", revision: 4, scope: personal ? "personal" : "shared" },
@@ -231,6 +250,69 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
   }
 });
 
+test("a failed automatic preview stays failed until an explicit retry", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  let previewRequests = 0;
+  const failedPreview = deferred();
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/preview")) {
+      previewRequests += 1;
+      if (previewRequests === 1) return failedPreview.promise;
+      return jsonResponse({ error: "Preview unavailable" }, { ok: false, status: 503 });
+    }
+    return jsonResponse(loadedPlan());
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["settings.manage"], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    failedPreview.resolve(jsonResponse({ error: "Preview unavailable" }, { ok: false, status: 503 }));
+    await new Promise((resolve) => setImmediate(resolve));
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.equal(previewRequests, 1, "the failed draft signature must not auto-loop");
+    assert.match(elementText(tree), /Recipe preview could not be loaded: Preview unavailable/);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Refresh preview")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(previewRequests, 2, "explicit Refresh may retry the same failed draft");
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("publication gate keeps exactly one Save action", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => options.method === "PUT"
+    ? jsonResponse({ error: "Confirm routes", code: "craft_plan_route_review_required", unconfirmedRoutes: [{ outputKey: "items:7", fingerprint: "ambiguous", preselectedRouteId: "safe" }] }, { ok: false, status: 409 })
+    : String(url).endsWith("/preview") ? jsonResponse(preview) : jsonResponse(loadedPlan());
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["settings.manage"] };
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const saveActions = findElements(tree, (element) => element.type === "button" && /Save Plan/.test(elementText(element)));
+    assert.equal(saveActions.length, 1);
+    assert.equal(elementText(saveActions[0]).trim(), "Confirm routes and Save Plan");
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("public ambiguity and revision conflicts preserve the draft and expose explicit recovery", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
@@ -304,7 +386,7 @@ test("audit-only access is read-only and stale filtered responses cannot replace
       if (progressRequests === 2) return oldRequest.promise;
       return newRequest.promise;
     }
-    if (target.includes("/craft-plan/audit?")) return jsonResponse({ auditLog: [] });
+    if (target.includes("/craft-plan/audit?")) return jsonResponse({ configHistory: configHistory() });
     return jsonResponse(loadedPlan());
   };
   try {
@@ -341,6 +423,12 @@ test("audit-only access is read-only and stale filtered responses cannot replace
     assert.match(elementText(causalEntry), /Evidence timing is incomplete/);
     assert.match(elementText(causalEntry), /Evidence timing is incomplete.*Stock Delta.*Requirement Delta.*items:7.*prior_success_checkpoint/s);
     assert.match(elementText(causalEntry), /Craft Removed.*Progress Delta.*items:7/s);
+    assert.match(elementText(tree), /Operator Alice.*Admin.*Update.*Revision 4 → 5/s);
+    assert.match(elementText(tree), /\/config\/targets.*"quantity":1.*"quantity":3/s);
+    assert.match(elementText(tree), /\/config\/routeOverrides\/items:7.*"risky".*"safe"/s);
+    assert.match(elementText(tree), /\/config\/multipliers\/items:7.*null.*"multiplier":1.25/s);
+    assert.match(elementText(tree), /\/config\/sourceRules\/storageContainerIds.*\[\].*\["storage-a"\]/s);
+    assert.match(elementText(tree), /\/config\/enabled.*false.*true/s);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();
@@ -510,7 +598,7 @@ test("an admin owner of a personal plan can edit and view Audit", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => String(url).includes("/progress-audit?")
     ? jsonResponse(auditResult("personal-owner"))
-    : String(url).includes("/craft-plan/audit?") ? jsonResponse({ auditLog: [] }) : jsonResponse(loadedPlan({ personal: true }));
+    : String(url).includes("/craft-plan/audit?") ? jsonResponse({ configHistory: configHistory("plan-a") }) : jsonResponse(loadedPlan({ personal: true }));
   try {
     const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
     const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", personal: true, ownerManaged: true, permissions: ["settings.manage", "audit.view"], canEdit: true };
@@ -519,6 +607,10 @@ test("an admin owner of a personal plan can edit and view Audit", async () => {
     const nav = findElements(tree, (element) => element.type === "nav" && element.props["aria-label"] === "Craft plan workspaces")[0];
     assert.deepEqual(findElements(nav, (element) => element.type === "button").map((button) => elementText(button).trim()), ["Goals", "Counted Sources", "Recipe Review", "Audit"]);
     assert.equal(findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan").length, 1);
+    findElements(nav, (element) => element.type === "button" && elementText(element).trim() === "Audit")[0].props.onClick();
+    await harness.render(CraftPlanManagerDialog, props);
+    const auditTree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(auditTree), /Operator Alice.*Revision 4 → 5/s);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, CheckCircle2, ClipboardList, Download, History, LoaderCircle, MinusCircle, Package, Plus, RefreshCw, Route, Save, Search, SlidersHorizontal, Target, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ClipboardList, Download, History, LoaderCircle, Package, Plus, RefreshCw, Route, Save, Search, SlidersHorizontal, Target, Trash2, X, Zap } from "lucide-react";
 
 import { ItemIcon, ItemLabel } from "../components/main/ItemDisplay";
 import { Dialog } from "../components/main/Dialog";
@@ -186,16 +186,6 @@ function routeOptionDetails(alternative: AnyRecord) {
   return details;
 }
 
-const CRAFT_PLAN_AUDIT_CATEGORY_LABELS: Record<string, string> = {
-  public_board: "Visibility",
-  storage: "Settlement storage",
-  player_inventory: "Player inventory",
-  player_crafts: "Player crafts",
-  player_bank: "Player bank",
-  deployable: "Deployable",
-  gathered_item: "Gathered item",
-};
-
 function firstText(...values: unknown[]) {
   for (const value of values) {
     const text = String(value ?? "").trim();
@@ -217,6 +207,10 @@ function unresolvedRelationshipText(entry: AnyRecord) {
     entry.materialKey ? `Material ${String(entry.materialKey)}` : "",
     dependencyIdentity ? `Dependency ${dependencyIdentity}` : "",
   ].filter(Boolean).join(" · ");
+}
+
+function exactAuditValue(value: unknown) {
+  return JSON.stringify(value) ?? "null";
 }
 
 function formatStoredBytes(value: unknown) {
@@ -293,6 +287,7 @@ export function CraftPlanManagerDialog({
   const [comparisonError, setComparisonError] = React.useState<string | null>(null);
   const loadRequestId = React.useRef(0);
   const previewRequestId = React.useRef(0);
+  const previewAttemptSignature = React.useRef("");
   const auditRequestId = React.useRef(0);
   const comparisonRequestId = React.useRef(0);
   const draftDirty = Boolean(savedConfigSignature) && JSON.stringify(config) !== savedConfigSignature;
@@ -312,6 +307,7 @@ export function CraftPlanManagerDialog({
   const load = React.useCallback(async (mode: "loading" | "refreshing" = "loading") => {
     const requestId = ++loadRequestId.current;
     previewRequestId.current += 1;
+    previewAttemptSignature.current = "";
     comparisonRequestId.current += 1;
     setBusy(true);
     setOperation(mode);
@@ -365,7 +361,7 @@ export function CraftPlanManagerDialog({
     ]);
     if (requestId !== auditRequestId.current) return;
     if (settingsResult.status === "fulfilled") {
-      setAuditRows(Array.isArray(settingsResult.value.auditLog) ? settingsResult.value.auditLog : []);
+      setAuditRows(Array.isArray(settingsResult.value.configHistory) ? settingsResult.value.configHistory : []);
     } else {
       setAuditError(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
     }
@@ -382,6 +378,7 @@ export function CraftPlanManagerDialog({
 
   const loadPreview = React.useCallback(async (draft: CraftPlanConfig = config) => {
     const requestId = ++previewRequestId.current;
+    previewAttemptSignature.current = JSON.stringify(draft);
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -462,6 +459,7 @@ export function CraftPlanManagerDialog({
     if (open) return;
     loadRequestId.current += 1;
     previewRequestId.current += 1;
+    previewAttemptSignature.current = "";
     auditRequestId.current += 1;
     comparisonRequestId.current += 1;
     setState(null);
@@ -511,9 +509,10 @@ export function CraftPlanManagerDialog({
   }, [open, activeTab, canViewAudit, auditLoaded, loadAudit]);
 
   React.useEffect(() => {
-    if (!open || activeTab !== "recipes" || !state || previewLoading || preview) return;
+    const signature = JSON.stringify(config);
+    if (!open || activeTab !== "recipes" || !state || previewLoading || preview || (previewError && previewAttemptSignature.current === signature)) return;
     void loadPreview(config);
-  }, [open, activeTab, config, loadPreview, preview, previewLoading, state]);
+  }, [open, activeTab, config, loadPreview, preview, previewError, previewLoading, state]);
 
   React.useEffect(() => {
     if (!open || activeTab !== "recipes" || !initialOutputKey || !preview || typeof document === "undefined") return;
@@ -697,6 +696,7 @@ export function CraftPlanManagerDialog({
     setConfig(draft);
     setSavedConfigSignature(JSON.stringify(authoritativeConfig));
     previewRequestId.current += 1;
+    previewAttemptSignature.current = "";
     setPreview(null);
     setPreviewLoading(false);
     setPreviewError(null);
@@ -819,14 +819,14 @@ export function CraftPlanManagerDialog({
           <span className="legend">{canEdit ? "All edits remain staged until Save Plan." : "Audit is read-only."}</span>
           <div className="craft-plan-manager-buttons">
             <button className="toolbar-button" type="button" onClick={requestRefresh} disabled={busy}>{operation === "refreshing" ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} {operation === "refreshing" ? "Refreshing…" : "Refresh"}</button>
-            {canEdit ? <button className="toolbar-button primary" type="button" onClick={() => void save()} disabled={busy}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : "Save Plan"}</button> : null}
+            {canEdit ? <button className="toolbar-button primary" type="button" onClick={() => void save(Boolean(publicRouteGate))} disabled={busy}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : publicRouteGate ? "Confirm routes and Save Plan" : "Save Plan"}</button> : null}
           </div>
         </div>
         {refreshConfirmationOpen ? <div className="alert warning craft-plan-refresh-confirmation" role="group" aria-labelledby="craft-plan-refresh-confirmation-title"><div><strong id="craft-plan-refresh-confirmation-title">Discard unsaved changes?</strong><span>Refreshing reloads the last saved plan and replaces your current edits.</span></div><div><button className="toolbar-button" type="button" onClick={() => setRefreshConfirmationOpen(false)}>Keep editing</button><button className="toolbar-button danger" type="button" onClick={() => { setRefreshConfirmationOpen(false); void load("refreshing"); }}>Discard and refresh</button></div></div> : null}
         {pendingLabel ? <div className="craft-plan-manager-pending" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={16} /><span>{pendingLabel}</span></div> : null}
         {error ? <div className="alert error">{error}</div> : null}
         {status ? <div className="alert success">{status}</div> : null}
-        {publicRouteGate ? <div className="alert warning craft-plan-public-gate" role="alert"><div><strong>Public route review required</strong><span>New ambiguous routes must be explicitly confirmed before this public plan can be updated. Your draft is unchanged.</span></div><button className="toolbar-button primary" type="button" onClick={() => void save(true)} disabled={busy}>Confirm routes and Save Plan</button></div> : null}
+        {publicRouteGate ? <div className="alert warning craft-plan-public-gate" role="alert"><div><strong>Public route review required</strong><span>New ambiguous routes must be explicitly confirmed before this public plan can be updated. Your draft is unchanged; use the Save action above to confirm and publish it.</span></div></div> : null}
         {revisionConflict ? <div className="alert warning craft-plan-conflict" role="alert"><div><strong>Plan changed elsewhere</strong><span>The server is now at revision {String(revisionConflict.currentRevision ?? "unknown")}. Your unsaved edits are still here.</span></div><div><button className="toolbar-button" type="button" onClick={() => { setRevisionConflict(null); setConflictDraft(null); }}>Keep draft</button><button className="toolbar-button danger" type="button" onClick={rebaseConflictDraft}>Reload latest</button></div></div> : null}
         <nav className="craft-plan-manager-tabs" aria-label="Craft plan workspaces">
           {workspaces.map(({ id, label }) => <button key={id} type="button" aria-current={activeTab === id ? "page" : undefined} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{id === "goals" ? <Target size={15} /> : id === "sources" ? <Package size={15} /> : id === "recipes" ? <Route size={15} /> : <History size={15} />}{label}</button>)}
@@ -1003,16 +1003,15 @@ export function CraftPlanManagerDialog({
                 <section className="craft-plan-checkpoint-comparison"><h4>Checkpoint comparison</h4><p className="legend">Enter two exact retained checkpoint timestamps. Differences and compatibility limits come from the server.</p><div><label className="field compact-field"><span>From</span><input aria-label="Comparison from checkpoint" value={comparisonFrom} onChange={(event) => updateComparisonInput("from", event.target.value)} placeholder="2026-08-28T10:00:00.000Z" /></label><label className="field compact-field"><span>To</span><input aria-label="Comparison to checkpoint" value={comparisonTo} onChange={(event) => updateComparisonInput("to", event.target.value)} placeholder="2026-08-28T12:00:00.000Z" /></label><button className="toolbar-button" type="button" disabled={!comparisonFrom || !comparisonTo} onClick={() => void compareCheckpoints()}>Compare checkpoints</button></div>{comparisonError ? <div className="alert error">Comparison failed: {comparisonError}</div> : null}{comparison?.ok ? <div className="craft-plan-comparison-results">{Object.entries(comparison.differences ?? {}).map(([category, result]) => <span key={category}><strong>{progressEventLabel(category)}</strong>{(result as AnyRecord).changed ? "Changed" : "Unchanged"}</span>)}</div> : null}{comparison?.compatibility?.limitations?.length ? <div className="alert warning">{comparison.compatibility.limitations.join(" ")}</div> : null}</section>
               </> : null}
             </section> : null}
-            <div className="craft-plan-progress-event-header"><h4>Saved plan changes</h4><small>Visibility and counted source configuration</small></div>
+            <div className="craft-plan-progress-event-header"><h4>Saved plan changes</h4><small>Lifetime configuration history for this plan</small></div>
             {!auditLoading && auditError ? <div className="alert error">Audit history could not be loaded: {auditError}</div> : null}
             {!auditLoading && !auditError && !auditRows.length ? <div className="craft-plan-audit-state"><History size={24} /><strong>No craft plan changes have been recorded yet.</strong><span>New saves will appear here when visibility or counted sources change.</span></div> : null}
             {!auditLoading && !auditError && auditRows.length ? <div className="craft-plan-audit-list">
               {auditRows.map((row) => <article className="craft-plan-audit-entry" key={row.id}>
-                <div className="craft-plan-audit-meta"><strong>{row.username || "system"}</strong><time dateTime={row.occurredAt} title={dateLabel(row.occurredAt)}>{timeAgo(row.occurredAt)}</time></div>
+                <div className="craft-plan-audit-meta"><strong>{row.actor?.displayName || "system"}</strong><span>{progressEventLabel(row.actor?.type ?? "system")}</span><time dateTime={row.occurredAt} title={dateLabel(row.occurredAt)}>{timeAgo(row.occurredAt)}</time></div>
                 <div className="craft-plan-audit-changes">
-                  {Array.isArray(row.changes) && row.changes.length ? row.changes.map((change: AnyRecord, index: number) => <div className={`craft-plan-audit-change ${change.enabled ? "is-enabled" : "is-disabled"}`} key={`${change.category}:${change.entityId}:${index}`}>{change.enabled ? <CheckCircle2 size={16} /> : <MinusCircle size={16} />}<span><strong>{CRAFT_PLAN_AUDIT_CATEGORY_LABELS[String(change.category)] ?? "Tracked source"}</strong>{change.label}</span><em>{change.enabled ? "enabled" : "disabled"}</em></div>) : null}
-                  {row.otherSettingsChanged ? <div className="craft-plan-audit-other"><SlidersHorizontal size={16} /><span><strong>Other plan settings changed</strong>Targets, routes, names, sections, or buffers were updated.</span></div> : null}
-                  {(!Array.isArray(row.changes) || !row.changes.length) && !row.otherSettingsChanged ? <p className="legend">Legacy plan save; detailed changes were not recorded.</p> : null}
+                  <div className="craft-plan-audit-other"><SlidersHorizontal size={16} /><span><strong>{progressEventLabel(row.action)}</strong>Revision {row.previousRevision == null ? "created" : row.previousRevision} → {row.newRevision}</span></div>
+                  {Array.isArray(row.changes?.patch) && row.changes.patch.length ? row.changes.patch.map((change: AnyRecord, index: number) => <div className="craft-plan-audit-change is-enabled" key={`${change.path}:${index}`}><SlidersHorizontal size={16} /><span><strong>{String(change.path)}</strong><code>{exactAuditValue(change.before)} → {exactAuditValue(change.after)}</code></span></div>) : <p className="legend">No configuration values changed in this revision.</p>}
                 </div>
               </article>)}
             </div> : null}

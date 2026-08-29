@@ -98,6 +98,21 @@ test("shared and personal saves append exact redacted configuration changes only
   assert.deepEqual(sharedRows[1].changes.after.config.routeOverrides, { "items:8": "recipe-2" });
   assert.deepEqual(sharedRows[1].changes.after.config.routeReviews, { "items:8": { signature: "safe" } });
   assert.equal(sharedRows[1].changes.after.config.multipliers["items:8"].multiplier, 1.2);
+  assert.deepEqual(sharedRows[1].changes.patch.find((change) => change.path === "/config/targets"), {
+    path: "/config/targets", before: [], after: [{ id: "8", kind: "items", quantity: 3 }],
+  });
+  assert.deepEqual(sharedRows[1].changes.patch.find((change) => change.path === "/config/routeOverrides"), {
+    path: "/config/routeOverrides", before: null, after: { "items:8": "recipe-2" },
+  });
+  assert.deepEqual(sharedRows[1].changes.patch.find((change) => change.path === "/config/multipliers"), {
+    path: "/config/multipliers", before: null, after: { "items:8": { multiplier: 1.2 } },
+  });
+  assert.deepEqual(sharedRows[1].changes.patch.find((change) => change.path === "/config/sourceRules"), {
+    path: "/config/sourceRules", before: null, after: { storageContainerIds: ["storage-1"] },
+  });
+  assert.deepEqual(sharedRows[1].changes.patch.find((change) => change.path === "/config/visibility"), {
+    path: "/config/visibility", before: null, after: "public",
+  });
   assert.doesNotMatch(JSON.stringify(sharedRows), /must-not-survive/);
 
   const personalRows = configAudit.listForPlan(personal.id);

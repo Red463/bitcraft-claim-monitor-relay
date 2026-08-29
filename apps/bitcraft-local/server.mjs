@@ -112,7 +112,7 @@ import { normalizeMarketDealWatchSettings } from "./src/server/marketDealWatchSe
 import { evaluateLiveDealWatches, sameEnabledDealWatchRevision } from "./src/server/liveDealWatch.mjs";
 import { normalizePopupConfig, publicPopups } from "./src/server/appPopups.mjs";
 import { ACCESS_CONTROL_TARGETS, ACCESS_RULE_MODES, normalizeAccessControlConfig, publicEffectiveAccess, resetLegacyMarketAccessRules } from "./src/access/accessControl.mjs";
-import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanAuditLimit, craftPlanCatalogTargets, craftPlanDetailResponse, finalizeCraftPlanPublication, normalizeCraftPlanAuditRows, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, reconcileCraftPlanRequiredSourceStatus } from "./src/server/craftPlanning.mjs";
+import { collectLocalCatalogCraftPlanDetails, computeCraftPlan, createCraftPlanResponseWorkspace, craftPlanAuditDetails, craftPlanCatalogTargets, craftPlanDetailResponse, finalizeCraftPlanPublication, normalizeCraftPlanConfig, recipesForTarget as catalogRecipesForTarget, reconcileCraftPlanBuildingProgress, reconcileCraftPlanRequiredSourceStatus } from "./src/server/craftPlanning.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
 import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
@@ -9673,18 +9673,9 @@ const server = createServer(async (req, res) => {
         });
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/audit") {
-        const limit = craftPlanAuditLimit(url.searchParams.get("limit"));
         const planId = String(url.searchParams.get("planId") ?? craftPlans.primary()?.id ?? "legacy-primary");
         if (!craftPlans.getAdmin(planId)) return send(res, 404, { error: "Craft plan not found" });
-        const rows = db.prepare(`
-          SELECT id, username, details_json, occurred_at
-          FROM admin_audit_log
-          WHERE action = ?
-            AND (json_extract(details_json, '$.planId') = ? OR (? = 'legacy-primary' AND json_extract(details_json, '$.planId') IS NULL))
-          ORDER BY occurred_at DESC, id DESC
-          LIMIT ?
-        `).all("craft_plan.update", planId, planId, limit);
-        return send(res, 200, { auditLog: normalizeCraftPlanAuditRows(rows) });
+        return send(res, 200, { configHistory: craftPlanConfigAudit.listForPlan(planId).reverse() });
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan") {
         return send(res, 200, await craftPlanAdminResponse(getSettings().claimId, url.searchParams.get("planId") || undefined));
