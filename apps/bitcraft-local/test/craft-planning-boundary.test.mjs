@@ -238,7 +238,7 @@ test("Craft Planning manager consolidates editing into four staged workspaces", 
   assert.match(manager, /Target items/);
   assert.doesNotMatch(manager, /craft-plan-item-icon"><ItemIcon item=\{target\} \/><\/span><ItemLabel item=\{target\} \/>/);
   assert.match(manager, /aria-label="Craft plan workspaces"/);
-  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit \}\)/);
+  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit, canEdit \}\)/);
   assert.match(manager, /All edits remain staged until Save Plan/);
   assert.match(manager, /Save Plan/);
   assert.match(manager, /Counted Sources/);
@@ -311,7 +311,7 @@ test("Craft Planning manager exposes permission-gated causal audit tooling", () 
   const manager = readFileSync(new URL("../src/pages/CraftPlanManagerDialog.tsx", import.meta.url), "utf8");
 
   assert.match(manager, /permissions\.includes\("audit\.view"\)/);
-  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit \}\)/);
+  assert.match(manager, /craftPlanManagerWorkspaces\(\{ canViewAudit, canEdit \}\)/);
   assert.match(manager, /<History size=\{15\} \/>/);
   assert.match(manager, /\/admin\/craft-plan\/progress-audit/);
   assert.match(manager, /<h5>Observed<\/h5>/);

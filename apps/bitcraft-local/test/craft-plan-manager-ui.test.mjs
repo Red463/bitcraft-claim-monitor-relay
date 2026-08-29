@@ -77,10 +77,35 @@ function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return { ok, status, json: async () => body, blob: async () => new Blob() };
 }
 
-function loadedPlan({ personal = false } = {}) {
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
+function auditResult(groupId) {
+  return {
+    status: { retentionDays: 30 },
+    events: [],
+    pagination: { page: 1, totalPages: 1, total: 1, hasPrevious: false, hasNext: false },
+    causalGroups: [{
+      groupId,
+      span: { from: "2026-08-28T10:00:00.000Z", to: "2026-08-28T11:00:00.000Z" },
+      observedTriggers: [{ category: "stock_movement", type: "stock_delta", materialKey: "items:7" }],
+      derivedEffects: [{ category: "demand_change", type: "requirement_delta", materialKey: "items:7", before: 1, after: 3, delta: 2 }],
+      dependencyPaths: [{ materialKey: "items:7", paths: [["items:9", "items:7"]] }],
+      unresolvedRelationships: [
+        { triggerType: "stock_delta", effectType: "requirement_delta", reason: "Evidence timing is incomplete" },
+        { triggerType: "craft_removed", effectType: "progress_delta", materialKey: "items:7" },
+      ],
+    }],
+  };
+}
+
+function loadedPlan({ personal = false, config = {} } = {}) {
   return {
     planRecord: { id: "plan-a", revision: 4, scope: personal ? "personal" : "shared" },
-    config: { enabled: true, name: "Saved plan", targets: [], sourceRules: {} },
+    config: { enabled: true, name: "Saved plan", targets: [], sourceRules: {}, ...config },
     plan: { materials: [], steps: [] },
     sources: {
       storage: [{ sourceId: "storage-a", label: "Town Store", items: [] }],
@@ -101,7 +126,7 @@ const preview = {
     { outputKey: "items:9", ambiguous: false, confirmed: true, selectedRouteId: "only", preselectedRouteId: "only", fingerprint: "one", alternatives: [{ id: "only", label: "Only route", probabilityStatus: "guaranteed", inputs: [] }] },
     { outputKey: "items:7", ambiguous: true, confirmed: false, selectedRouteId: "risky", preselectedRouteId: "safe", fingerprint: "ambiguous", alternatives: [
       { id: "risky", label: "Risky forge", probabilityStatus: "expected", isProbabilistic: true, inputs: [{ key: "items:2", quantity: 3 }] },
-      { id: "safe", label: "Safe forge", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [{ key: "cargo:2", quantity: 2 }] },
+      { id: "safe", label: "Safe forge", probabilityStatus: "guaranteed", isProbabilistic: false, expectedYield: 5, expectedPerCraft: 5, expectedPerProgress: 0.5, expectedPerResource: 50, resourceHealth: 100, dropChance: 0.25, dropQuantity: 2, actionsRequired: 4, gatheringMode: "ordinary", gatheringSource: { label: "Forest node" }, producer: { name: "Timber bundle" }, producerRecipe: { name: "Forest extraction", buildingName: "Lumber station", skillName: "Forestry" }, inputs: [{ key: "cargo:2", quantity: 2 }] },
     ] },
   ],
 };
@@ -176,6 +201,12 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
     assert.equal(routeInputs.length, 2);
     assert.equal(routeInputs[1].props.checked, true, "server safest preselection should be selected");
     assert.match(String(routeInputs[0].props["aria-label"]), /Risky forge/);
+    assert.match(elementText(reviews[0]), /Expected yield 5/);
+    assert.match(elementText(reviews[0]), /Per progress 0.5/);
+    assert.match(elementText(reviews[0]), /Per resource 50/);
+    assert.match(elementText(reviews[0]), /Drop 25%.*quantity 2/s);
+    assert.match(elementText(reviews[0]), /Actions 4.*Resource health 100/s);
+    assert.match(elementText(reviews[0]), /Forest node.*Timber bundle.*Forest extraction.*Lumber station.*Forestry/s);
     routeInputs[0].props.onChange();
     tree = await harness.render(CraftPlanManagerDialog, props);
     const buffer = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Material buffer for items:7")[0];
@@ -236,6 +267,107 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     assert.match(elementText(tree), /Plan changed elsewhere/);
     assert.match(elementText(tree), /Reload latest/);
     assert.ok(findElements(tree, (element) => element.type === "input" && element.props.value === "Unsaved plan")[0], "409 must keep the unsaved draft");
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("audit-only access is read-only and stale filtered responses cannot replace the latest causal contract", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const oldRequest = deferred();
+  const newRequest = deferred();
+  let progressRequests = 0;
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/progress-audit?")) {
+      progressRequests += 1;
+      if (progressRequests === 1) return jsonResponse(auditResult("initial-group"));
+      if (progressRequests === 2) return oldRequest.promise;
+      return newRequest.promise;
+    }
+    if (target.includes("/craft-plan/audit?")) return jsonResponse({ auditLog: [] });
+    return jsonResponse(loadedPlan());
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["audit.view"], canEdit: false, initialWorkspace: "audit" };
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+
+    const nav = findElements(tree, (element) => element.type === "nav" && element.props["aria-label"] === "Craft plan workspaces")[0];
+    assert.deepEqual(findElements(nav, (element) => element.type === "button").map((button) => elementText(button).trim()), ["Audit"]);
+    assert.equal(findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan").length, 0);
+
+    const triggerFilter = findElements(tree, (element) => element.type === "input" && element.props.placeholder === "e.g. stock_movement")[0];
+    triggerFilter.props.onChange({ target: { value: "old" } });
+    await harness.render(CraftPlanManagerDialog, props);
+    triggerFilter.props.onChange({ target: { value: "new" } });
+    await harness.render(CraftPlanManagerDialog, props);
+    assert.equal(progressRequests, 3, "changing a filter during an in-flight request must start the latest query");
+
+    newRequest.resolve(jsonResponse(auditResult("new-group")));
+    await new Promise((resolve) => setImmediate(resolve));
+    oldRequest.resolve(jsonResponse(auditResult("old-group")));
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+
+    const causalEntry = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-causal-entry"))[0];
+    assert.equal(causalEntry.key, "new-group");
+    assert.deepEqual(findElements(causalEntry, (element) => element.type === "time").map((time) => time.props.dateTime), ["2026-08-28T10:00:00.000Z", "2026-08-28T11:00:00.000Z"]);
+    assert.match(elementText(causalEntry), /Before 1.*After 3.*Delta 2/s);
+    assert.match(elementText(causalEntry), /Stock Delta.*items:7/s);
+    assert.match(elementText(causalEntry), /items:9.*items:7/s);
+    assert.match(elementText(causalEntry), /Evidence timing is incomplete/);
+    assert.match(elementText(causalEntry), /Craft Removed.*Progress Delta.*items:7/s);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review can stage calculated-route reset and remove saved buffers absent from preview", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const plan = loadedPlan({ config: { routeOverrides: { "items:7": "risky" }, multipliers: { "items:99": { multiplier: 1.2, note: "saved" } } } });
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith("/preview")) return jsonResponse(preview);
+    if (options.method === "PUT") return jsonResponse({ planRecord: { id: "plan-a", revision: 5 } });
+    return jsonResponse(plan);
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["settings.manage"], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+
+    const reset = findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Use calculated route")[0];
+    const removeBuffer = findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Remove saved buffer")[0];
+    assert.ok(reset);
+    assert.match(elementText(tree), /items:99.*20%/s);
+    assert.ok(removeBuffer);
+    reset.props.onClick();
+    removeBuffer.props.onClick();
+    assert.equal(requests.filter(({ options }) => options.method === "PUT").length, 0);
+
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    const body = JSON.parse(requests.find(({ options }) => options.method === "PUT").options.body);
+    assert.equal(Object.hasOwn(body.config.routeOverrides, "items:7"), false);
+    assert.equal(Object.hasOwn(body.config.multipliers, "items:99"), false);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

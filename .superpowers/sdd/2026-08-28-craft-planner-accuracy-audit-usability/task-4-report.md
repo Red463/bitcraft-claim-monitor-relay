@@ -57,7 +57,20 @@ Browser smoke was attempted twice after the production build. Both bounded attem
 - Confirmed the old seven-tab and immediate route/buffer-save paths are absent from production UI code.
 - Confirmed audit/export rendering uses the locked permissions and React displays server causal evidence rather than deriving claims.
 - Confirmed no backend, schema, provider, dependency, changelog, or version change was introduced.
-- No unresolved Task 4 correctness, security, migration, or contract finding remains. Browser-only visual inspection remains blocked by the local missing dependency described above.
+- No unresolved Task 4 correctness, security, migration, or contract finding remains. Browser-only visual inspection remains unavailable after the two bounded hangs described above.
+
+## Independent Task 4 review correction
+
+- RED: the focused manager/model run reported 6 failures across 13 tests, covering audit-only access, exact causal rendering and race safety, aggregate grouped detail totals, quantitative route comparison, and staged reset/orphan-buffer cleanup.
+- GREEN: audit-only administrators now enter a read-only Audit workspace with no Goals, Counted Sources, Recipe Review, or Save controls; editors still require ownership or `settings.manage`.
+- GREEN: causal groups use `groupId`, render both `span.from` and `span.to`, and show observed, derived before/after/delta, dependency, and unresolved evidence directly from Task 2. Request identities prevent stale filter/page responses from replacing the latest query; the deferred-response regression resolves the older request last.
+- GREEN: grouped item details use aggregate NeedCell totals and coverage layers while the read-only exact typed Recipe Review deep link remains unchanged.
+- GREEN: route cards show Task 3 yield, progress/resource, probability/drop, action/resource, producer, gathering-mode, source, station, and skill data when present.
+- GREEN: editors can stage removal of a route override back to calculated/default selection and can see/remove saved buffers whose output is absent from the current preview; neither path persists before Save Plan.
+- Final focused manager/item/boundary/CSS/Needs verification: 85 passed, 0 failed.
+- Final causal-detail refinement RED exposed a missing unresolved effect/material label (4/5 passed); GREEN passed the complete React manager file 5/5, and the production build was rerun afterward.
+- A fresh aggregate suite was started but interrupted after exceeding the bounded 60-second review window; no failures were printed before interruption and therefore no aggregate result is claimed. Task 5 owns the final aggregate suite.
+- The production build passed afterward, including provider/bindings builds, 1,462-asset verification, TypeScript, Vite, and Relay runtime-boundary verification.
 
 ## Deployment
 

@@ -20,14 +20,23 @@ const WORKSPACES = [
 
 export type CraftPlanManagerWorkspace = (typeof WORKSPACES)[number]["id"];
 
-export function craftPlanManagerWorkspaces({ canViewAudit = false } = {}) {
-  return WORKSPACES.filter(({ id }) => id !== "audit" || canViewAudit);
+export function craftPlanManagerWorkspaces({ canViewAudit = false, canEdit = true } = {}) {
+  return WORKSPACES.filter(({ id }) => canEdit ? id !== "audit" || canViewAudit : id === "audit" && canViewAudit);
 }
 
 export function canEditCraftPlan(adminSession: AnyRecord | null | undefined, ownsSelectedPlan: boolean) {
   if (ownsSelectedPlan) return true;
   const permissions = Array.isArray(adminSession?.user?.permissions) ? adminSession.user.permissions : [];
   return Boolean(adminSession?.authenticated && (permissions.includes("*") || permissions.includes("settings.manage")));
+}
+
+export function canViewCraftPlanAudit(adminSession: AnyRecord | null | undefined) {
+  const permissions = Array.isArray(adminSession?.user?.permissions) ? adminSession.user.permissions : [];
+  return Boolean(adminSession?.authenticated && (permissions.includes("*") || permissions.includes("audit.view")));
+}
+
+export function canOpenCraftPlanManager(adminSession: AnyRecord | null | undefined, ownsSelectedPlan: boolean) {
+  return canEditCraftPlan(adminSession, ownsSelectedPlan) || canViewCraftPlanAudit(adminSession);
 }
 
 function emptySourceRules(): CraftPlanSourceRules {
@@ -96,6 +105,17 @@ export function craftPlanMaterialPresentation(material: AnyRecord) {
       : estimatedCraftOutput > 0 ? 0 : finite(material.inProgress),
     estimatedCraftOutput,
     buildingCompletion: finite(material.buildingCompletion),
+  };
+}
+
+export function craftPlanNeedCellPresentation(cell: AnyRecord) {
+  return {
+    neededNow: finite(cell.missing),
+    planTotal: finite(cell.required),
+    stock: finite(cell.available),
+    guaranteedCraftOutput: finite(cell.guaranteedInProgress),
+    estimatedCraftOutput: finite(cell.estimatedInProgress),
+    buildingCompletion: (Array.isArray(cell.items) ? cell.items : []).reduce((total: number, item: AnyRecord) => total + finite(item.buildingCompletion), 0),
   };
 }
 

@@ -159,6 +159,33 @@ function routeOptionLabel(recipe: AnyRecord, output?: AnyRecord) {
   return inputs.length && output ? `${inputs.join(" + ")} -> ${outputName}${station ? ` - ${station}` : ""}` : `${label}${station ? ` - ${station}` : ""}`;
 }
 
+function routeOptionDetails(alternative: AnyRecord) {
+  const details: string[] = [];
+  const addNumber = (label: string, value: unknown) => {
+    if (value != null && Number.isFinite(Number(value))) details.push(`${label} ${formatNumber(Number(value), 2)}`);
+  };
+  addNumber("Expected yield", alternative.expectedYield);
+  addNumber("Per craft", alternative.expectedPerCraft);
+  addNumber("Per progress", alternative.expectedPerProgress);
+  addNumber("Per resource", alternative.expectedPerResource);
+  if (alternative.dropChance != null) details.push(`Drop ${formatNumber(Number(alternative.dropChance) * 100, 2)}%${alternative.dropQuantity != null ? ` · quantity ${formatNumber(Number(alternative.dropQuantity), 2)}` : ""}`);
+  addNumber("Actions", alternative.actionsRequired);
+  addNumber("Resource health", alternative.resourceHealth);
+  if (alternative.gatheringMode) details.push(`Gathering mode ${alternative.gatheringMode}`);
+  const source = alternative.gatheringSource;
+  const sourceLabel = typeof source === "string" ? source : firstText(source?.label, source?.tag, source?.skill);
+  if (sourceLabel) details.push(`Source ${sourceLabel}`);
+  const producer = alternative.producer;
+  const producerLabel = typeof producer === "string" ? producer : firstText(producer?.name, producer?.label, producer?.key, producer?.id);
+  if (producerLabel) details.push(`Producer ${producerLabel}`);
+  const producerRecipe = alternative.producerRecipe;
+  const recipeLabel = typeof producerRecipe === "string" ? producerRecipe : firstText(producerRecipe?.name, producerRecipe?.label, producerRecipe?.id);
+  if (recipeLabel) details.push(`Producer recipe ${recipeLabel}`);
+  if (producerRecipe?.buildingName || alternative.buildingName) details.push(`Station ${producerRecipe?.buildingName ?? alternative.buildingName}`);
+  if (producerRecipe?.skillName || alternative.gatheringSkill) details.push(`Skill ${producerRecipe?.skillName ?? alternative.gatheringSkill}`);
+  return details;
+}
+
 const CRAFT_PLAN_AUDIT_CATEGORY_LABELS: Record<string, string> = {
   public_board: "Visibility",
   storage: "Settlement storage",
@@ -197,6 +224,7 @@ export function CraftPlanManagerDialog({
   personal = false,
   ownerManaged = personal,
   permissions = [],
+  canEdit = true,
   initialWorkspace = "goals",
   initialOutputKey = "",
 }: {
@@ -208,12 +236,14 @@ export function CraftPlanManagerDialog({
   personal?: boolean;
   ownerManaged?: boolean;
   permissions?: string[];
+  canEdit?: boolean;
   initialWorkspace?: CraftPlanManagerWorkspace;
   initialOutputKey?: string;
 }) {
   const [state, setState] = React.useState<AnyRecord | null>(null);
   const [config, setConfig] = React.useState<CraftPlanConfig>(emptyConfig());
-  const [activeTab, setActiveTab] = React.useState<CraftPlanManagerWorkspace>(initialWorkspace);
+  const resolvedInitialWorkspace: CraftPlanManagerWorkspace = canEdit ? initialWorkspace : "audit";
+  const [activeTab, setActiveTab] = React.useState<CraftPlanManagerWorkspace>(resolvedInitialWorkspace);
   const [query, setQuery] = React.useState("");
   const [searchResults, setSearchResults] = React.useState<AnyRecord[]>([]);
   const [activeSearchResultIndex, setActiveSearchResultIndex] = React.useState(-1);
@@ -251,10 +281,11 @@ export function CraftPlanManagerDialog({
   const [comparisonError, setComparisonError] = React.useState<string | null>(null);
   const loadRequestId = React.useRef(0);
   const previewRequestId = React.useRef(0);
+  const auditRequestId = React.useRef(0);
   const draftDirty = Boolean(savedConfigSignature) && JSON.stringify(config) !== savedConfigSignature;
   const canViewAudit = !ownerManaged && (permissions.includes("*") || permissions.includes("audit.view"));
   const canExportAudit = canViewAudit && (permissions.includes("*") || permissions.includes("data.export"));
-  const workspaces = craftPlanManagerWorkspaces({ canViewAudit });
+  const workspaces = craftPlanManagerWorkspaces({ canViewAudit, canEdit });
   const adminApi = React.useCallback(async (path: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers);
     headers.set("content-type", "application/json");
@@ -302,13 +333,16 @@ export function CraftPlanManagerDialog({
   }, [adminApi, ownerManaged, planId]);
 
   const loadAudit = React.useCallback(async () => {
+    const requestId = ++auditRequestId.current;
     setAuditLoading(true);
+    setAuditLoaded(false);
     setAuditError(null);
     setProgressAuditError(null);
     const [settingsResult, progressResult] = await Promise.allSettled([
       adminApi(`/admin/craft-plan/audit?limit=100&planId=${encodeURIComponent(planId)}`),
       adminApi(`/admin/craft-plan/progress-audit?planId=${encodeURIComponent(planId)}&page=${auditFilters.page}&pageSize=25&triggerCategory=${encodeURIComponent(auditFilters.triggerCategory)}&effectCategory=${encodeURIComponent(auditFilters.effectCategory)}&materialKey=${encodeURIComponent(auditFilters.materialKey)}&unresolvedOnly=${auditFilters.unresolvedOnly}`),
     ]);
+    if (requestId !== auditRequestId.current) return;
     if (settingsResult.status === "fulfilled") {
       setAuditRows(Array.isArray(settingsResult.value.auditLog) ? settingsResult.value.auditLog : []);
     } else {
@@ -319,8 +353,10 @@ export function CraftPlanManagerDialog({
     } else {
       setProgressAuditError(progressResult.reason instanceof Error ? progressResult.reason.message : String(progressResult.reason));
     }
-    setAuditLoading(false);
-    setAuditLoaded(true);
+    if (requestId === auditRequestId.current) {
+      setAuditLoading(false);
+      setAuditLoaded(true);
+    }
   }, [adminApi, auditFilters, planId]);
 
   const loadPreview = React.useCallback(async (draft: CraftPlanConfig = config) => {
@@ -383,20 +419,21 @@ export function CraftPlanManagerDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    setActiveTab(initialWorkspace);
+    setActiveTab(resolvedInitialWorkspace);
     void load();
-  }, [open, initialWorkspace, load]);
+  }, [open, resolvedInitialWorkspace, load]);
 
   React.useEffect(() => {
     if (open) return;
     loadRequestId.current += 1;
+    auditRequestId.current += 1;
     setState(null);
     setConfig(emptyConfig());
     setBusy(false);
     setOperation(null);
     setStatus(null);
     setError(null);
-    setActiveTab(initialWorkspace);
+    setActiveTab(resolvedInitialWorkspace);
     setQuery("");
     setSearchResults([]);
     setActiveSearchResultIndex(-1);
@@ -428,12 +465,12 @@ export function CraftPlanManagerDialog({
     setComparisonTo("");
     setComparison(null);
     setComparisonError(null);
-  }, [open, initialWorkspace]);
+  }, [open, resolvedInitialWorkspace]);
 
   React.useEffect(() => {
-    if (!open || activeTab !== "audit" || !canViewAudit || auditLoaded || auditLoading) return;
+    if (!open || activeTab !== "audit" || !canViewAudit || auditLoaded) return;
     void loadAudit();
-  }, [open, activeTab, canViewAudit, auditLoaded, auditLoading, loadAudit]);
+  }, [open, activeTab, canViewAudit, auditLoaded, loadAudit]);
 
   React.useEffect(() => {
     if (!open || activeTab !== "recipes" || !state || previewLoading || preview) return;
@@ -568,6 +605,20 @@ export function CraftPlanManagerDialog({
     setPublicRouteGate(null);
   }
 
+  function resetRoute(outputKey: string) {
+    setConfig((current) => {
+      const routeOverrides = { ...current.routeOverrides };
+      delete routeOverrides[outputKey];
+      return { ...current, routeOverrides };
+    });
+    setRouteConfirmations((current) => {
+      const next = { ...current };
+      delete next[outputKey];
+      return next;
+    });
+    setPublicRouteGate(null);
+  }
+
   function updateMaterialBuffer(outputKey: string, rawPercent: string) {
     const percent = Math.max(0, Math.min(1900, Number(rawPercent) || 0));
     setConfig((current) => {
@@ -674,6 +725,8 @@ export function CraftPlanManagerDialog({
   const tierPresets = state?.sources?.tierPresets ?? [];
   const workstationPresets = state?.sources?.workstationPresets ?? [];
   const routeReviews = orderCraftPlanRouteReviews(Array.isArray(preview?.routeReviews) ? preview.routeReviews : []);
+  const reviewedOutputKeys = new Set(routeReviews.map((review: AnyRecord) => String(review.outputKey)));
+  const orphanMultipliers = Object.entries(config.multipliers).filter(([outputKey]) => !reviewedOutputKeys.has(outputKey));
   const previewMaterials = new Map((Array.isArray(preview?.materials) ? preview.materials : []).map((material: AnyRecord) => [String(material.key), craftPlanMaterialPresentation(material)]));
   const sourceSuggestion = craftPlanSourceSuggestion({ personal, sources: state?.sources ?? {} });
   const hasConfiguredSources = Object.values(config.sourceRules).some((values) => Array.isArray(values) && values.length > 0);
@@ -694,10 +747,10 @@ export function CraftPlanManagerDialog({
         </header>
         <fieldset className="craft-plan-manager-session" disabled={operation === "refreshing"} aria-busy={operation === "refreshing"}>
         <div className="craft-plan-manager-actions">
-          <span className="legend">All edits remain staged until Save Plan.</span>
+          <span className="legend">{canEdit ? "All edits remain staged until Save Plan." : "Audit is read-only."}</span>
           <div className="craft-plan-manager-buttons">
             <button className="toolbar-button" type="button" onClick={requestRefresh} disabled={busy}>{operation === "refreshing" ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} {operation === "refreshing" ? "Refreshing…" : "Refresh"}</button>
-            <button className="toolbar-button primary" type="button" onClick={() => void save()} disabled={busy}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : "Save Plan"}</button>
+            {canEdit ? <button className="toolbar-button primary" type="button" onClick={() => void save()} disabled={busy}>{operation === "saving" ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />} {operation === "saving" ? "Saving…" : "Save Plan"}</button> : null}
           </div>
         </div>
         {refreshConfirmationOpen ? <div className="alert warning craft-plan-refresh-confirmation" role="group" aria-labelledby="craft-plan-refresh-confirmation-title"><div><strong id="craft-plan-refresh-confirmation-title">Discard unsaved changes?</strong><span>Refreshing reloads the last saved plan and replaces your current edits.</span></div><div><button className="toolbar-button" type="button" onClick={() => setRefreshConfirmationOpen(false)}>Keep editing</button><button className="toolbar-button danger" type="button" onClick={() => { setRefreshConfirmationOpen(false); void load("refreshing"); }}>Discard and refresh</button></div></div> : null}
@@ -815,15 +868,17 @@ export function CraftPlanManagerDialog({
                 <fieldset className="craft-plan-review-options"><legend>Production route for {review.outputKey}</legend>{(review.alternatives ?? []).map((alternative: AnyRecord) => {
                   const selected = selectedRouteId === String(alternative.id);
                   const risky = alternative.probabilityStatus !== "guaranteed" || alternative.isProbabilistic === true;
-                  return <label className={`craft-plan-review-route${selected ? " is-selected" : ""}`} key={alternative.id}><input type="radio" name={`route-${review.outputKey}`} value={alternative.id} checked={selected} aria-label={`${routeOptionLabel(alternative)}; ${risky ? "estimated output risk" : "guaranteed output"}`} onChange={() => selectRoute(review, String(alternative.id))} /><span><strong>{routeOptionLabel(alternative)}</strong><small>{risky ? "Estimated/probabilistic output" : "Guaranteed output"}{alternative.buildingName ? ` · ${alternative.buildingName}` : ""}</small>{Array.isArray(alternative.inputs) && alternative.inputs.length ? <em>Inputs: {alternative.inputs.map((input: AnyRecord) => `${input.key} ×${formatNumber(input.quantity, 2)}`).join(", ")}</em> : <em>No material inputs</em>}</span></label>;
+                  return <label className={`craft-plan-review-route${selected ? " is-selected" : ""}`} key={alternative.id}><input type="radio" name={`route-${review.outputKey}`} value={alternative.id} checked={selected} aria-label={`${routeOptionLabel(alternative)}; ${risky ? "estimated output risk" : "guaranteed output"}`} onChange={() => selectRoute(review, String(alternative.id))} /><span><strong>{routeOptionLabel(alternative)}</strong><small>{risky ? "Estimated/probabilistic output" : "Guaranteed output"}{alternative.buildingName ? ` · ${alternative.buildingName}` : ""}</small><span className="craft-plan-route-metrics">{routeOptionDetails(alternative).map((detail) => <small key={detail}>{detail}</small>)}</span>{Array.isArray(alternative.inputs) && alternative.inputs.length ? <em>Inputs: {alternative.inputs.map((input: AnyRecord) => `${input.key} ×${formatNumber(input.quantity, 2)}`).join(", ")}</em> : <em>No material inputs</em>}</span></label>;
                 })}</fieldset>
                 <div className="craft-plan-review-footer">
                   <label className="field compact-field"><span>Material buffer (% extra)</span><input type="number" min="0" max="1900" step="5" aria-label={`Material buffer for ${review.outputKey}`} value={formatNumber(bufferPercent, 1)} onChange={(event) => updateMaterialBuffer(String(review.outputKey), event.target.value)} /></label>
                   <div className="craft-plan-material-impact" aria-label={`Material impact for ${review.outputKey}`}>{material ? <><span><strong>Needed now {formatNumber(material.neededNow, 0)}</strong><small>from missingNow</small></span><span><strong>Plan total {formatNumber(material.planTotal, 0)}</strong><small>from planRequired</small></span></> : <span className="legend">No material row for this typed output.</span>}</div>
                   {review.ambiguous ? <button className="toolbar-button primary" type="button" onClick={() => confirmRouteReview({ ...review, selectedRouteId })} disabled={!selectedRouteId}>{confirmation ? "Review confirmed" : "Confirm review"}</button> : <span className="legend">No confirmation required</span>}
                 </div>
+                {Object.hasOwn(config.routeOverrides, String(review.outputKey)) ? <button className="toolbar-button" type="button" onClick={() => resetRoute(String(review.outputKey))}>Use calculated route</button> : null}
               </article>;
             })}</div> : null}
+            {orphanMultipliers.length ? <section className="craft-plan-orphan-buffers"><h4>Saved buffers outside this preview</h4><p className="legend">These staged settings remain saved even when the current preview has no matching output.</p>{orphanMultipliers.map(([outputKey, value]) => <div key={outputKey}><span><strong>{outputKey}</strong><small>{formatNumber(Math.max(0, (Number(value.multiplier) - 1) * 100), 1)}% buffer</small></span><button className="toolbar-button danger" type="button" onClick={() => updateMaterialBuffer(outputKey, "0")}>Remove saved buffer</button></div>)}</section> : null}
           </section> : null}
           {activeTab === "audit" ? <section className="craft-plan-manager-panel craft-plan-audit-panel">
             <div className="split-header"><div><h3>Audit history</h3><p className="legend">Progress calculations, source changes, and saved configuration changes, newest first.</p></div>{auditError || progressAuditError ? <button className="toolbar-button" type="button" onClick={() => void loadAudit()} disabled={auditLoading}><RefreshCw size={14} /> Retry audit</button> : null}</div>
@@ -868,12 +923,12 @@ export function CraftPlanManagerDialog({
                   </article>)}
                 </div> : <div className="craft-plan-audit-state compact"><History size={20} /><strong>No progress changes recorded yet.</strong><span>The first complete planner calculation creates the initial checkpoint.</span></div>}
                 <div className="craft-plan-progress-event-header"><h4>Causal groups</h4><small>{formatNumber(progressAudit.pagination?.total ?? 0, 0)} matching</small></div>
-                {Array.isArray(progressAudit.causalGroups) && progressAudit.causalGroups.length ? <div className="craft-plan-causal-list">{progressAudit.causalGroups.map((group: AnyRecord) => <article className="craft-plan-causal-entry" key={group.id}>
-                  <header><strong>{dateLabel(group.capturedAt)}</strong>{Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <span className="craft-plan-causal-unresolved"><AlertTriangle size={13} /> {group.unresolvedRelationships.length} unresolved</span> : <span>Evidence linked</span>}</header>
+                {Array.isArray(progressAudit.causalGroups) && progressAudit.causalGroups.length ? <div className="craft-plan-causal-list">{progressAudit.causalGroups.map((group: AnyRecord) => <article className="craft-plan-causal-entry" key={group.groupId}>
+                  <header><strong><time dateTime={group.span?.from}>{dateLabel(group.span?.from)}</time> → <time dateTime={group.span?.to}>{dateLabel(group.span?.to)}</time></strong>{Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <span className="craft-plan-causal-unresolved"><AlertTriangle size={13} /> {group.unresolvedRelationships.length} unresolved</span> : <span>Evidence linked</span>}</header>
                   <div><h5>Observed</h5>{(group.observedTriggers ?? []).map((entry: AnyRecord, index: number) => <span key={`observed-${index}`}>{progressEventLabel(entry.category)} · {progressEventLabel(entry.type)}{entry.materialKey ? ` · ${entry.materialKey}` : ""}</span>)}</div>
-                  <div><h5>Derived</h5>{(group.derivedEffects ?? []).map((entry: AnyRecord, index: number) => <span key={`derived-${index}`}>{progressEventLabel(entry.category)} · {progressEventLabel(entry.type)}{entry.materialKey ? ` · ${entry.materialKey}` : ""}</span>)}</div>
+                  <div><h5>Derived</h5>{(group.derivedEffects ?? []).map((entry: AnyRecord, index: number) => <span key={`derived-${index}`}>{progressEventLabel(entry.category)} · {progressEventLabel(entry.type)}{entry.materialKey ? ` · ${entry.materialKey}` : ""}{entry.before !== undefined ? ` · Before ${String(entry.before)}` : ""}{entry.after !== undefined ? ` · After ${String(entry.after)}` : ""}{entry.delta !== undefined ? ` · Delta ${String(entry.delta)}` : ""}</span>)}</div>
                   {Array.isArray(group.dependencyPaths) && group.dependencyPaths.length ? <details><summary>Dependency paths</summary>{group.dependencyPaths.map((entry: AnyRecord) => <p className="legend" key={entry.materialKey}>{entry.materialKey}: {(entry.paths ?? []).map((path: unknown[]) => path.join(" → ")).join("; ")}</p>)}</details> : null}
-                  {Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <details><summary>Unresolved details</summary>{group.unresolvedRelationships.map((entry: AnyRecord, index: number) => <p className="legend" key={index}>{entry.reason ?? `${entry.triggerType ?? "Observed trigger"} is not causally resolved.`}</p>)}</details> : null}
+                  {Array.isArray(group.unresolvedRelationships) && group.unresolvedRelationships.length ? <details><summary>Unresolved details</summary>{group.unresolvedRelationships.map((entry: AnyRecord, index: number) => <p className="legend" key={index}>{entry.reason ?? `${progressEventLabel(entry.triggerType ?? "observed_trigger")} → ${progressEventLabel(entry.effectType ?? "unresolved_effect")}${entry.materialKey ? ` · ${entry.materialKey}` : ""}`}</p>)}</details> : null}
                 </article>)}</div> : <div className="craft-plan-audit-state compact"><History size={20} /><strong>No causal groups match</strong><span>Change filters or wait for a completed planner checkpoint.</span></div>}
                 <div className="craft-plan-audit-pagination" aria-label="Causal timeline pages"><button className="toolbar-button" type="button" disabled={!progressAudit.pagination?.hasPrevious} onClick={() => { setAuditFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) })); setAuditLoaded(false); }}>Previous</button><span>Page {progressAudit.pagination?.page ?? 1} of {progressAudit.pagination?.totalPages ?? 1}</span><button className="toolbar-button" type="button" disabled={!progressAudit.pagination?.hasNext} onClick={() => { setAuditFilters((current) => ({ ...current, page: current.page + 1 })); setAuditLoaded(false); }}>Next</button></div>
                 <section className="craft-plan-checkpoint-comparison"><h4>Checkpoint comparison</h4><p className="legend">Enter two exact retained checkpoint timestamps. Differences and compatibility limits come from the server.</p><div><label className="field compact-field"><span>From</span><input aria-label="Comparison from checkpoint" value={comparisonFrom} onChange={(event) => setComparisonFrom(event.target.value)} placeholder="2026-08-28T10:00:00.000Z" /></label><label className="field compact-field"><span>To</span><input aria-label="Comparison to checkpoint" value={comparisonTo} onChange={(event) => setComparisonTo(event.target.value)} placeholder="2026-08-28T12:00:00.000Z" /></label><button className="toolbar-button" type="button" disabled={!comparisonFrom || !comparisonTo} onClick={() => void compareCheckpoints()}>Compare checkpoints</button></div>{comparisonError ? <div className="alert error">Comparison failed: {comparisonError}</div> : null}{comparison?.ok ? <div className="craft-plan-comparison-results">{Object.entries(comparison.differences ?? {}).map(([category, result]) => <span key={category}><strong>{progressEventLabel(category)}</strong>{(result as AnyRecord).changed ? "Changed" : "Unchanged"}</span>)}</div> : null}{comparison?.compatibility?.limitations?.length ? <div className="alert warning">{comparison.compatibility.limitations.join(" ")}</div> : null}</section>

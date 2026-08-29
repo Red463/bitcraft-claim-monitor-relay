@@ -14,7 +14,7 @@ import { CraftPlanManagerDialog } from "./CraftPlanManagerDialog";
 import { CraftPlansDialog } from "./CraftPlansDialog";
 import { resolveCraftPlanSelection } from "./craftPlanSelection.mjs";
 import type { UserAuthState } from "../types/settings";
-import { canEditCraftPlan, craftPlanRecipeReviewHref, craftPlanMaterialPresentation } from "./craftPlanManagerModel";
+import { canEditCraftPlan, canOpenCraftPlanManager, canViewCraftPlanAudit, craftPlanNeedCellPresentation, craftPlanRecipeReviewHref } from "./craftPlanManagerModel";
 import { applyPersonalFishingView, normalizeFishingRoutePreference, type FishingRoutePreference } from "./craftPlanningFishingView";
 import { selectCraftPlanningEffortView } from "./craftPlanningEffortView";
 import { buildNeedsBoard, filterNeedsBoard, itemKey, itemName, NEED_COLUMNS, NEED_SECTIONS, type NeedCell, type NeedRow } from "./craftPlanningNeedsBoard";
@@ -303,6 +303,8 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
     : plans.find((entry) => String(entry.id) === selectedPlanId) ?? null;
   const ownsSelectedPlan = Boolean(auth.user && selectedPlan?.scope === "personal" && Number(selectedPlan?.ownerUserId) === Number(auth.user.id));
   const canEditSelectedPlan = canEditCraftPlan(adminAuth, ownsSelectedPlan);
+  const canViewSelectedPlanAudit = canViewCraftPlanAudit(adminAuth);
+  const canOpenSelectedPlanManager = canOpenCraftPlanManager(adminAuth, ownsSelectedPlan);
   const currentSectionOverrides = config.sectionOverrides ?? {};
   const currentRowNameOverrides = config.rowNameOverrides ?? {};
   const selectedNeedSources = selectedNeed ? groupNeedCellSources(selectedNeed) : [];
@@ -311,7 +313,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const selectedNeedUsages = selectedNeed ? groupNeedCellRecipeUsages(selectedNeed) : [];
   const selectedNeedKey = selectedNeed?.items?.[0]?.key ?? (selectedNeed ? itemKey(selectedNeed.item) : "");
   const selectedMultiplier = Number(config.multipliers?.[selectedNeedKey]?.multiplier) || 1;
-  const selectedMaterialPresentation = selectedNeed ? craftPlanMaterialPresentation(selectedNeed.item ?? selectedNeed) : null;
+  const selectedMaterialPresentation = selectedNeed ? craftPlanNeedCellPresentation(selectedNeed) : null;
   React.useEffect(() => {
     const params = new URLSearchParams(locationSearch);
     const outputKey = params.get("output") ?? "";
@@ -650,7 +652,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
           <label className="craft-plan-header-selector"><span className="dialog-sr-only">Current plan</span><select value={selectedPlanId} onChange={(event) => selectPlan(event.target.value)}>{plans.some((entry) => entry.scope === "shared") ? <optgroup label="Shared plans">{plans.filter((entry) => entry.scope === "shared").map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · Shared{entry.primary ? " · Primary" : ""}</option>)}</optgroup> : null}{plans.some((entry) => entry.scope === "personal") ? <optgroup label="My plans">{plans.filter((entry) => entry.scope === "personal").map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · Personal</option>)}</optgroup> : null}{selectedPlan && !plans.some((entry) => String(entry.id) === String(selectedPlan.id)) ? <optgroup label="Admin inspection"><option value={selectedPlan.id}>{selectedPlan.name} · Personal</option></optgroup> : null}</select></label>
           <button className="toolbar-button" type="button" onClick={() => setPlansOpen(true)}>Plans</button>
           <a className="toolbar-button" href={`${LOCAL_API}/catalog/probabilities.xlsx`}><Download size={15} aria-hidden="true" /> Download probabilities</a>
-          {canEditSelectedPlan ? <button className="toolbar-button primary" type="button" onClick={() => { setManagerOutputKey(""); setManagerOpen(true); }}>Manage Plan</button> : null}
+          {canOpenSelectedPlanManager ? <button className="toolbar-button primary" type="button" onClick={() => { setManagerOutputKey(""); setManagerOpen(true); }}>{canEditSelectedPlan ? "Manage Plan" : "View Audit"}</button> : null}
           <span>{quantity(totals.missingItems)} materials still short</span>
           <span>{quantity(totals.activeCraftQuantity)} in tracked crafts</span>
         </div>
@@ -808,7 +810,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
       )}
       {needDetailDialog}
       {sectionOverrideDialog}
-      {canEditSelectedPlan ? <CraftPlanManagerDialog open={managerOpen} onClose={closeManager} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} permissions={Array.isArray(adminAuth?.user?.permissions) ? adminAuth.user.permissions : []} initialWorkspace={managerOutputKey ? "recipes" : "goals"} initialOutputKey={managerOutputKey} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null}
+      {canOpenSelectedPlanManager ? <CraftPlanManagerDialog open={managerOpen} onClose={closeManager} csrfToken={String(ownsSelectedPlan ? auth.csrfToken : adminAuth?.csrfToken)} planId={selectedPlanId} personal={selectedPlan?.scope === "personal"} ownerManaged={ownsSelectedPlan} permissions={Array.isArray(adminAuth?.user?.permissions) ? adminAuth.user.permissions : []} canEdit={canEditSelectedPlan} initialWorkspace={canEditSelectedPlan ? managerOutputKey ? "recipes" : "goals" : canViewSelectedPlanAudit ? "audit" : "goals"} initialOutputKey={managerOutputKey} onSaved={() => { setManagerRefreshToken((value) => value + 1); void refreshPlans(selectedPlanId); }} /> : null}
       <CraftPlansDialog open={plansOpen} plans={plans} selectedPlanId={selectedPlanId} userCsrfToken={auth.csrfToken} adminCsrfToken={adminAuth?.csrfToken} currentUserId={auth.user?.id} onClose={() => setPlansOpen(false)} onSelect={selectPlan} onChanged={(planId) => void refreshPlans(planId).then((resolved) => { if (resolved) selectPlan(resolved); })} />
     </div>
   );

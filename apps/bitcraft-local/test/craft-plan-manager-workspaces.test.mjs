@@ -25,6 +25,7 @@ test("manager exposes exactly four capability-preserving workspaces when audit i
   assert.deepEqual(workspaces[1].capabilities, ["storage", "inventory", "crafts", "deployables", "banks"]);
   assert.deepEqual(workspaces[2].capabilities, ["routes", "review", "buffers", "material-impact"]);
   assert.deepEqual(craftPlanManagerWorkspaces({ canViewAudit: false }).map(({ id }) => id), ["goals", "sources", "recipes"]);
+  assert.deepEqual(craftPlanManagerWorkspaces({ canViewAudit: true, canEdit: false }).map(({ id }) => id), ["audit"]);
 });
 
 test("manager edit access requires ownership or the settings-manage permission", async () => {
@@ -36,6 +37,11 @@ test("manager edit access requires ownership or the settings-manage permission",
   assert.equal(model.canEditCraftPlan({ authenticated: true, user: { permissions: ["*"] } }, false), true);
   assert.equal(model.canEditCraftPlan({ authenticated: false, user: { permissions: ["settings.manage"] } }, false), false);
   assert.equal(model.canEditCraftPlan({ authenticated: false, user: { permissions: [] } }, true), true);
+  assert.equal(typeof model.canViewCraftPlanAudit, "function");
+  assert.equal(typeof model.canOpenCraftPlanManager, "function");
+  assert.equal(model.canViewCraftPlanAudit({ authenticated: true, user: { permissions: ["audit.view"] } }), true);
+  assert.equal(model.canOpenCraftPlanManager({ authenticated: true, user: { permissions: ["audit.view"] } }, false), true);
+  assert.equal(model.canOpenCraftPlanManager({ authenticated: true, user: { permissions: ["status.view"] } }, false), false);
 });
 
 test("new-plan suggestions are unselected, scope-specific, and keep opt-in sources empty", () => {
@@ -123,6 +129,27 @@ test("material presentation prefers Task 1 fields and keeps legacy aliases as fa
     guaranteedCraftOutput: 3,
     estimatedCraftOutput: 0,
     buildingCompletion: 0,
+  });
+});
+
+test("grouped item detail presents aggregate NeedCell coverage instead of its first material", async () => {
+  const model = await import("../src/pages/craftPlanManagerModel.ts");
+
+  assert.equal(typeof model.craftPlanNeedCellPresentation, "function");
+  assert.deepEqual(model.craftPlanNeedCellPresentation({
+    missing: 9,
+    required: 30,
+    available: 8,
+    guaranteedInProgress: 6,
+    estimatedInProgress: 4,
+    items: [{ buildingCompletion: 2 }, { buildingCompletion: 3 }],
+  }), {
+    neededNow: 9,
+    planTotal: 30,
+    stock: 8,
+    guaranteedCraftOutput: 6,
+    estimatedCraftOutput: 4,
+    buildingCompletion: 5,
   });
 });
 
