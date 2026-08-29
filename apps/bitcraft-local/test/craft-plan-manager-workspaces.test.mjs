@@ -7,6 +7,7 @@ import {
   craftPlanAuditLocalDateTime,
   craftPlanManagerWorkspaces,
   craftPlanUnavailableActions,
+  craftPlanValidationDiagnostics,
   craftPlanMaterialPresentation,
   craftPlanNeedReviewTargets,
   craftPlanRecipeReviewHref,
@@ -31,6 +32,28 @@ test("failed calculations keep the authorized audit action available", () => {
     retry: true,
     managerLabel: null,
   });
+});
+
+test("administrator audit preserves exact structured calculation diagnostics", () => {
+  assert.deepEqual(craftPlanValidationDiagnostics({
+    status: {
+      validationWarning: {
+        errors: [{
+          code: "invalid_selected_route",
+          path: "config.routeOverrides.items:42",
+          message: "The configured route must match the completed selected route.",
+          outputKey: "items:42",
+          selectedRecipeId: "recipe-7",
+        }],
+      },
+    },
+  }), [{
+    code: "invalid_selected_route",
+    path: "config.routeOverrides.items:42",
+    message: "The configured route must match the completed selected route.",
+    details: { outputKey: "items:42", selectedRecipeId: "recipe-7" },
+  }]);
+  assert.deepEqual(craftPlanValidationDiagnostics({ status: { validationWarning: null } }), []);
 });
 
 test("audit datetime controls round-trip local wall time through an explicit ISO instant", () => {
