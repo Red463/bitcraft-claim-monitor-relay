@@ -1812,20 +1812,25 @@ function storedCraftPlanConfig(planId) {
   return normalizeCraftPlanConfig(plan ? { ...plan.config, name: plan.name } : {});
 }
 
-function saveCraftPlanConfig(config, planId, actor = null) {
+async function saveCraftPlanConfig(config, planId, actor = null) {
   const existing = selectedCraftPlan(planId);
   if (!existing) throw Object.assign(new Error("Craft plan not found"), { statusCode: 404 });
   const normalized = normalizeCraftPlanConfig(config);
-  const updated = craftPlans.update(existing.id, { name: normalized.name, config: normalized }, {
-    expectedRevision: existing.revision,
-    admin: true,
-    actor,
+  const resolvedActor = actor ?? { type: "system", id: null, displayName: "Building progress reconciliation" };
+  const { planRecord } = await orchestrateCraftPlanSave({
+    planId: existing.id,
+    body: { expectedRevision: existing.revision, name: normalized.name, config: normalized },
+    currentPlan: existing,
+    configInput: normalized,
+    normalizeConfig: normalizeCraftPlanConfig,
+    previewConfig: previewCraftPlanConfig,
+    updatePlan: (...args) => craftPlans.update(...args),
+    invalidate: invalidateCraftPlanResponses,
+    subject: { admin: true },
+    actor: resolvedActor,
     claimId: getSettings().claimId,
   });
-  craftPlanResponseGeneration += 1;
-  craftPlanResponseCache.clear();
-  craftPlanEffortBaselineCache.clear();
-  return normalizeCraftPlanConfig(updated.config);
+  return normalizeCraftPlanConfig(planRecord.config);
 }
 
 function invalidateCraftPlanResponses() {
@@ -2304,7 +2309,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     const buildingsPayload = currentClaimBuildingsProjection(claimId);
     const reconciled = reconcileCraftPlanBuildingProgress(config, buildingsPayload);
     config = reconciled.changed && !options.preview
-      ? saveCraftPlanConfig(reconciled.config, planId)
+      ? await saveCraftPlanConfig(reconciled.config, planId)
       : reconciled.config;
   } catch {
     // Keep prior baselines and observed completions while the first Relay building generation loads.

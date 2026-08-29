@@ -48,3 +48,39 @@ test("save orchestration shapes revision and route-review gates consistently and
     unconfirmedRoutes: undefined,
   });
 });
+
+test("name-only public saves still capture the current route baseline", async () => {
+  const calls = [];
+  const currentPlan = {
+    id: "shared-plan",
+    scope: "shared",
+    revision: 7,
+    config: { enabled: true, targets: [{ kind: "items", id: "7", quantity: 1 }] },
+  };
+  const currentRoute = {
+    outputKey: "items:7",
+    fingerprint: "single-route-baseline",
+    selectedRouteId: "safe",
+    ambiguous: false,
+  };
+
+  const result = await orchestrateCraftPlanSave({
+    planId: currentPlan.id,
+    body: { expectedRevision: 7, name: "Renamed" },
+    currentPlan,
+    normalizeConfig: (config) => config,
+    async previewConfig(_planId, config, options) {
+      calls.push({ config, expectedRevision: options.expectedRevision });
+      return { routeReviews: [currentRoute] };
+    },
+    updatePlan(_planId, changes, options) { return { revision: 8, changes, options }; },
+    invalidate() {},
+    subject: { admin: true },
+    actor: { type: "admin_user", id: "1", displayName: "Admin" },
+  });
+
+  assert.deepEqual(calls, [{ config: currentPlan.config, expectedRevision: 7 }]);
+  assert.deepEqual(result.planRecord.changes, { name: "Renamed" });
+  assert.deepEqual(result.planRecord.options.routeReviewState.routeReviews, [currentRoute]);
+  assert.deepEqual(result.planRecord.options.routeReviewState.previousRouteReviews, [currentRoute]);
+});

@@ -24,12 +24,13 @@ export async function orchestrateCraftPlanSave({
 } = {}) {
   const hasConfig = configInput !== undefined;
   const config = hasConfig ? await prepareConfig(normalizeConfig(configInput)) : currentPlan?.config;
-  const needsReview = hasConfig || Array.isArray(body.routeReviewConfirmations);
+  const publicSharedSave = currentPlan?.scope === "shared" && config?.enabled !== false;
+  const needsReview = hasConfig || Array.isArray(body.routeReviewConfirmations) || publicSharedSave;
   const preview = needsReview
     ? await previewConfig(planId, config, { ...subject, expectedRevision: body.expectedRevision })
     : null;
   const previousPreview = needsReview
-    ? await previewConfig(planId, currentPlan?.config, subject)
+    ? (hasConfig ? await previewConfig(planId, currentPlan?.config, subject) : preview)
     : null;
   const changes = { name: resolveName(config, body, currentPlan) };
   if (hasConfig) changes.config = config;
