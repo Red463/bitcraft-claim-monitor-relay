@@ -1638,8 +1638,9 @@ function materialRowsForRequirements({
 }
 
 export function joinCraftPlanBaselineMaterials(livePlan = {}, baselinePlan = {}) {
+  const baselineMaterials = Array.isArray(baselinePlan?.materials) ? baselinePlan.materials : [];
   const baselineRequirements = new Map(
-    (Array.isArray(baselinePlan?.materials) ? baselinePlan.materials : []).map((material) => [
+    baselineMaterials.map((material) => [
       String(material?.key ?? ""),
       material?.planRequired ?? material?.bufferedRequired ?? material?.required,
     ]),
@@ -1653,6 +1654,27 @@ export function joinCraftPlanBaselineMaterials(livePlan = {}, baselinePlan = {})
     missingNow: material?.missing,
   });
   const materials = (Array.isArray(livePlan?.materials) ? livePlan.materials : []).map(enrichMaterial);
+  const liveKeys = new Set(materials.map((material) => String(material?.key ?? "")));
+  for (const baselineMaterial of baselineMaterials) {
+    const key = String(baselineMaterial?.key ?? "");
+    if (!key || liveKeys.has(key)) continue;
+    materials.push({
+      ...baselineMaterial,
+      planRequired: baselineRequirements.get(key),
+      requiredNow: 0,
+      missingNow: 0,
+      required: 0,
+      missing: 0,
+      bufferedRequired: 0,
+      available: 0,
+      inProgress: 0,
+      guaranteedInProgress: 0,
+      estimatedInProgress: 0,
+      sources: [],
+      activeCraftSources: [],
+    });
+    liveKeys.add(key);
+  }
   const materialsByKey = new Map(materials.map((material) => [String(material?.key ?? ""), material]));
   return {
     ...livePlan,
@@ -1672,8 +1694,34 @@ const CRAFT_PLAN_CONFIGURED_SOURCE_TYPES = [
   ["deployableContainerIds", "Player deployable"],
 ];
 
+function sourceRuleValues(config, rule) {
+  return (Array.isArray(config?.sourceRules?.[rule]) ? config.sourceRules[rule] : [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+}
+
+function sourceMatchesSelectedRules(source, config) {
+  const sourceId = String(source?.sourceId ?? "").trim();
+  const aliases = new Set([sourceId, ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds.map(String) : [])]);
+  const exactIds = ["storageContainerIds", "bankContainerIds", "deployableContainerIds"]
+    .flatMap((rule) => sourceRuleValues(config, rule));
+  if (exactIds.some((id) => aliases.has(id))) return true;
+  if (sourceRuleValues(config, "playerIds").includes(sourceId)) return true;
+  if (sourceRuleValues(config, "craftPlayerIds").some((playerId) => sourceId === `${playerId}:crafts` || sourceId === `${playerId}:passive-crafts`)) return true;
+  if (String(source?.type ?? "") === "Player bank" && sourceRuleValues(config, "bankPlayerIds").some((playerId) => (
+    String(source?.playerId ?? "") === playerId || sourceId === `${playerId}:banks` || sourceId.startsWith(`${playerId}:`)
+  ))) return true;
+  if (String(source?.type ?? "") === "Player deployable" && sourceRuleValues(config, "deployableContainerIds").some((id) => {
+    const playerId = id.split(":")[0];
+    return sourceId === `${playerId}:deployables`;
+  })) return true;
+  return false;
+}
+
 export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = []) {
-  const statuses = (Array.isArray(sourceStatus) ? sourceStatus : []).map((source) => ({ ...source }));
+  const statuses = (Array.isArray(sourceStatus) ? sourceStatus : [])
+    .filter((source) => sourceMatchesSelectedRules(source, config))
+    .map((source) => ({ ...source }));
   const returnedIds = new Set(statuses.flatMap((source) => [
     source?.sourceId,
     ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds : []),
@@ -1681,7 +1729,7 @@ export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus
   for (const [rule, type] of CRAFT_PLAN_CONFIGURED_SOURCE_TYPES) {
     for (const sourceId of config?.sourceRules?.[rule] ?? []) {
       const id = String(sourceId ?? "").trim();
-      if (!id || returnedIds.has(id)) continue;
+      if (!id || returnedIds.has(id) || statuses.some((source) => sourceMatchesSelectedRules(source, { sourceRules: { [rule]: [id] } }))) continue;
       statuses.push({
         sourceId: id,
         label: id,
@@ -1691,6 +1739,25 @@ export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus
       });
       returnedIds.add(id);
     }
+  }
+  for (const playerId of sourceRuleValues(config, "playerIds")) {
+    if (returnedIds.has(playerId)) continue;
+    statuses.push({ sourceId: playerId, label: playerId, type: "Player inventory", available: false, error: "Configured source was not present in the completed source projection." });
+    returnedIds.add(playerId);
+  }
+  for (const playerId of sourceRuleValues(config, "craftPlayerIds")) {
+    for (const [suffix, type] of [["crafts", "Tracked crafts"], ["passive-crafts", "Tracked passive crafts"]]) {
+      const sourceId = `${playerId}:${suffix}`;
+      if (returnedIds.has(sourceId)) continue;
+      statuses.push({ sourceId, label: sourceId, type, available: false, error: "Configured source was not present in the completed source projection." });
+      returnedIds.add(sourceId);
+    }
+  }
+  for (const playerId of sourceRuleValues(config, "bankPlayerIds")) {
+    if (statuses.some((source) => String(source?.type ?? "") === "Player bank" && sourceMatchesSelectedRules(source, { sourceRules: { bankPlayerIds: [playerId] } }))) continue;
+    const sourceId = `${playerId}:banks`;
+    statuses.push({ sourceId, label: sourceId, type: "Player bank", available: false, error: "Configured source was not present in the completed source projection." });
+    returnedIds.add(sourceId);
   }
   return statuses;
 }
@@ -1911,7 +1978,7 @@ export function computeCraftPlan({
   addSourceTotals(availableTotals, playerSources, "Player inventory", unavailableSources);
   addSourceTotals(availableTotals, bankSources, "Player bank", unavailableSources);
   addSourceTotals(availableTotals, deployableSources, "Player deployable", unavailableSources);
-  unavailableSources.push(...(craftSourceErrors ?? []).map((source) => ({
+  unavailableSources.push(...(normalized.sourceRules.craftPlayerIds.length ? craftSourceErrors ?? [] : []).map((source) => ({
     sourceId: String(source?.sourceId ?? "tracked-crafts"),
     label: String(source?.label ?? "Tracked crafts"),
     type: String(source?.type ?? "Tracked crafts"),

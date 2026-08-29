@@ -484,6 +484,15 @@ export const schemaBootstrapSql = `
     FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE,
     CHECK (output_key GLOB 'items:*' OR output_key GLOB 'cargo:*')
   );
+  CREATE TABLE IF NOT EXISTS craft_plan_last_good_publications (
+    claim_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    payload_gzip BLOB NOT NULL,
+    published_at TEXT NOT NULL,
+    PRIMARY KEY (claim_id, plan_id),
+    FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE
+  );
   CREATE TABLE IF NOT EXISTS craft_plan_progress_audit_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id TEXT NOT NULL,

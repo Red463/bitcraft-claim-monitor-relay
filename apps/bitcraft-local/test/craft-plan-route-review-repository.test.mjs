@@ -84,6 +84,72 @@ test("route-review schema stores exact typed keys and current confirmation metad
   db.close();
 });
 
+test("review-only saves append exact route-review state to lifetime configuration history", () => {
+  const { db, plans, routeReviews, configAudit } = fixture();
+  const plan = plans.primary();
+  const current = review("items:7", "fingerprint-a");
+
+  const updated = plans.update(plan.id, { config: plan.config }, {
+    expectedRevision: plan.revision,
+    admin: true,
+    actor,
+    claimId: "claim-1",
+    routeReviewState: {
+      routeReviews: [current],
+      previousRouteReviews: [current],
+      confirmations: [{ outputKey: "items:7", fingerprint: "fingerprint-a", selectedRouteId: "safe" }],
+      reviewer: actor,
+    },
+  });
+
+  const [history] = configAudit.listForPlan(plan.id);
+  assert.equal(updated.revision, 2);
+  assert.deepEqual({ actor: history.actor, previousRevision: history.previousRevision, newRevision: history.newRevision, action: history.action }, {
+    actor,
+    previousRevision: 1,
+    newRevision: 2,
+    action: "update",
+  });
+  assert.deepEqual(history.changes.before.routeReviews, []);
+  assert.deepEqual(history.changes.after.routeReviews, [{
+    outputKey: "items:7",
+    fingerprint: "fingerprint-a",
+    selectedRouteId: "safe",
+    confirmedFingerprint: "fingerprint-a",
+    status: "confirmed",
+    configurationRevision: 2,
+  }]);
+  assert.ok(history.changes.patch.some((change) => change.path === "/routeReviews"));
+  assert.equal(JSON.stringify(history.changes).includes("Reviewer"), false, "mutable review display labels are represented by the audit actor only");
+  db.close();
+});
+
+test("route-review reconciliation rolls back when the lifetime audit write fails", () => {
+  const { db, routeReviews } = fixture();
+  const plans = createCraftPlanRepository(db, {
+    routeReviews,
+    now,
+    configAudit: { record() { throw new Error("audit unavailable"); } },
+  });
+  const plan = plans.primary();
+  const current = review("items:7", "fingerprint-a");
+
+  assert.throws(() => plans.update(plan.id, { config: plan.config }, {
+    expectedRevision: plan.revision,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [current],
+      previousRouteReviews: [current],
+      confirmations: [{ outputKey: "items:7", fingerprint: "fingerprint-a", selectedRouteId: "safe" }],
+      reviewer: actor,
+    },
+  }), /audit unavailable/);
+  assert.equal(plans.primary().revision, 1);
+  assert.deepEqual(routeReviews.listForPlan(plan.id), []);
+  db.close();
+});
+
 test("submitted and stored confirmations bind to the calculated selected route", () => {
   const { db, plans, routeReviews } = fixture();
   const plan = plans.primary();

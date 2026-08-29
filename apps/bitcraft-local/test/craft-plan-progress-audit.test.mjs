@@ -8,6 +8,7 @@ import {
   createCraftPlanProgressAuditRepository,
   diffCraftPlanProgressSnapshots,
   normalizeCraftPlanAuditRange,
+  normalizeCraftPlanAuditWindow,
   staleCraftPlanProgress,
 } from "../src/server/craftPlanProgressAudit.mjs";
 import { createPreparedStatements } from "../src/server/preparedStatements.mjs";
@@ -270,10 +271,24 @@ test("audit ranges are explicit and bounded by retention", () => {
     normalizeCraftPlanAuditRange("all", "2026-07-24T12:00:00.000Z").since,
     "2026-06-24T12:00:00.000Z",
   );
-  assert.throws(
-    () => normalizeCraftPlanAuditRange("30d", "2026-07-24T12:00:00.000Z"),
-    /invalid audit range/i,
-  );
+  assert.equal(normalizeCraftPlanAuditRange("14d", "2026-07-24T12:00:00.000Z").since, "2026-07-10T12:00:00.000Z");
+  assert.equal(normalizeCraftPlanAuditRange("30d", "2026-07-24T12:00:00.000Z").since, "2026-06-24T12:00:00.000Z");
+  assert.throws(() => normalizeCraftPlanAuditRange("31d", "2026-07-24T12:00:00.000Z"), /invalid audit range/i);
+});
+
+test("exact audit windows reject dates outside retention and normalize valid bounds", () => {
+  assert.deepEqual(normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-08-10T09:30:00.000Z",
+    until: "2026-08-20T18:45:00.000Z",
+    now: "2026-08-29T12:00:00.000Z",
+  }), { since: "2026-08-10T09:30:00.000Z", until: "2026-08-20T18:45:00.000Z" });
+  assert.throws(() => normalizeCraftPlanAuditWindow({
+    range: "30d",
+    since: "2026-07-01T00:00:00.000Z",
+    until: "2026-08-20T00:00:00.000Z",
+    now: "2026-08-29T12:00:00.000Z",
+  }), /retention/i);
 });
 
 function createTestRepository(clock) {

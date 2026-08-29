@@ -110,6 +110,39 @@ test("canonical material totals stay fixed while live quantities and typed ident
   assert.equal("planRequired" in livePlan.materials.find((material) => material.key === "items:7"), false);
 });
 
+test("canonical baseline-only materials remain published when live stock suppresses expansion", () => {
+  const baselinePlan = {
+    materials: [
+      { key: "items:7", id: "7", kind: "items", name: "Log", required: 10, missing: 10, available: 0, inProgress: 0, guaranteedInProgress: 0, estimatedInProgress: 0 },
+      { key: "cargo:7", id: "7", kind: "cargo", name: "Log crate", required: 6, missing: 6, available: 0, inProgress: 0, guaranteedInProgress: 0, estimatedInProgress: 0 },
+    ],
+  };
+  const livePlan = {
+    materials: [{ key: "items:9", id: "9", kind: "items", name: "Bark", required: 2, missing: 1, available: 1, inProgress: 0, guaranteedInProgress: 0, estimatedInProgress: 0 }],
+    gatherNext: [{ tag: "Woodcutting", items: [{ key: "items:9", required: 2, missing: 1 }] }],
+  };
+
+  const joined = craftPlanning.joinCraftPlanBaselineMaterials(livePlan, baselinePlan);
+
+  assert.deepEqual(joined.materials.map(({ key }) => key), ["items:9", "items:7", "cargo:7"]);
+  assert.deepEqual(joined.materials.slice(1).map((material) => ({
+    key: material.key,
+    planRequired: material.planRequired,
+    requiredNow: material.requiredNow,
+    missingNow: material.missingNow,
+    required: material.required,
+    missing: material.missing,
+    available: material.available,
+    inProgress: material.inProgress,
+    guaranteedInProgress: material.guaranteedInProgress,
+    estimatedInProgress: material.estimatedInProgress,
+  })), [
+    { key: "items:7", planRequired: 10, requiredNow: 0, missingNow: 0, required: 0, missing: 0, available: 0, inProgress: 0, guaranteedInProgress: 0, estimatedInProgress: 0 },
+    { key: "cargo:7", planRequired: 6, requiredNow: 0, missingNow: 0, required: 0, missing: 0, available: 0, inProgress: 0, guaranteedInProgress: 0, estimatedInProgress: 0 },
+  ]);
+  assert.deepEqual(joined.gatherNext[0].items.map(({ key }) => key), ["items:9"], "gatherNext keeps live grouping semantics");
+});
+
 test("completed craft plan validation reports every calculation invariant without throwing", () => {
   assert.equal(typeof craftPlanning.validateCompletedCraftPlan, "function");
   const validPlan = () => ({
@@ -336,6 +369,42 @@ test("configured deployable canonical and legacy aliases are both recognized as 
     available: true,
     error: "",
   }]);
+});
+
+test("required-source validation ignores unselected categories and retains selected personal scopes", () => {
+  const shared = craftPlanning.reconcileCraftPlanRequiredSourceStatus(normalizeCraftPlanConfig({
+    sourceRules: { storageContainerIds: ["selected-store"] },
+  }), [
+    { sourceId: "selected-store", label: "Selected", type: "Settlement storage", available: true },
+    { sourceId: "unselected-store", label: "Unselected", type: "Settlement storage", available: false },
+    { sourceId: "player-2", label: "Other inventory", type: "Player inventory", available: false },
+    { sourceId: "player-2:crafts", label: "Other crafts", type: "Tracked crafts", available: false },
+  ]);
+  assert.deepEqual(shared.map(({ sourceId }) => sourceId), ["selected-store"]);
+
+  const personal = craftPlanning.reconcileCraftPlanRequiredSourceStatus(normalizeCraftPlanConfig({
+    sourceRules: { playerIds: ["player-1"], craftPlayerIds: ["player-1"] },
+  }), [
+    { sourceId: "player-1", label: "Owner inventory", type: "Player inventory", available: false },
+    { sourceId: "player-1:crafts", label: "Owner crafts", type: "Tracked crafts", available: false },
+    { sourceId: "player-1:passive-crafts", label: "Owner passive crafts", type: "Tracked passive crafts", available: false },
+    { sourceId: "settlement-crafts", label: "Settlement crafts", type: "Tracked crafts", available: false },
+  ]);
+  assert.deepEqual(personal.map(({ sourceId }) => sourceId), ["player-1", "player-1:crafts", "player-1:passive-crafts"]);
+  assert.equal(craftPlanning.validateCompletedCraftPlan({ materials: [], gatherNext: [], steps: [], unavailableSources: [] }, { requiredSources: personal }).valid, false);
+});
+
+test("unselected craft collection failures do not make a plan unavailable", () => {
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({
+      enabled: true,
+      targets: [{ id: "7", kind: "items", name: "Log", quantity: 1 }],
+      sourceRules: { craftPlayerIds: [] },
+    }),
+    detailsByKey: new Map([["items:7", { item: { id: "7", kind: "items", name: "Log" }, craftingRecipes: [] }]]),
+    craftSourceErrors: [{ sourceId: "settlement-crafts", label: "Settlement crafts", type: "Tracked crafts", error: "offline" }],
+  });
+  assert.deepEqual(plan.unavailableSources, []);
 });
 
 test("effort-unavailable plans still pass through enrichment, validation, and last-good publication", () => {

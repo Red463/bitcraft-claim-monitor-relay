@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const server = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
+const saveOrchestration = await readFile(new URL("../src/server/craftPlanSaveOrchestration.mjs", import.meta.url), "utf8");
 
 test("server wires authenticated settlement and personal previews through non-persisting calculation", () => {
   assert.match(server, /createCraftPlanRouteReviewRepository/);
@@ -26,7 +27,8 @@ test("preview calculation bypasses cache, reconciliation writes, audit writes, a
 });
 
 test("modern save conflict responses preserve non-sensitive authoritative rebase metadata", () => {
-  assert.match(server, /conflict: error\?\.conflict/);
-  assert.match(server, /routeReviewState/);
-  assert.match(server, /expectedRevision: body\.expectedRevision/);
+  assert.match(server, /orchestrateCraftPlanSave/);
+  assert.match(saveOrchestration, /conflict: error\?\.conflict/);
+  assert.match(saveOrchestration, /routeReviewState/);
+  assert.match(saveOrchestration, /expectedRevision: body\.expectedRevision/);
 });

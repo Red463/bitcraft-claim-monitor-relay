@@ -137,6 +137,7 @@ export function createCraftPlanRepository(db, {
   now = () => new Date().toISOString(),
   configAudit = null,
   routeReviews = null,
+  lastGoodPublications = null,
 } = {}) {
   const row = (id) => db.prepare("SELECT * FROM craft_plans WHERE id = ?").get(String(id));
   const ownerCharacter = (ownerUserId) => db.prepare("SELECT character_player_id FROM user_accounts WHERE id = ? AND character_status = 'approved'").get(ownerUserId)?.character_player_id;
@@ -157,6 +158,14 @@ export function createCraftPlanRepository(db, {
     const entry = row(id);
     return visible(entry, subject) ? publicPlan(entry) : null;
   };
+  const auditRouteReviews = (planId) => (routeReviews?.listForPlan(planId) ?? []).map((review) => ({
+    outputKey: review.outputKey,
+    fingerprint: review.fingerprint,
+    selectedRouteId: review.selectedRouteId,
+    confirmedFingerprint: review.confirmedFingerprint,
+    status: review.status,
+    configurationRevision: review.configurationRevision,
+  }));
   const auditValue = (plan) => plan ? ({
     id: plan.id,
     name: plan.name,
@@ -164,8 +173,9 @@ export function createCraftPlanRepository(db, {
     ownerUserId: plan.ownerUserId,
     primary: plan.primary,
     config: plan.config,
+    routeReviews: auditRouteReviews(plan.id),
   }) : null;
-  const recordConfigAudit = (before, after, action, options, timestamp) => configAudit?.record({
+  const recordConfigAudit = (before, after, action, options, timestamp, values = {}) => configAudit?.record({
     planId: after?.id ?? before?.id,
     claimId: options.claimId ?? null,
     actor: options.actor,
@@ -173,8 +183,8 @@ export function createCraftPlanRepository(db, {
     previousRevision: before?.revision ?? null,
     newRevision: after?.revision ?? before?.revision,
     action,
-    before: auditValue(before),
-    after: auditValue(after),
+    before: values.before ?? auditValue(before),
+    after: values.after ?? auditValue(after),
   });
   const authorizedConfig = (entry, candidate) => {
     let config = candidate ?? json(entry.config_json);
@@ -245,6 +255,7 @@ export function createCraftPlanRepository(db, {
       }
       const timestamp = now();
       const before = publicPlan(entry);
+      const beforeAudit = auditValue(before);
       db.prepare("UPDATE craft_plans SET name = ?, config_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?").run(name(changes.name ?? entry.name), JSON.stringify(config), timestamp, entry.id);
       const after = publicPlan(row(entry.id));
       if (routeReviewState && routeReviews) routeReviews.reconcile({
@@ -255,7 +266,7 @@ export function createCraftPlanRepository(db, {
         reviewer: routeReviewState.reviewer ?? options.actor,
         grandfatheredOutputKeys,
       });
-      recordConfigAudit(before, after, "update", options, timestamp);
+      recordConfigAudit(before, after, "update", options, timestamp, { before: beforeAudit, after: auditValue(after) });
       db.exec("COMMIT");
       return after;
     } catch (error) { db.exec("ROLLBACK"); throw error; }
@@ -271,6 +282,7 @@ export function createCraftPlanRepository(db, {
       db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_causal_groups WHERE plan_id = ?").run(entry.id);
       db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(entry.id);
+      lastGoodPublications?.deleteForPlan(entry.id);
       configAudit?.deleteForPlan(entry.id);
       db.prepare("DELETE FROM craft_plans WHERE id = ?").run(entry.id);
       db.exec("COMMIT");

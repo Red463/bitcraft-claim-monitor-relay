@@ -504,8 +504,8 @@ export function staleCraftPlanProgress(lastSuccess = {}, failures = [], now = ne
 
 export function normalizeCraftPlanAuditRange(value, now = new Date().toISOString()) {
   const label = text(value || "3d").toLowerCase();
-  const durations = { "24h": 24, "3d": 72, "7d": 168, all: AUDIT_RETENTION_DAYS * 24 };
-  if (!(label in durations)) throw new Error("Invalid audit range. Use 24h, 3d, 7d, or all.");
+  const durations = { "24h": 24, "3d": 72, "7d": 168, "14d": 336, "30d": AUDIT_RETENTION_DAYS * 24, all: AUDIT_RETENTION_DAYS * 24 };
+  if (!(label in durations)) throw new Error("Invalid audit range. Use 24h, 3d, 7d, 14d, 30d, or all.");
   const timestamp = new Date(now);
   if (Number.isNaN(timestamp.getTime())) throw new Error("Invalid audit range timestamp.");
   return {
@@ -521,6 +521,18 @@ function gzipJson(value) {
 function gunzipJson(value) {
   if (!value) return null;
   return JSON.parse(gunzipSync(Buffer.from(value)).toString("utf8"));
+}
+
+export function normalizeCraftPlanAuditWindow({ range = "3d", since = "", until = "", now = new Date().toISOString() } = {}) {
+  const normalizedRange = normalizeCraftPlanAuditRange(range, now);
+  const nowTime = new Date(now).getTime();
+  const sinceTime = new Date(since || normalizedRange.since).getTime();
+  const untilTime = new Date(until || now).getTime();
+  const retentionStart = nowTime - AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  if (![nowTime, sinceTime, untilTime].every(Number.isFinite)) throw new Error("Invalid audit window timestamp.");
+  if (sinceTime < retentionStart || untilTime > nowTime) throw new Error("Audit window must stay within the 30-day retention period.");
+  if (sinceTime > untilTime) throw new Error("Audit window since must not be after until.");
+  return { since: new Date(sinceTime).toISOString(), until: new Date(untilTime).toISOString() };
 }
 
 function dependencyPathsFor(previous, current, materialKey) {

@@ -283,7 +283,7 @@ export function CraftPlanManagerDialog({
   const [conflictDraft, setConflictDraft] = React.useState<CraftPlanConfig | null>(null);
   const [baseConfig, setBaseConfig] = React.useState<CraftPlanConfig>(emptyConfig);
   const [draftConflicts, setDraftConflicts] = React.useState<CraftPlanDraftConflict[]>([]);
-  const [auditFilters, setAuditFilters] = React.useState({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
+  const [auditFilters, setAuditFilters] = React.useState({ range: "3d", since: "", until: "", triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
   const [comparisonFrom, setComparisonFrom] = React.useState("");
   const [comparisonTo, setComparisonTo] = React.useState("");
   const [comparison, setComparison] = React.useState<AnyRecord | null>(null);
@@ -378,7 +378,7 @@ export function CraftPlanManagerDialog({
     setProgressAuditError(null);
     const [settingsResult, progressResult] = await Promise.allSettled([
       adminApi(`/admin/craft-plan/audit?limit=100&planId=${encodeURIComponent(planId)}`),
-      adminApi(`/admin/craft-plan/progress-audit?planId=${encodeURIComponent(planId)}&page=${auditFilters.page}&pageSize=25&triggerCategory=${encodeURIComponent(auditFilters.triggerCategory)}&effectCategory=${encodeURIComponent(auditFilters.effectCategory)}&materialKey=${encodeURIComponent(auditFilters.materialKey)}&unresolvedOnly=${auditFilters.unresolvedOnly}`),
+      adminApi(`/admin/craft-plan/progress-audit?planId=${encodeURIComponent(planId)}&range=${encodeURIComponent(auditFilters.range)}&since=${encodeURIComponent(auditFilters.since)}&until=${encodeURIComponent(auditFilters.until)}&page=${auditFilters.page}&pageSize=25&triggerCategory=${encodeURIComponent(auditFilters.triggerCategory)}&effectCategory=${encodeURIComponent(auditFilters.effectCategory)}&materialKey=${encodeURIComponent(auditFilters.materialKey)}&unresolvedOnly=${auditFilters.unresolvedOnly}`),
     ]);
     if (requestId !== auditRequestId.current) return;
     if (settingsResult.status === "fulfilled") {
@@ -528,7 +528,7 @@ export function CraftPlanManagerDialog({
     setConflictDraft(null);
     setBaseConfig(emptyConfig());
     setDraftConflicts([]);
-    setAuditFilters({ triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
+    setAuditFilters({ range: "3d", since: "", until: "", triggerCategory: "", effectCategory: "", materialKey: "", unresolvedOnly: false, page: 1 });
     setComparisonFrom("");
     setComparisonTo("");
     setComparison(null);
@@ -1004,6 +1004,9 @@ export function CraftPlanManagerDialog({
               {auditDownloadError ? <div className="alert error">Diagnostics download failed: {auditDownloadError}</div> : null}
               {!progressAuditError && progressAudit ? <>
                 <div className="craft-plan-audit-filters" aria-label="Filter causal timeline">
+                  <label className="field compact-field"><span>Time range</span><select aria-label="Audit time range" value={auditFilters.range} onChange={(event) => { setAuditFilters((current) => ({ ...current, range: event.target.value, since: "", until: "", page: 1 })); setAuditLoaded(false); }}><option value="3d">3 days</option><option value="7d">7 days</option><option value="14d">14 days</option><option value="30d">30 days</option></select></label>
+                  <label className="field compact-field"><span>Exact since</span><input aria-label="Audit since" type="datetime-local" min={new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)} max={new Date().toISOString().slice(0, 16)} value={auditFilters.since} onChange={(event) => { setAuditFilters((current) => ({ ...current, since: event.target.value, page: 1 })); setAuditLoaded(false); }} /></label>
+                  <label className="field compact-field"><span>Exact until</span><input aria-label="Audit until" type="datetime-local" min={new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)} max={new Date().toISOString().slice(0, 16)} value={auditFilters.until} onChange={(event) => { setAuditFilters((current) => ({ ...current, until: event.target.value, page: 1 })); setAuditLoaded(false); }} /></label>
                   <label className="field compact-field"><span>Observed trigger</span><input value={auditFilters.triggerCategory} onChange={(event) => { setAuditFilters((current) => ({ ...current, triggerCategory: event.target.value, page: 1 })); setAuditLoaded(false); }} placeholder="e.g. stock_movement" /></label>
                   <label className="field compact-field"><span>Derived effect</span><input value={auditFilters.effectCategory} onChange={(event) => { setAuditFilters((current) => ({ ...current, effectCategory: event.target.value, page: 1 })); setAuditLoaded(false); }} placeholder="e.g. demand_change" /></label>
                   <label className="field compact-field"><span>Typed material</span><input value={auditFilters.materialKey} onChange={(event) => { setAuditFilters((current) => ({ ...current, materialKey: event.target.value, page: 1 })); setAuditLoaded(false); }} placeholder="items:123 or cargo:123" /></label>

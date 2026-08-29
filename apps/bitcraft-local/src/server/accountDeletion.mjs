@@ -178,6 +178,7 @@ export function deleteUserAccount(db, {
     deleted.craft_plan_progress_audit_state = 0;
     deleted.craft_plan_config_audit = 0;
     deleted.craft_plan_route_reviews = 0;
+    deleted.craft_plan_last_good_publications = 0;
     for (const planId of ownedPlanIds) {
       deleted.craft_plan_progress_audit_events += count(db.prepare("DELETE FROM craft_plan_progress_audit_events WHERE plan_id = ?").run(planId));
       deleted.craft_plan_progress_audit_snapshots += count(db.prepare("DELETE FROM craft_plan_progress_audit_snapshots WHERE plan_id = ?").run(planId));
@@ -185,6 +186,7 @@ export function deleteUserAccount(db, {
       deleted.craft_plan_progress_audit_state += count(db.prepare("DELETE FROM craft_plan_progress_audit_state WHERE plan_id = ?").run(planId));
       deleted.craft_plan_config_audit += count(db.prepare("DELETE FROM craft_plan_config_audit WHERE plan_id = ?").run(planId));
       deleted.craft_plan_route_reviews += count(db.prepare("DELETE FROM craft_plan_route_reviews WHERE plan_id = ?").run(planId));
+      deleted.craft_plan_last_good_publications += count(db.prepare("DELETE FROM craft_plan_last_good_publications WHERE plan_id = ?").run(planId));
     }
     deleted.access_control_allowlist_entries = removeAccessControlAllowlistEntries(db, discordId, deletedAt);
 

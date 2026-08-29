@@ -132,8 +132,10 @@ import {
   buildCraftPlanProgressSnapshot,
   createCraftPlanProgressAuditRepository,
   normalizeCraftPlanAuditRange,
+  normalizeCraftPlanAuditWindow,
 } from "./src/server/craftPlanProgressAudit.mjs";
-import { resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
+import { createCraftPlanLastGoodPublicationRepository, resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
+import { craftPlanSaveErrorBody, orchestrateCraftPlanSave } from "./src/server/craftPlanSaveOrchestration.mjs";
 import { buildCraftPlanDiscordEmbed, buildCraftPlanDiscordReport, buildUnavailableCraftPlanDiscordReport, craftPlanReportProfessions, dueCraftPlanReportOccurrence, nextCraftPlanReportOccurrenceIso, normalizeCraftPlanReportProfession, validateCraftPlanReportSettings } from "./src/server/craftPlanDiscordReports.mjs";
 import { craftPlanInteractionDiagnostic, deferredDiscordInteractionResult, editDiscordInteractionOriginal, preflightCraftPlanInteraction, runDiscordTaskAfterResponse } from "./src/server/discordCraftPlanInteractions.mjs";
 import { buildWorkstationPresets, normalizeCatalogWorkstationTarget } from "./src/server/craftPlanWorkstationPresets.mjs";
@@ -602,7 +604,8 @@ installRetiredTableAuthorizer(db);
 const statements = createPreparedStatements(db);
 const craftPlanConfigAudit = createCraftPlanConfigAuditRepository(db, { statements });
 const craftPlanRouteReviews = createCraftPlanRouteReviewRepository(db, { statements });
-const craftPlans = createCraftPlanRepository(db, { configAudit: craftPlanConfigAudit, routeReviews: craftPlanRouteReviews });
+const craftPlanLastGoodPublications = createCraftPlanLastGoodPublicationRepository(db);
+const craftPlans = createCraftPlanRepository(db, { configAudit: craftPlanConfigAudit, routeReviews: craftPlanRouteReviews, lastGoodPublications: craftPlanLastGoodPublications });
 const discordOutboxLeaser = createDiscordOutboxLeaser(db, {
   workerId: `${processRole}:${os.hostname()}:${process.pid}:${randomBytes(8).toString("hex")}`,
   leaseMs: discordNotificationLeaseMs,
@@ -1115,6 +1118,7 @@ const craftPlanProgressAudit = createCraftPlanProgressAuditRepository(db, {
 });
 let craftPlanProgressAuditWriteWarning = null;
 const craftPlanCalculationValidationWarnings = new Map();
+const craftPlanLastGoodLimitations = new Map();
 const gameCatalogRepository = createGameCatalogRepository(db);
 const empireMembershipRepository = createEmpireMembershipRepository(db);
 
@@ -2244,10 +2248,15 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const generation = craftPlanResponseGeneration;
   const startedAt = Date.now();
   plannerTelemetry.freshCalculations += 1;
+  const retained = cached?.workspace?.plan
+    ? { plan: cached.workspace.plan, limitation: null }
+    : craftPlanLastGoodPublications.load(normalizedClaimId, planId);
+  if (retained.limitation) craftPlanLastGoodLimitations.set(planId, retained.limitation);
+  else craftPlanLastGoodLimitations.delete(planId);
   const promise = computedCraftPlanResponseFresh(normalizedClaimId, {
     forceRefresh,
     planId,
-    lastGoodPlan: cached?.workspace?.plan ?? null,
+    lastGoodPlan: retained.plan,
   }).then((plan) => {
     const workspace = createCraftPlanResponseWorkspace(plan);
     plannerTelemetry.lastDurationMs = Date.now() - startedAt;
@@ -2325,9 +2334,6 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   if (Array.isArray(craftsPayload.warnings)) {
     catalogWarnings.push(...craftsPayload.warnings);
   }
-  const sourceFailures = [inventoriesResult, craftsResult]
-    .filter((result) => result.error)
-    .map((result) => ({ ...result.source, error: result.error }));
   const memberNames = new Map(unwrap(membersPayload, "members", []).map((member) => {
     const playerId = String(member.playerEntityId ?? member.entityId ?? "");
     return [playerId, String(member.userName ?? member.username ?? playerId)];
@@ -2360,12 +2366,6 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       deployableSources.push(...enrichCraftPlanSourcesFromLocalCatalog(gameCatalogRepository, sources.deployables, catalogWarnings));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      sourceFailures.push({
-        sourceId: playerId,
-        label: `${label} inventories`,
-        type: "Player inventories",
-        error: message,
-      });
       if (inventoryPlayerIds.has(playerId)) {
         playerSources.push({ sourceId: playerId, label: `${label} inventory`, type: "Player inventory", unavailable: true, error: message, items: [] });
       }
@@ -2441,6 +2441,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     ...deployableSources,
   ].map((source) => ({
     sourceId: String(source?.sourceId ?? ""),
+    playerId: source?.playerId == null ? undefined : String(source.playerId),
     legacySourceIds: Array.isArray(source?.legacySourceIds) ? source.legacySourceIds.map(String) : [],
     label: String(source?.label ?? source?.sourceId ?? "Planner source"),
     type: String(source?.type ?? "Planner source"),
@@ -2448,8 +2449,6 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     error: source?.unavailable ? String(source?.error ?? "Unavailable") : "",
   }));
   discoveredSourceStatus.push(
-    { ...inventoriesResult.source, available: !inventoriesResult.error, error: inventoriesResult.error },
-    { ...craftsResult.source, available: !craftsResult.error, error: craftsResult.error },
     ...config.sourceRules.craftPlayerIds.flatMap((playerId) => [{
       sourceId: `${String(playerId)}:crafts`,
       label: `${memberNames.get(String(playerId)) ?? playerId} crafts`,
@@ -2465,6 +2464,9 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
     }]),
   );
   const sourceStatus = reconcileCraftPlanRequiredSourceStatus(config, discoveredSourceStatus);
+  const sourceFailures = sourceStatus
+    .filter((source) => source?.available !== true)
+    .map((source) => ({ ...source, error: String(source?.error ?? "Unavailable") }));
 
   const capturedAt = new Date().toISOString();
   const completedPublication = finalizeCraftPlanPublication({
@@ -2539,6 +2541,15 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       if (error?.auditError) craftPlanProgressAuditWriteWarning = error.auditError;
       throw error;
     }
+  }
+  try {
+    craftPlanLastGoodPublications.store(claimId, planId, livePlan, capturedAt);
+    craftPlanLastGoodLimitations.delete(planId);
+  } catch (error) {
+    craftPlanLastGoodLimitations.set(planId, {
+      at: capturedAt,
+      error: `Craft Plan last-good publication write failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300),
+    });
   }
   return livePlan;
 }
@@ -8501,27 +8512,19 @@ const server = createServer(async (req, res) => {
         }
         const body = await readJson(req, BODY_LIMITS.settings);
         if (req.method === "PUT") {
-          const changes = { name: body.name };
-          if (Object.prototype.hasOwnProperty.call(body, "config")) changes.config = normalizeCraftPlanConfig(body.config);
-          const preview = Object.prototype.hasOwnProperty.call(body, "config") || Array.isArray(body.routeReviewConfirmations)
-            ? await previewCraftPlanConfig(planId, changes.config ?? planRecord.config, { userId: appUser.id, expectedRevision: body.expectedRevision })
-            : null;
-          const previousPreview = preview
-            ? await previewCraftPlanConfig(planId, planRecord.config, { userId: appUser.id })
-            : null;
-          const updatedPlanRecord = craftPlans.update(planId, changes, {
-            expectedRevision: body.expectedRevision,
-            userId: appUser.id,
+          const { planRecord: updatedPlanRecord } = await orchestrateCraftPlanSave({
+            planId,
+            body,
+            currentPlan: planRecord,
+            configInput: Object.prototype.hasOwnProperty.call(body, "config") ? body.config : undefined,
+            normalizeConfig: normalizeCraftPlanConfig,
+            previewConfig: previewCraftPlanConfig,
+            updatePlan: (...args) => craftPlans.update(...args),
+            invalidate: invalidateCraftPlanResponses,
+            subject: { userId: appUser.id },
             actor: userCraftPlanActor(appUser),
             claimId: getSettings().claimId,
-            routeReviewState: preview ? {
-              routeReviews: preview.routeReviews,
-              previousRouteReviews: previousPreview.routeReviews,
-              confirmations: Array.isArray(body.routeReviewConfirmations) ? body.routeReviewConfirmations : [],
-              reviewer: userCraftPlanActor(appUser),
-            } : null,
           });
-          invalidateCraftPlanResponses();
           return send(res, 200, { planRecord: updatedPlanRecord });
         }
         if (req.method === "DELETE") {
@@ -8530,7 +8533,7 @@ const server = createServer(async (req, res) => {
           return send(res, 200, { ok: true });
         }
       } catch (error) {
-        return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code, conflict: error?.conflict, unconfirmedRoutes: error?.unconfirmedRoutes });
+        return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
       }
     }
     if (req.method === "POST" && url.pathname === "/api/local/auth/privacy/reauth/start") {
@@ -9617,8 +9620,18 @@ const server = createServer(async (req, res) => {
         } catch (error) {
           return send(res, 400, { error: error instanceof Error ? error.message : "Invalid audit range." });
         }
-        const since = String(url.searchParams.get("since") ?? range.since);
-        const until = String(url.searchParams.get("until") ?? new Date().toISOString());
+        let window;
+        try {
+          window = normalizeCraftPlanAuditWindow({
+            range: range.label,
+            since: String(url.searchParams.get("since") || ""),
+            until: String(url.searchParams.get("until") || ""),
+            now: new Date().toISOString(),
+          });
+        } catch (error) {
+          return send(res, 400, { error: error instanceof Error ? error.message : "Invalid audit window." });
+        }
+        const { since, until } = window;
         const causal = craftPlanProgressAudit.queryCausalGroups(claimId, {
           planId,
           since,
@@ -9635,6 +9648,7 @@ const server = createServer(async (req, res) => {
             ...craftPlanProgressAudit.status(claimId, planId),
             writeWarning: craftPlanProgressAuditWriteWarning,
             validationWarning: craftPlanCalculationValidationWarnings.get(planId) ?? null,
+            lastGoodLimitation: craftPlanLastGoodLimitations.get(planId) ?? null,
           },
           events: craftPlanProgressAudit.listEvents(claimId, { since, limit: 100, planId }),
           causalGroups: causal.causalGroups,
@@ -9726,28 +9740,20 @@ const server = createServer(async (req, res) => {
           }
           if (req.method === "GET") return send(res, 200, await craftPlanAdminResponse(getSettings().claimId, planId));
           if (req.method === "PUT") {
-            const changes = { name: body.name };
-            if (Object.prototype.hasOwnProperty.call(body, "config")) changes.config = normalizeCraftPlanConfig(body.config);
             const existing = craftPlans.getAdmin(planId);
-            const preview = Object.prototype.hasOwnProperty.call(body, "config") || Array.isArray(body.routeReviewConfirmations)
-              ? await previewCraftPlanConfig(planId, changes.config ?? existing?.config, { admin: true, expectedRevision: body.expectedRevision })
-              : null;
-            const previousPreview = preview
-              ? await previewCraftPlanConfig(planId, existing?.config, { admin: true })
-              : null;
-            const planRecord = craftPlans.update(planId, changes, {
-              expectedRevision: body.expectedRevision,
-              admin: true,
+            const { planRecord } = await orchestrateCraftPlanSave({
+              planId,
+              body,
+              currentPlan: existing,
+              configInput: Object.prototype.hasOwnProperty.call(body, "config") ? body.config : undefined,
+              normalizeConfig: normalizeCraftPlanConfig,
+              previewConfig: previewCraftPlanConfig,
+              updatePlan: (...args) => craftPlans.update(...args),
+              invalidate: invalidateCraftPlanResponses,
+              subject: { admin: true },
               actor: adminCraftPlanActor(user),
               claimId: getSettings().claimId,
-              routeReviewState: preview ? {
-                routeReviews: preview.routeReviews,
-                previousRouteReviews: previousPreview.routeReviews,
-                confirmations: Array.isArray(body.routeReviewConfirmations) ? body.routeReviewConfirmations : [],
-                reviewer: adminCraftPlanActor(user),
-              } : null,
             });
-            invalidateCraftPlanResponses();
             audit(user, "craft_plan.update", { planId: planRecord.id, name: planRecord.name, scope: planRecord.scope });
             return send(res, 200, { planRecord });
           }
@@ -9759,7 +9765,7 @@ const server = createServer(async (req, res) => {
             return send(res, 200, { ok: true });
           }
         } catch (error) {
-          return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code, conflict: error?.conflict, unconfirmedRoutes: error?.unconfirmedRoutes });
+          return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
         }
       }
       if (req.method === "GET" && url.pathname === "/api/local/admin/craft-plan/player-banks") {
@@ -9785,28 +9791,28 @@ const server = createServer(async (req, res) => {
             delete configInput.expectedRevision;
             delete configInput.routeReviewConfirmations;
           }
-          let submittedConfig = normalizeCraftPlanConfig(configInput);
-          try {
-            const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
-            submittedConfig = reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
-          } catch {
-            // Leave newly added building targets pending until a complete Relay building generation commits.
-          }
-          const preview = await previewCraftPlanConfig(planId, submittedConfig, { admin: true, expectedRevision: body.expectedRevision });
-          const previousPreview = await previewCraftPlanConfig(planId, existing?.config, { admin: true });
-          const planRecord = craftPlans.update(planId, { name: submittedConfig.name, config: submittedConfig }, {
-            expectedRevision: body.expectedRevision,
-            admin: true,
+          const { planRecord } = await orchestrateCraftPlanSave({
+            planId,
+            body,
+            currentPlan: existing,
+            configInput,
+            normalizeConfig: normalizeCraftPlanConfig,
+            prepareConfig: async (submittedConfig) => {
+              try {
+                const buildingsPayload = currentClaimBuildingsProjection(getSettings().claimId);
+                return reconcileCraftPlanBuildingProgress(submittedConfig, buildingsPayload).config;
+              } catch {
+                return submittedConfig;
+              }
+            },
+            previewConfig: previewCraftPlanConfig,
+            updatePlan: (...args) => craftPlans.update(...args),
+            invalidate: invalidateCraftPlanResponses,
+            subject: { admin: true },
             actor: adminCraftPlanActor(user),
             claimId: getSettings().claimId,
-            routeReviewState: {
-              routeReviews: preview.routeReviews,
-              previousRouteReviews: previousPreview.routeReviews,
-              confirmations: Array.isArray(body.routeReviewConfirmations) ? body.routeReviewConfirmations : [],
-              reviewer: adminCraftPlanActor(user),
-            },
+            resolveName: (submittedConfig) => submittedConfig.name,
           });
-          invalidateCraftPlanResponses();
           const config = normalizeCraftPlanConfig({ ...planRecord.config, name: planRecord.name });
           const response = await craftPlanAdminResponse(getSettings().claimId, planId);
           const auditDetails = craftPlanAuditDetails(previousConfig, config, craftPlanAuditLabels(response.sources, response.plan?.materials));
@@ -9821,7 +9827,7 @@ const server = createServer(async (req, res) => {
           });
           return send(res, 200, response);
         } catch (error) {
-          return send(res, error?.statusCode ?? 400, { error: error instanceof Error ? error.message : String(error), code: error?.code, conflict: error?.conflict, unconfirmedRoutes: error?.unconfirmedRoutes });
+          return send(res, error?.statusCode ?? 400, craftPlanSaveErrorBody(error));
         }
       }
       if (req.method === "PUT" && url.pathname === "/api/local/admin/access-control") {

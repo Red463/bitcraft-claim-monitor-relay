@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 
-import { resolveFailedCraftPlanPublication } from "../src/server/craftPlanPublication.mjs";
+import { createCraftPlanLastGoodPublicationRepository, resolveFailedCraftPlanPublication } from "../src/server/craftPlanPublication.mjs";
 
 function invalidValidation() {
   return {
@@ -127,4 +128,64 @@ test("server publication failure records diagnostics and fails closed without la
   );
   assert.equal(state.recordedFailures.length, 1);
   assert.equal(state.validationWarnings.get("plan-1").retainedLastGood, false);
+});
+
+test("valid publication survives cache loss and repository reconstruction for the next invalid candidate", () => {
+  const db = new DatabaseSync(":memory:");
+  const published = {
+    plan: { id: "plan-1", revision: 4 },
+    config: { enabled: true },
+    materials: [{ key: "items:7", id: "7", kind: "items", planRequired: 10, requiredNow: 3, missingNow: 2, required: 3, missing: 2 }],
+    gatherNext: [],
+    steps: [],
+    effortProgress: { baselineRevision: "baseline-1", confirmed: { overall: { completion: 70 } } },
+    warnings: [],
+    unavailableSources: [],
+    token: "must-not-persist",
+  };
+  createCraftPlanLastGoodPublicationRepository(db).store("claim-1", "plan-1", published, "2026-08-28T10:00:00.000Z");
+
+  const reconstructed = createCraftPlanLastGoodPublicationRepository(db);
+  const loaded = reconstructed.load("claim-1", "plan-1");
+  const { token: _sensitive, ...expected } = published;
+  assert.deepEqual(loaded.plan, expected);
+  assert.equal(loaded.limitation, null);
+  const failed = resolveFailedCraftPlanPublication({
+    claimId: "claim-1",
+    planId: "plan-1",
+    candidatePlan: { marker: "invalid-next-candidate" },
+    publication: { plan: loaded.plan, retainedLastGood: true },
+    validation: invalidValidation(),
+    capturedAt: "2026-08-28T10:05:00.000Z",
+    validationWarnings: new Map(),
+    progressAudit: { recordFailure() {} },
+  });
+  assert.deepEqual({ ...failed.plan, effortProgress: undefined, unavailableSources: undefined, warnings: undefined }, {
+    ...expected,
+    effortProgress: undefined,
+    unavailableSources: undefined,
+    warnings: undefined,
+  });
+  assert.equal(failed.plan.effortProgress.stale, true);
+  assert.equal(failed.plan.materials[0].planRequired, 10);
+  assert.equal(failed.plan.materials[0].requiredNow, 3);
+
+  db.prepare("UPDATE craft_plan_last_good_publications SET payload_gzip = X'00' WHERE claim_id = ? AND plan_id = ?").run("claim-1", "plan-1");
+  const corrupt = reconstructed.load("claim-1", "plan-1");
+  assert.equal(corrupt.plan, null);
+  assert.match(corrupt.limitation.error, /corrupt|invalid/i);
+  const absent = reconstructed.load("claim-1", "never-published");
+  assert.deepEqual(absent, { plan: null, limitation: null });
+  for (const unavailable of [corrupt, absent]) {
+    assert.throws(() => resolveFailedCraftPlanPublication({
+      claimId: "claim-1",
+      planId: "plan-1",
+      candidatePlan: { marker: "invalid-next-candidate" },
+      publication: { plan: unavailable.plan, retainedLastGood: false },
+      validation: invalidValidation(),
+      validationWarnings: new Map(),
+      progressAudit: { recordFailure() {} },
+    }), (error) => error?.statusCode === 502);
+  }
+  db.close();
 });

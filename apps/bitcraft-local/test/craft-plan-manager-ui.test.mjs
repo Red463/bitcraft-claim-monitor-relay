@@ -479,6 +479,55 @@ test("audit-only access is read-only and stale filtered responses cannot replace
   }
 });
 
+test("Audit time controls send preset and exact bounded ranges while resetting pagination", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const progressUrls = [];
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/progress-audit?")) {
+      progressUrls.push(target);
+      return jsonResponse(auditResult(`range-${progressUrls.length}`));
+    }
+    if (target.includes("/craft-plan/audit?")) return jsonResponse({ configHistory: [] });
+    return jsonResponse(loadedPlan());
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["audit.view"], canEdit: false, initialWorkspace: "audit" };
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+
+    const range = findElements(tree, (element) => element.type === "select" && element.props["aria-label"] === "Audit time range")[0];
+    assert.ok(range);
+    range.props.onChange({ target: { value: "30d" } });
+    await harness.render(CraftPlanManagerDialog, props);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(progressUrls.at(-1), /[?&]range=30d(?:&|$)/);
+    assert.match(progressUrls.at(-1), /[?&]page=1(?:&|$)/);
+
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const since = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Audit since")[0];
+    const until = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Audit until")[0];
+    since.props.onChange({ target: { value: "2026-08-10T09:30" } });
+    await harness.render(CraftPlanManagerDialog, props);
+    until.props.onChange({ target: { value: "2026-08-20T18:45" } });
+    await harness.render(CraftPlanManagerDialog, props);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(progressUrls.at(-1), /since=2026-08-10T09%3A30/);
+    assert.match(progressUrls.at(-1), /until=2026-08-20T18%3A45/);
+    assert.match(progressUrls.at(-1), /[?&]page=1(?:&|$)/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("recipe review can stage calculated-route reset and remove saved buffers absent from preview", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
