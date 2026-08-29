@@ -178,6 +178,14 @@ test("completed craft plan validation reports every calculation invariant withou
     errors: [],
   });
 
+  const planWithUnreachableOverride = validPlan();
+  planWithUnreachableOverride.config.routeOverrides["items:8"] = "retired-route";
+  assert.deepEqual(
+    craftPlanning.validateCompletedCraftPlan(planWithUnreachableOverride, { requiredSources, previousPlan }),
+    { valid: true, baselineRevision: "baseline-1", errors: [] },
+    "a route override outside the completed live and baseline graph is stale configuration, not an invalid calculation",
+  );
+
   const invalidCases = [
     ["duplicate typed key", "duplicate_material_key", (plan) => plan.materials.push({ ...plan.materials[0] })],
     ["invalid typed key", "invalid_material_key", (plan) => { plan.materials[0].key = "item:7"; }],

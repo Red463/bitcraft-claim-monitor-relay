@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.8] - 2026-08-29
+
+### Fixed
+
+- Prevented stale recipe preferences outside the active plan graph from blocking an otherwise valid Craft Plan.
+
 ## [0.66.2-beta.7] - 2026-08-29
 
 ### Fixed

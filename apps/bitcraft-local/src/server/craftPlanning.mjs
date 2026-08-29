@@ -1871,11 +1871,11 @@ export function validateCompletedCraftPlan(plan = {}, {
     }
   }
   for (const [outputKey, selectedRecipeId] of Object.entries(plan?.config?.routeOverrides ?? {})) {
-    const selectedRouteExists = completedRoutes.some(({ route }) => (
-      craftPlanItemKey(route?.output) === outputKey
-      && String(route?.selectedRecipeId ?? "").trim() === String(selectedRecipeId ?? "").trim()
+    const completedOutputRoutes = completedRoutes.filter(({ route }) => craftPlanItemKey(route?.output) === outputKey);
+    const selectedRouteExists = completedOutputRoutes.some(({ route }) => (
+      String(route?.selectedRecipeId ?? "").trim() === String(selectedRecipeId ?? "").trim()
     ));
-    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey)) || !selectedRouteExists) {
+    if (!CRAFT_PLAN_TYPED_MATERIAL_KEY.test(String(outputKey)) || (completedOutputRoutes.length > 0 && !selectedRouteExists)) {
       errors.push(craftPlanValidationError("invalid_selected_route", `config.routeOverrides.${outputKey}`, "The configured route must match the completed selected route for its typed output.", {
         outputKey,
         selectedRecipeId: String(selectedRecipeId ?? ""),
