@@ -241,13 +241,29 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
   return {
     listForPlan,
     previewState,
-    reconcile({ planId, configurationRevision, routeReviews = [], confirmations = [], reviewer = {}, reviewedAt = now(), grandfatheredOutputKeys = [] }) {
+    reconcile({
+      planId,
+      configurationRevision,
+      routeReviews = [],
+      confirmations = [],
+      reviewer = {},
+      reviewedAt = now(),
+      grandfatheredOutputKeys = [],
+      observedOutputKeys = [],
+    }) {
       const state = previewState(planId, routeReviews, confirmations);
       const currentByKey = new Map(state.routeReviews.map((entry) => [entry.outputKey, entry]));
       for (const stored of listForPlan(planId)) {
         const current = currentByKey.get(stored.outputKey);
-        if (!current || (stored.status !== "grandfathered"
-          && (current.fingerprint !== stored.fingerprint || stored.confirmedFingerprint !== stored.fingerprint))) {
+        const currentFingerprintAndSelection = current
+          && current.fingerprint === stored.fingerprint
+          && current.selectedRouteId === stored.selectedRouteId;
+        const currentConfirmed = stored.status === "confirmed"
+          && stored.confirmedFingerprint === stored.fingerprint
+          && currentFingerprintAndSelection;
+        const currentGrandfathered = stored.status === "grandfathered" && currentFingerprintAndSelection;
+        const currentObserved = stored.status === "observed" && currentFingerprintAndSelection;
+        if (!currentConfirmed && !currentGrandfathered && !currentObserved) {
           statements.deleteCraftPlanRouteReview.run(String(planId), stored.outputKey);
         }
       }
@@ -281,6 +297,23 @@ export function createCraftPlanRouteReviewRepository(db, { statements, now = () 
           "system",
           null,
           "Legacy public baseline",
+          String(reviewedAt),
+          Number(configurationRevision),
+        );
+      }
+      for (const outputKey of observedOutputKeys) {
+        const route = currentByKey.get(String(outputKey));
+        if (!route || route.ambiguous || !route.selectedRouteId) continue;
+        statements.upsertCraftPlanRouteReview.run(
+          String(planId),
+          route.outputKey,
+          route.fingerprint,
+          route.selectedRouteId,
+          null,
+          "observed",
+          String(reviewer.type ?? "system"),
+          reviewer.id == null ? null : String(reviewer.id),
+          String(reviewer.displayName ?? "system"),
           String(reviewedAt),
           Number(configurationRevision),
         );

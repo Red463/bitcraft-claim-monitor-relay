@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 
 import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
-import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "../src/server/craftPlanRepository.mjs";
+import { applyCraftPlanRecordsMigration, createCraftPlanRepository, LEGACY_PRIMARY_PLAN_ID } from "../src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "../src/server/craftPlanConfigAudit.mjs";
 import { computeCraftPlan, normalizeCraftPlanConfig } from "../src/server/craftPlanning.mjs";
 import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "../src/server/craftPlanRouteReview.mjs";
@@ -283,6 +283,84 @@ test("legacy public ambiguity is grandfathered until its alternative fingerprint
   db.close();
 });
 
+test("post-release public saves persist a single-route baseline and block a later added alternative", () => {
+  const { db, plans, routeReviews, configAudit } = fixture();
+  const plan = plans.primary();
+  const singleRoute = review("items:7", "single-route-fingerprint", { ambiguous: false });
+
+  const baselined = plans.update(plan.id, { config: { enabled: true, multipliers: { "items:7": 2 } } }, {
+    expectedRevision: 1,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [singleRoute],
+      previousRouteReviews: [singleRoute],
+      confirmations: [],
+      reviewer: actor,
+    },
+  });
+
+  assert.equal(baselined.revision, 2);
+  assert.deepEqual(routeReviews.listForPlan(plan.id).map((entry) => ({
+    outputKey: entry.outputKey,
+    fingerprint: entry.fingerprint,
+    selectedRouteId: entry.selectedRouteId,
+    confirmedFingerprint: entry.confirmedFingerprint,
+    status: entry.status,
+    configurationRevision: entry.configurationRevision,
+  })), [{
+    outputKey: "items:7",
+    fingerprint: "single-route-fingerprint",
+    selectedRouteId: "safe",
+    confirmedFingerprint: null,
+    status: "observed",
+    configurationRevision: 2,
+  }]);
+  assert.equal(configAudit.listForPlan(plan.id)[0].changes.after.routeReviews[0].status, "observed");
+
+  const newlyAmbiguous = review("items:7", "added-alternative-fingerprint");
+  assert.throws(() => plans.update(plan.id, { config: { enabled: true, multipliers: { "items:7": 3 } } }, {
+    expectedRevision: 2,
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [newlyAmbiguous],
+      previousRouteReviews: [newlyAmbiguous],
+      confirmations: [],
+      reviewer: actor,
+    },
+  }), (error) => error.code === "craft_plan_route_review_required");
+  assert.equal(plans.getAdmin(plan.id).revision, 2);
+  assert.equal(routeReviews.listForPlan(plan.id)[0].fingerprint, "single-route-fingerprint");
+  assert.equal(configAudit.listForPlan(plan.id).length, 1);
+  db.close();
+});
+
+test("unchanged public single routes refresh their observed baseline without requiring confirmation", () => {
+  const { db, plans, routeReviews } = fixture();
+  const plan = plans.primary();
+  const singleRoute = review("cargo:7", "stable-single-route", { ambiguous: false });
+  const routeReviewState = {
+    routeReviews: [singleRoute],
+    previousRouteReviews: [singleRoute],
+    confirmations: [],
+    reviewer: actor,
+  };
+
+  const first = plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: 1, admin: true, actor, routeReviewState,
+  });
+  const second = plans.update(plan.id, { config: { enabled: true } }, {
+    expectedRevision: first.revision, admin: true, actor, routeReviewState,
+  });
+
+  assert.equal(second.revision, 3);
+  assert.deepEqual(routeReviews.listForPlan(plan.id).map(({ outputKey, status, configurationRevision }) => ({
+    outputKey, status, configurationRevision,
+  })), [{ outputKey: "cargo:7", status: "observed", configurationRevision: 3 }]);
+  db.close();
+});
+
 test("legacy grandfathering binds the selected route as well as the fingerprint", () => {
   const { db, plans, routeReviews, configAudit } = fixture();
   const plan = plans.primary();
@@ -368,6 +446,42 @@ test("existing route-review tables migrate confirmed rows to explicit evidence s
   applyCraftPlanRecordsMigration(db, { now });
 
   assert.equal(db.prepare("SELECT review_status FROM craft_plan_route_reviews WHERE plan_id = 'existing'").get().review_status, "confirmed");
+  db.close();
+});
+
+test("existing explicit route-review status constraints migrate to accept observed baselines", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = OFF");
+  applySchemaBootstrap(db);
+  db.exec(`
+    DROP TABLE craft_plan_route_reviews;
+    CREATE TABLE craft_plan_route_reviews (
+      plan_id TEXT NOT NULL,
+      output_key TEXT NOT NULL,
+      signature_fingerprint TEXT NOT NULL,
+      selected_route_id TEXT NOT NULL,
+      confirmed_fingerprint TEXT,
+      review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed'
+        CHECK (review_status IN ('confirmed', 'grandfathered', 'legacy_unconfirmed')),
+      reviewer_type TEXT NOT NULL,
+      reviewer_id TEXT,
+      reviewer_display_name TEXT NOT NULL,
+      reviewed_at TEXT NOT NULL,
+      configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+      PRIMARY KEY (plan_id, output_key),
+      FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE,
+      CHECK (output_key GLOB 'items:*' OR output_key GLOB 'cargo:*')
+    );
+  `);
+
+  applyCraftPlanRecordsMigration(db, { now });
+
+  assert.doesNotThrow(() => db.prepare(`INSERT INTO craft_plan_route_reviews (
+    plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
+    review_status, reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+  ) VALUES (?, 'items:7', 'baseline', 'safe', NULL, 'observed', 'system', NULL, 'Observed baseline', ?, 1)`)
+    .run(LEGACY_PRIMARY_PLAN_ID, now()));
+  assert.equal(db.prepare("SELECT review_status FROM craft_plan_route_reviews WHERE output_key = 'items:7'").get().review_status, "observed");
   db.close();
 });
 
@@ -686,6 +800,33 @@ test("new shared plans require ambiguity confirmation and save reviews atomicall
   assert.equal(created.revision, 1);
   assert.equal(routeReviews.listForPlan(created.id)[0].configurationRevision, 1);
   assert.equal(configAudit.listForPlan(created.id).length, 1);
+  db.close();
+});
+
+test("new public shared plans persist their current single-route baseline", () => {
+  const { db, plans, routeReviews, configAudit } = fixture();
+  const source = plans.primary();
+  const singleRoute = review("cargo:7", "new-plan-single-route", { ambiguous: false });
+
+  const created = plans.createShared({ name: "Single route", duplicateFromPlanId: source.id }, {
+    admin: true,
+    actor,
+    routeReviewState: {
+      routeReviews: [singleRoute],
+      confirmations: [],
+      reviewer: actor,
+    },
+  });
+
+  assert.deepEqual(routeReviews.listForPlan(created.id).map(({ outputKey, fingerprint, status, configurationRevision }) => ({
+    outputKey, fingerprint, status, configurationRevision,
+  })), [{
+    outputKey: "cargo:7",
+    fingerprint: "new-plan-single-route",
+    status: "observed",
+    configurationRevision: 1,
+  }]);
+  assert.equal(configAudit.listForPlan(created.id)[0].changes.after.routeReviews[0].status, "observed");
   db.close();
 });
 

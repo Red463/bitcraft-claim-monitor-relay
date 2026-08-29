@@ -82,8 +82,42 @@ export function applyCraftPlanRecordsMigration(db, { now = () => new Date().toIS
     }
     const routeReviewColumns = new Set(db.prepare("PRAGMA table_info(craft_plan_route_reviews)").all().map((entry) => entry.name));
     if (!routeReviewColumns.has("review_status")) {
-      db.exec("ALTER TABLE craft_plan_route_reviews ADD COLUMN review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed' CHECK (review_status IN ('confirmed', 'grandfathered', 'legacy_unconfirmed'))");
+      db.exec("ALTER TABLE craft_plan_route_reviews ADD COLUMN review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed' CHECK (review_status IN ('confirmed', 'grandfathered', 'observed', 'legacy_unconfirmed'))");
       db.prepare("UPDATE craft_plan_route_reviews SET review_status = 'confirmed' WHERE confirmed_fingerprint IS NOT NULL").run();
+    } else {
+      const routeReviewSchema = String(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'craft_plan_route_reviews'").get()?.sql ?? "");
+      if (!routeReviewSchema.includes("'observed'")) {
+        db.exec(`
+          ALTER TABLE craft_plan_route_reviews RENAME TO craft_plan_route_reviews_legacy_status_migration;
+          CREATE TABLE craft_plan_route_reviews (
+            plan_id TEXT NOT NULL,
+            output_key TEXT NOT NULL,
+            signature_fingerprint TEXT NOT NULL,
+            selected_route_id TEXT NOT NULL,
+            confirmed_fingerprint TEXT,
+            review_status TEXT NOT NULL DEFAULT 'legacy_unconfirmed'
+              CHECK (review_status IN ('confirmed', 'grandfathered', 'observed', 'legacy_unconfirmed')),
+            reviewer_type TEXT NOT NULL,
+            reviewer_id TEXT,
+            reviewer_display_name TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+            PRIMARY KEY (plan_id, output_key),
+            FOREIGN KEY (plan_id) REFERENCES craft_plans(id) ON DELETE CASCADE,
+            CHECK (output_key GLOB 'items:*' OR output_key GLOB 'cargo:*')
+          );
+          INSERT INTO craft_plan_route_reviews (
+            plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
+            review_status, reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+          )
+          SELECT plan_id, output_key, signature_fingerprint, selected_route_id, confirmed_fingerprint,
+            review_status, reviewer_type, reviewer_id, reviewer_display_name, reviewed_at, configuration_revision
+          FROM craft_plan_route_reviews_legacy_status_migration;
+          DROP TABLE craft_plan_route_reviews_legacy_status_migration;
+          CREATE INDEX IF NOT EXISTS idx_craft_plan_route_reviews_plan
+            ON craft_plan_route_reviews (plan_id, output_key);
+        `);
+      }
     }
     const auditStatePrimaryKey = db.prepare("PRAGMA table_info(craft_plan_progress_audit_state)").all()
       .filter((entry) => Number(entry.pk) > 0)
@@ -265,6 +299,9 @@ export function createCraftPlanRepository(db, {
         confirmations: routeReviewState.confirmations,
         reviewer: routeReviewState.reviewer ?? options.actor,
         grandfatheredOutputKeys,
+        observedOutputKeys: entry.scope === "shared" && config.enabled !== false
+          ? routeReviewState.routeReviews.filter((route) => !route.ambiguous && route.selectedRouteId).map((route) => route.outputKey)
+          : [],
       });
       recordConfigAudit(before, after, "update", options, timestamp, { before: beforeAudit, after: auditValue(after) });
       db.exec("COMMIT");
@@ -334,6 +371,9 @@ export function createCraftPlanRepository(db, {
           routeReviews: routeReviewState.routeReviews,
           confirmations: routeReviewState.confirmations,
           reviewer: routeReviewState.reviewer ?? options.actor,
+          observedOutputKeys: config.enabled !== false
+            ? routeReviewState.routeReviews.filter((route) => !route.ambiguous && route.selectedRouteId).map((route) => route.outputKey)
+            : [],
         });
         recordConfigAudit(null, plan, "create", options, timestamp);
         db.exec("COMMIT");
