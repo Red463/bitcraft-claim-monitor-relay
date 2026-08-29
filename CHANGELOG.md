@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.1] - 2026-08-29
+
+### Fixed
+
+- Fixed Craft Planning remaining on its loading screen after a selected plan is deleted or a background calculation stalls.
+- Preserved immediate access to the last successful Craft Plan while a fresh calculation runs.
+
 ## [0.66.1-beta.3] - 2026-08-29
 
 ### Changed
