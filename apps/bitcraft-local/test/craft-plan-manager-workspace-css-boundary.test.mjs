@@ -10,7 +10,8 @@ test("four-workspace manager keeps source suggestions and route cards dense and 
   assert.match(css, /\.craft-plan-review-route:has\(input:focus-visible\)\s*\{[^}]*outline:/s);
   assert.match(css, /\.craft-plan-review-route\.is-selected\s*\{/);
   assert.match(css, /\.craft-plan-material-impact\s*\{[^}]*display:\s*grid/s);
-  assert.match(css, /\.craft-plan-cell-coverage\s*\{/);
+  assert.match(css, /\.craft-plan-cell-plan-total,/);
+  assert.match(css, /\.craft-plan-cell-stock\s*\{/);
 });
 
 test("four-workspace manager remains viewport-fixed and stacks cards on narrow screens", () => {

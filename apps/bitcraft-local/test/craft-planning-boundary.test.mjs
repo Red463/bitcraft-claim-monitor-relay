@@ -24,6 +24,8 @@ test("Craft Planning labels estimated active output as material-planning coverag
   assert.match(cellBody, /cell\.available \+ cell\.guaranteedInProgress \+ cell\.estimatedInProgress/);
   assert.match(cellBody, /aria-label="Estimated craft output; counted for material planning"/);
   assert.match(cellBody, /craft-plan-cell-indicators/);
+  assert.match(cellBody, /craft-plan-cell-indicator is-guaranteed[\s\S]*quantity\(cell\.guaranteedInProgress\)/);
+  assert.match(cellBody, /craft-plan-cell-indicator is-estimated[\s\S]*quantity\(cell\.estimatedInProgress\)/);
   assert.doesNotMatch(cellBody, /craft-plan-estimated-marker/);
   assert.doesNotMatch(cellBody, />~<\/span>/);
   assert.match(page, />Approximate requirement<\/span>/);
@@ -64,6 +66,16 @@ test("Craft Planning makes the distinct-material shortage count explicit", () =>
   assert.doesNotMatch(page, /<span>\{quantity\(totals\.missingItems\)\} missing items<\/span>/);
 });
 
+test("Craft Planning Needs Board keeps the balanced cell hierarchy readable", () => {
+  const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
+  const cellBody = page.match(/function needCellNode[\s\S]+?function summaryStat/)?.[0] ?? "";
+
+  assert.match(cellBody, /className="craft-plan-cell-needed-label"[^>]*>Needed now<\/span>/);
+  assert.match(cellBody, /className="craft-plan-cell-plan-total"[^>]*>Plan \{quantity\(cell\.required\)\}<\/span>/);
+  assert.match(cellBody, /className="craft-plan-cell-stock"[^>]*>Stock \{quantity\(cell\.available\)\}<\/span>/);
+  assert.doesNotMatch(cellBody, /Stock \{quantity\(cell\.available\)\} · Guaranteed/);
+});
+
 test("Craft Planning page renders selectable plans with owner-aware management", () => {
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
 
@@ -84,8 +96,9 @@ test("Craft Planning page renders selectable plans with owner-aware management",
   assert.match(page, /Tracking pending/);
   assert.match(page, /needed/);
   assert.match(page, /<strong>\{quantity\(cell\.missing\)\}/);
-  assert.match(page, /<small>Plan total \{quantity\(cell\.required\)\}<\/small>/);
-  assert.match(page, /Stock \{quantity\(cell\.available\)\} · Guaranteed \{quantity\(cell\.guaranteedInProgress\)\} · Estimated \{quantity\(cell\.estimatedInProgress\)\}/);
+  assert.match(page, /craft-plan-cell-needed-label/);
+  assert.match(page, /craft-plan-cell-plan-total/);
+  assert.match(page, /craft-plan-cell-stock/);
   assert.match(page, /craft-plan-needs-board/);
   assert.match(page, /craft-plan-section-filters/);
   assert.match(page, /craft-plan-needs-search/);
