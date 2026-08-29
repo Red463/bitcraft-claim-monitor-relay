@@ -2267,6 +2267,58 @@ test("computeCraftPlan stops cyclic production routes at the nearest source item
   assert.equal(plan.steps.length, 1);
 });
 
+test("computeCraftPlan honors an explicit route before stopping its cyclic dependency at the nearest source", () => {
+  const plantKey = recipeKey("items", "300");
+  const seedKey = recipeKey("items", "301");
+  const basePlantKey = recipeKey("items", "299");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({
+      enabled: true,
+      targets: [{ id: "300", kind: "items", name: "Basic Wispweave Plant", quantity: 10, itemType: 0 }],
+      routeOverrides: { [plantKey]: "grow-from-seed" },
+    }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "300", name: "Basic Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 1 },
+        craftingRecipes: [{
+          id: "grow-from-lower-tier",
+          name: "Grow from lower-tier plant",
+          craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "299", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "299", name: "Crude Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 0 }],
+        }, {
+          id: "grow-from-seed",
+          name: "Grow from same-tier seed",
+          craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "301", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "301", name: "Basic Wispweave Seeds", itemType: 0, tag: "Filament Seeds", tier: 1 }],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "301", name: "Basic Wispweave Seeds", itemType: 0, tag: "Filament Seeds", tier: 1 },
+        craftingRecipes: [{
+          id: "harvest-seeds",
+          name: "Harvest seeds from plant",
+          craftedItemStacks: [{ item_id: "301", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "300", name: "Basic Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 1 }],
+        }],
+      }],
+      [basePlantKey, {
+        item: { id: "299", name: "Crude Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 0 },
+        craftingRecipes: [],
+      }],
+    ]),
+  });
+
+  assert.equal(plan.steps.find((step) => step.output.id === "300")?.selectedRecipeId, "grow-from-seed");
+  assert.equal(plan.materials.find((material) => material.key === seedKey)?.required, 10);
+  assert.equal(plan.materials.some((material) => material.key === basePlantKey), false);
+  const completed = craftPlanning.finalizeCraftPlanPublication({ candidatePlan: plan, baselinePlan: plan });
+  assert.equal(completed.validation.valid, true);
+  assert.deepEqual(completed.validation.errors, []);
+});
+
 test("computeCraftPlan does not credit secondary outputs from recipes that have not started", () => {
   const assemblyDetail = {
     item: { id: "1000", name: "Assembly", itemType: 0, tag: "Assembly", tier: 1 },

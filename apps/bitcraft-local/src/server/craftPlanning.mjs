@@ -768,7 +768,7 @@ function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOve
 
 function selectedViableRecipeForTarget(recipes, overrideId, blockedKeys, detailsByKey, routeOverrides, memo = new Map()) {
   const overridden = recipes.find((recipe) => recipeMatchesOverride(recipe, overrideId));
-  if (overridden && recipeExpansionIsSelectable(overridden, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo)) return overridden;
+  if (overridden && recipeIsSelectable(overridden, blockedKeys)) return overridden;
   return recipes.find((recipe) => !recipeLooksTransportRoute(recipe)
     && recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo))
     ?? selectedRecipeForTarget(recipes, overrideId, blockedKeys);

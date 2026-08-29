@@ -501,3 +501,12 @@ test("Craft Planning item details deep-link to staged Recipe Review editing", ()
   assert.doesNotMatch(page, /saveRouteOverride/);
   assert.doesNotMatch(page, /saveMultiplier/);
 });
+
+test("Craft Planning keeps a failed plan visible while an automatic retry is running", () => {
+  const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
+  const loadEffect = page.match(/React\.useEffect\(\(\) => \{\s*let stale = false;[\s\S]*?\}, \[claimId, managerRefreshToken, refreshToken, request\?\.sequence, selectedPlanId, trackPromise\]\);/)?.[0] ?? "";
+
+  assert.notEqual(loadEffect, "");
+  assert.doesNotMatch(loadEffect, /setLoading\(true\);\s*setError\(null\);/);
+  assert.match(loadEffect, /if \(stale\) return;\s*setPlan\(body\);\s*setError\(null\);/);
+});
