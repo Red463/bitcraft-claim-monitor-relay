@@ -293,8 +293,8 @@ test("Craft Planning manager consolidates editing into four staged workspaces", 
   assert.match(manager, /craft-plan-deployable-group/);
   assert.match(manager, /function itemTypeLabel/);
   assert.match(manager, /meta=\{itemTypeLabel\(item\)\}/);
-  assert.match(manager, /Material buffer \(% extra\)/);
-  assert.match(manager, /Production route for \{review\.outputKey\}/);
+  assert.match(manager, /Safety buffer \(% extra\)/);
+  assert.match(manager, /Production route for \{outputName\}/);
   assert.match(manager, /Confirm review/);
   assert.match(manager, /Loading plan data/);
   assert.match(manager, /Saving plan/);

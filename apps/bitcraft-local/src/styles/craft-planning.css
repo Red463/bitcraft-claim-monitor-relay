@@ -271,7 +271,11 @@
 .craft-plan-recipe-toolbar .search { width: 100%; max-width: none; }
 .craft-plan-recipe-filters { display: flex; flex-wrap: wrap; gap: 7px; }
 .craft-plan-recipe-filters .toolbar-button[aria-pressed="true"] { color: var(--accent); border-color: rgba(240, 198, 79, 0.72); background: rgba(240, 198, 79, 0.12); }
+.craft-plan-recipe-status { display: grid; gap: 3px; justify-items: end; text-align: right; }
+.craft-plan-recipe-draft-summary { color: var(--accent); font-size: 0.75rem; font-weight: 800; }
 .craft-plan-route-deep-link-notice > div { display: grid; gap: 3px; }
+.craft-plan-route-deep-link-notice details, .craft-plan-orphan-buffers details { color: var(--muted); font-size: 0.75rem; }
+.craft-plan-route-deep-link-notice summary, .craft-plan-orphan-buffers summary { width: fit-content; cursor: pointer; color: #9dcfff; }
 .craft-plan-review-list { display: grid; gap: 12px; }
 .craft-plan-review-entry { display: grid; gap: 12px; min-width: 0; padding: 13px; border: 1px solid rgba(139, 159, 184, 0.24); border-radius: 9px; background: rgba(8, 13, 20, 0.62); scroll-margin: 12px; }
 .craft-plan-review-entry.is-ambiguous { border-color: rgba(240, 198, 79, 0.42); box-shadow: inset 3px 0 0 rgba(240, 198, 79, 0.56); }
@@ -280,7 +284,8 @@
 .craft-plan-review-entry > header > div { display: grid; gap: 3px; min-width: 0; }
 .craft-plan-review-entry > header code { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
 .craft-plan-review-entry > header small, .craft-plan-review-entry > header .legend { color: var(--muted); }
-.craft-plan-review-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 9px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.craft-plan-review-recommendation { align-self: start; max-width: 38ch; color: #9dcfff; font-size: 0.78rem; font-weight: 700; line-height: 1.35; text-align: right; overflow-wrap: anywhere; }
+.craft-plan-review-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 9px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .craft-plan-review-options legend { grid-column: 1 / -1; margin-bottom: 2px; color: var(--muted); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
 .craft-plan-review-route { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; min-width: 0; padding: 10px; border: 1px solid rgba(139, 159, 184, 0.24); border-radius: 8px; background: rgba(5, 9, 14, 0.72); cursor: pointer; }
 .craft-plan-review-route:hover { border-color: rgba(240, 198, 79, 0.48); }
@@ -290,9 +295,28 @@
 .craft-plan-review-route > span { display: grid; gap: 4px; min-width: 0; }
 .craft-plan-review-route strong, .craft-plan-review-route small, .craft-plan-review-route em { overflow-wrap: anywhere; }
 .craft-plan-review-route small, .craft-plan-review-route em { color: var(--muted); font-size: 0.75rem; font-style: normal; }
-.craft-plan-route-metrics { display: flex; flex-wrap: wrap; gap: 4px 9px; }
-.craft-plan-route-metrics small { color: #9dcfff; }
+.craft-plan-route-decision { display: grid; gap: 4px; min-width: 0; }
+.craft-plan-route-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.craft-plan-route-badges .craft-plan-route-kind { margin: 0; color: #9dcfff; }
+.craft-plan-route-badge, .craft-plan-route-choice { width: fit-content; color: var(--muted); font-size: 0.68rem; font-style: normal; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; }
+.craft-plan-route-badge.is-recommended { color: var(--positive); }
+.craft-plan-route-choice { color: var(--accent); }
+.craft-plan-route-summary { color: var(--muted); }
+.craft-plan-route-yield { color: var(--text); font-size: 0.82rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.craft-plan-route-yield.is-guaranteed { color: var(--positive); }
+.craft-plan-route-yield.is-expected { color: var(--accent); }
+.craft-plan-route-yield.is-unavailable { color: var(--muted); }
+.craft-plan-route-evidence { display: grid; gap: 7px; margin-top: 4px; padding-top: 7px; border-top: 1px solid rgba(139, 159, 184, 0.18); color: var(--muted); }
+.craft-plan-route-evidence summary { width: fit-content; cursor: pointer; color: #9dcfff; font-size: 0.75rem; font-weight: 800; }
+.craft-plan-route-evidence summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.craft-plan-route-evidence dl { display: grid; gap: 5px; margin: 7px 0 0; }
+.craft-plan-route-evidence dl > div { display: grid; grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1fr); gap: 8px; }
+.craft-plan-route-evidence dt { color: var(--muted); font-size: 0.72rem; }
+.craft-plan-route-evidence dd { min-width: 0; margin: 0; color: var(--text); font-size: 0.74rem; overflow-wrap: anywhere; }
+.craft-plan-route-evidence code { color: #9dcfff; white-space: normal; overflow-wrap: anywhere; }
+.craft-plan-route-evidence p { margin: 7px 0 0; color: var(--muted); font-size: 0.72rem; line-height: 1.4; }
 .craft-plan-review-footer { display: grid; grid-template-columns: minmax(190px, 240px) minmax(260px, 1fr) auto; gap: 12px; align-items: end; }
+.craft-plan-review-footer .field > small { color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
 .craft-plan-material-impact { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
 .craft-plan-material-impact > span { display: grid; gap: 2px; padding: 8px 10px; border-radius: 7px; background: rgba(101, 183, 250, 0.08); }
 .craft-plan-material-impact strong { color: var(--text); }
@@ -340,6 +364,9 @@
   .craft-plan-bank-progress { grid-column: auto; }
   .craft-plan-bank-state.is-error { align-items: stretch; flex-direction: column; }
   .craft-plan-source-suggestion { grid-template-columns: 1fr; }
+  .craft-plan-review-entry > header { display: grid; }
+  .craft-plan-review-recommendation { max-width: none; text-align: left; }
+  .craft-plan-recipe-status { justify-items: start; text-align: left; }
   .craft-plan-review-footer { grid-template-columns: 1fr; }
   .craft-plan-audit-filters { grid-template-columns: 1fr; }
   .craft-plan-causal-entry { grid-template-columns: 1fr; }

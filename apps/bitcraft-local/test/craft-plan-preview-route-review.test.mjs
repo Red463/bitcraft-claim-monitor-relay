@@ -341,6 +341,10 @@ test("route-review fingerprints cover calculation semantics while ignoring displ
     inputs: [{ key: "items:2", kind: "items", id: "2", quantity: 3 }],
   };
   const original = route("items:7", "gather-route", [materialAlternative]);
+  assert.deepEqual(
+    craftPlanRouteReview.buildCraftPlanRouteInventory({ steps: [original], materials: [] })[0].alternatives[0].gatheringSource,
+    { tag: "Ore", label: "Display source", skill: "Mining" },
+  );
   const renamed = structuredClone(original);
   Object.assign(renamed.alternatives[0], { label: "Renamed label", buildingName: "Renamed building" });
   Object.assign(renamed.alternatives[0].producer, { name: "Renamed producer" });
