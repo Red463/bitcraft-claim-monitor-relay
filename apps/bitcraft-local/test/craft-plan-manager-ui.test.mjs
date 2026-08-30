@@ -276,7 +276,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
   const focusedRouteIds = [];
   const routePreview = {
     ...preview,
-    routeEvidence: "last_good",
+    routeEvidence: "retained",
     routeReviews: [
       ...preview.routeReviews,
       { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: false, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: null, fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "unavailable", isSelectable: false, inputs: [] }] },
@@ -463,7 +463,8 @@ test("a changed draft never renders saved routes after a lost preview", async ()
     tree = await harness.render(CraftPlanManagerDialog, props);
 
     assert.doesNotMatch(elementText(tree), /Saw Rough Plank/);
-    assert.match(elementText(tree), /Route evidence was lost/);
+    assert.match(elementText(tree), /The changed preview lost route evidence. Refresh the preview before saving changes/);
+    assert.doesNotMatch(elementText(tree), /Saved routes remain reviewable/);
     assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
   } finally {
     globalThis.fetch = originalFetch;

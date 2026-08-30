@@ -70,6 +70,18 @@ test("recipe review never reuses saved routes for a changed draft", () => {
   assert.notEqual(state.evidence, "loaded_plan");
 });
 
+test("recipe review preserves retained evidence for exact preview routes", () => {
+  const state = resolveCraftPlanRouteReviewState({
+    preview: { routeReviews: roughPlankReviews, routeEvidence: "retained" },
+    loadedRouteInventory: [],
+    draftDirty: true,
+  });
+
+  assert.deepEqual(state.routeReviews, roughPlankReviews);
+  assert.equal(state.evidence, "retained");
+  assert.equal(state.routeLoss, false);
+});
+
 test("recipe review flags lost raw route evidence instead of a valid empty state", () => {
   const state = resolveCraftPlanRouteReviewState({
     preview: { routeReviews: [], routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 } },
