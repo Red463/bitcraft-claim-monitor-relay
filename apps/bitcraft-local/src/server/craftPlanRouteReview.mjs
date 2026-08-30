@@ -178,6 +178,29 @@ export function buildCraftPlanRouteInventory(plan = {}) {
   return [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));
 }
 
+function directRouteInventory(plan = {}) {
+  return (Array.isArray(plan?.routeInventory) ? plan.routeInventory : [])
+    .filter((review) => review?.outputKey && Array.isArray(review?.alternatives) && review.alternatives.length);
+}
+
+function mergedRouteInventory(plan = {}) {
+  const byOutput = new Map(directRouteInventory(plan).map((review) => [String(review.outputKey), review]));
+  for (const review of buildCraftPlanRouteInventory(plan)) {
+    if (!byOutput.has(review.outputKey)) byOutput.set(review.outputKey, review);
+  }
+  return [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));
+}
+
+export function selectCraftPlanRouteInventory({ plan = {}, fallbackPlan = {}, allowFallback = false } = {}) {
+  const current = mergedRouteInventory(plan);
+  if (current.length || !allowFallback) return { routeInventory: current, evidence: "current" };
+  const fallback = mergedRouteInventory(fallbackPlan);
+  return {
+    routeInventory: fallback,
+    evidence: fallback.length ? "last_good" : "current",
+  };
+}
+
 export function buildCraftPlanPreview({
   plan = {},
   routeInventory = [],
@@ -192,7 +215,7 @@ export function buildCraftPlanPreview({
   const byOutput = new Map((Array.isArray(routeInventory) ? routeInventory : [])
     .filter((review) => review?.outputKey && Array.isArray(review?.alternatives) && review.alternatives.length)
     .map((review) => [String(review.outputKey), review]));
-  for (const review of buildCraftPlanRouteInventory(plan)) {
+  for (const review of mergedRouteInventory(plan)) {
     if (!byOutput.has(review.outputKey)) byOutput.set(review.outputKey, review);
   }
   const routeReviews = [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));

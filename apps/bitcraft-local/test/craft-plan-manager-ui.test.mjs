@@ -263,6 +263,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
   const focusedRouteIds = [];
   const routePreview = {
     ...preview,
+    routeEvidence: "last_good",
     routeReviews: [
       ...preview.routeReviews,
       { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: true, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: "crusher", fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "guaranteed", inputs: [] }] },
@@ -282,6 +283,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
     assert.match(elementText(tree), /Iron Ore \(items:2\)/);
     assert.match(elementText(tree), /Iron Ore Cargo/);
     assert.match(elementText(tree), /Wooden Peg/);
+    assert.match(elementText(tree), /Showing selectable routes from the last complete plan calculation/);
     assert.equal(findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry")).length, 3);
 
     const search = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Search recipe routes")[0];

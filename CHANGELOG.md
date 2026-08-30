@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.14] - 2026-08-30
+
+### Fixed
+
+- Kept Recipe Review usable during incomplete live calculations by showing labelled route evidence from the last complete calculation for an unchanged draft.
+
 ## [0.66.2-beta.13] - 2026-08-30
 
 ### Fixed
