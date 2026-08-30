@@ -190,6 +190,24 @@ test("route fallback ignores presentation names but rejects calculation changes"
   assert.equal(craftPlanRouteFallbackAllowed(changedTarget, stored), false);
 });
 
+test("selectable routes remain reviewable when probability evidence is unavailable", () => {
+  const uncertain = route("items:42", "sawmill", [{
+    id: "sawmill",
+    label: "Saw Fine Plank",
+    probabilityStatus: "unavailable",
+    isProbabilistic: true,
+    isSelectable: true,
+    isTransportRoute: false,
+    inputs: [{ key: "items:2", quantity: 3 }],
+  }]);
+
+  const preview = buildCraftPlanPreview({ plan: { materials: [], steps: [uncertain] } });
+
+  assert.equal(preview.routeReviews.length, 1);
+  assert.equal(preview.routeReviews[0].selectedRouteId, "sawmill");
+  assert.equal(preview.routeReviews[0].alternatives[0].probabilityStatus, "unavailable");
+});
+
 test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {
   const plan = {
     materials: [],

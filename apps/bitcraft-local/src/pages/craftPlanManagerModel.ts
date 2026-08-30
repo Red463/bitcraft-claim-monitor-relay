@@ -201,8 +201,7 @@ export function craftPlanNeedReviewTargets(cell: AnyRecord, routes: AnyRecord[] 
     const alternatives = (Array.isArray(route?.alternatives) ? route.alternatives : [])
       .filter((alternative: AnyRecord) => String(alternative?.id ?? "").trim()
         && alternative?.isSelectable !== false
-        && alternative?.isTransportRoute !== true
-        && alternative?.probabilityStatus !== "unavailable");
+        && alternative?.isTransportRoute !== true);
     const outputKey = String(route?.key ?? route?.output?.key ?? "").trim();
     return outputKey && alternatives.length ? [outputKey] : [];
   }));

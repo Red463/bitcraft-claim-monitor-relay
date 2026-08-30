@@ -280,7 +280,7 @@ test("grouped detail review targets include only exact typed outputs with select
     { key: "items:7", name: "Duplicate" },
   ] };
   const routes = [
-    { output: { key: "items:7" }, alternatives: [{ id: "item-route", isSelectable: true }] },
+    { output: { key: "items:7" }, alternatives: [{ id: "item-route", isSelectable: true, probabilityStatus: "unavailable" }] },
     { output: { key: "cargo:7" }, alternatives: [{ id: "cargo-route", isSelectable: true }] },
     { output: { key: "items:9" }, alternatives: [{ id: "blocked-route", isSelectable: false }] },
   ];
