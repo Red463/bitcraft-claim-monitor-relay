@@ -9,6 +9,17 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.12] - 2026-08-30
+
+### Added
+
+- Added a complete, searchable Recipe Review for every selectable route in a Craft Plan dependency chain, including stock-covered and nested materials.
+
+### Changed
+
+- Prioritized ambiguous unconfirmed routes and showed readable recipe input names alongside exact item or cargo identities.
+- Preserved Recipe Review deep links by clearing conflicting filters and focusing the requested route.
+
 ## [0.66.2-beta.11] - 2026-08-30
 
 ### Fixed
