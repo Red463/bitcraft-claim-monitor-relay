@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildCraftPlanRouteEvidence,
   buildCraftPlanPreview,
   craftPlanRouteFallbackAllowed,
   routeReviewFingerprint,
@@ -47,6 +48,33 @@ const productionAlternatives = [
     inputs: [{ key: "cargo:99", kind: "cargo", id: "99", quantity: 1 }],
   },
 ];
+
+test("route evidence keeps material source reviews from the calculated Rough Plank plan", () => {
+  const plan = {
+    steps: [],
+    materials: [{
+      key: "items:1020003",
+      kind: "items",
+      id: "1020003",
+      sourceRoutes: [route("items:1020003", "1014176789", [
+        { id: "1014176789", label: "Saw Rough Plank", isTransportRoute: false },
+        { id: "102009", label: "Carve Rough Plank", isTransportRoute: false },
+        { id: "transport", label: "Move Rough Plank", isTransportRoute: true },
+      ])],
+    }],
+  };
+
+  const evidence = buildCraftPlanRouteEvidence({ plan });
+  assert.deepEqual(evidence.routeInventory.map(({ outputKey }) => outputKey), ["items:1020003"]);
+  assert.deepEqual(evidence.routeInventory[0].alternatives.map(({ id }) => id), ["1014176789", "102009"]);
+  assert.deepEqual(evidence.diagnostics, {
+    steps: 0,
+    materialSourceRoutes: 1,
+    directInventory: 0,
+    returnedReviews: 1,
+    fallbackReturnedReviews: 0,
+  });
+});
 
 test("settlement preview returns stable material impact, ambiguity, revisions, validation, and fingerprint", () => {
   const plan = {

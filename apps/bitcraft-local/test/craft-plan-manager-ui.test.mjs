@@ -150,6 +150,19 @@ const preview = {
   ],
 };
 
+const roughPlankRouteInventory = [{
+  outputKey: "items:1020003",
+  outputName: "Rough Plank",
+  ambiguous: true,
+  selectedRouteId: "1014176789",
+  preselectedRouteId: "1014176789",
+  fingerprint: "rough-plank",
+  alternatives: [
+    { id: "1014176789", label: "Saw Rough Plank", probabilityStatus: "guaranteed", inputs: [] },
+    { id: "102009", label: "Carve Rough Plank", probabilityStatus: "guaranteed", inputs: [] },
+  ],
+}];
+
 test("manager renders four authorized workspaces, one Save action, and an explicitly confirmed source suggestion", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
@@ -263,7 +276,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
   const focusedRouteIds = [];
   const routePreview = {
     ...preview,
-    routeEvidence: "last_good",
+    routeEvidence: "retained",
     routeReviews: [
       ...preview.routeReviews,
       { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: false, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: null, fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "unavailable", isSelectable: false, inputs: [] }] },
@@ -346,6 +359,113 @@ test("recipe review explains when a configured plan has no selectable production
     assert.match(elementText(tree), /No selectable production route is available for items:7/);
     assert.match(elementText(tree), /Raw, vendor-only, and outputs without a selectable production recipe do not require a route choice/);
     assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review retains saved Rough Plank alternatives when an unchanged preview omits routes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = {
+    ...loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Rough Plank", quantity: 1 }] } }),
+    routeInventory: roughPlankRouteInventory,
+  };
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({ ...preview, routeReviews: [], routeEvidence: "none", routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 } })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes", initialOutputKey: "items:1020003" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /Rough Plank/);
+    assert.match(elementText(tree), /Saw Rough Plank/);
+    assert.match(elementText(tree), /Carve Rough Plank/);
+    assert.match(elementText(tree), /saved full calculation/);
+    assert.match(elementText(tree), /Saved routes remain reviewable while the current preview evidence is incomplete/);
+    assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review preserves validation errors alongside saved Rough Plank fallback routes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = {
+    ...loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Rough Plank", quantity: 1 }] } }),
+    routeInventory: roughPlankRouteInventory,
+  };
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({
+        ...preview,
+        routeReviews: [],
+        routeEvidence: "none",
+        routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 },
+        validation: { valid: false, errors: [{ code: "invalid_selected_route", message: "The selected route is no longer valid." }] },
+      })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /Rough Plank/);
+    assert.match(elementText(tree), /Recipe preview validation failed/);
+    assert.match(elementText(tree), /The selected route is no longer valid/);
+    assert.match(elementText(tree), /Saved routes remain reviewable while the current preview evidence is incomplete/);
+    assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("a changed draft never renders saved routes after a lost preview", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = {
+    ...loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Rough Plank", quantity: 1 }] } }),
+    routeInventory: roughPlankRouteInventory,
+  };
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({ ...preview, routeReviews: [], routeEvidence: "none", routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 } })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [] };
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    const quantity = findElements(tree, (element) => element.type === "input" && element.props.type === "number" && element.props.value === 1)[0];
+    quantity.props.onChange({ target: { value: "2" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Recipe Review")[0].props.onClick();
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.doesNotMatch(elementText(tree), /Saw Rough Plank/);
+    assert.match(elementText(tree), /The changed preview lost route evidence. Refresh the preview before saving changes/);
+    assert.doesNotMatch(elementText(tree), /Saved routes remain reviewable/);
+    assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

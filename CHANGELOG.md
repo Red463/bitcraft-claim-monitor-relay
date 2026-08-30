@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.18] - 2026-08-30
+
+### Fixed
+
+- Restored the complete saved-plan recipe-route inventory in Recipe Review when live preview evidence is incomplete, while clearly labelling retained evidence and unavailable previews.
+- Prevented edited drafts from displaying stale loaded routes and kept calculation validation details visible alongside safe fallback routes.
+
 ## [0.66.2-beta.17] - 2026-08-30
 
 ### Fixed

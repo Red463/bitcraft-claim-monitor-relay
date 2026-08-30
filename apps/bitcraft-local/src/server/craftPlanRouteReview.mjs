@@ -182,6 +182,11 @@ function directRouteInventory(plan = {}) {
     .filter((review) => review?.outputKey && Array.isArray(review?.alternatives) && review.alternatives.length);
 }
 
+function countMaterialSourceRoutes(plan = {}) {
+  return (Array.isArray(plan?.materials) ? plan.materials : [])
+    .reduce((count, material) => count + (Array.isArray(material?.sourceRoutes) ? material.sourceRoutes.length : 0), 0);
+}
+
 function mergedRouteInventory(plan = {}) {
   const byOutput = new Map(directRouteInventory(plan).map((review) => [String(review.outputKey), review]));
   for (const review of buildCraftPlanRouteInventory(plan)) {
@@ -190,13 +195,38 @@ function mergedRouteInventory(plan = {}) {
   return [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));
 }
 
-export function selectCraftPlanRouteInventory({ plan = {}, fallbackPlan = {}, allowFallback = false } = {}) {
+export function buildCraftPlanRouteEvidence({ plan = {}, fallbackPlan = {}, allowFallback = false } = {}) {
   const current = mergedRouteInventory(plan);
-  if (current.length || !allowFallback) return { routeInventory: current, evidence: "current" };
-  const fallback = mergedRouteInventory(fallbackPlan);
+  const fallback = current.length || !allowFallback ? [] : mergedRouteInventory(fallbackPlan);
+  const routeInventory = current.length ? current : fallback;
   return {
-    routeInventory: fallback,
-    evidence: fallback.length ? "last_good" : "current",
+    routeInventory,
+    evidence: current.length ? "current" : fallback.length ? "retained" : "none",
+    diagnostics: {
+      steps: Array.isArray(plan.steps) ? plan.steps.length : 0,
+      materialSourceRoutes: countMaterialSourceRoutes(plan),
+      directInventory: directRouteInventory(plan).length,
+      returnedReviews: routeInventory.length,
+      fallbackReturnedReviews: fallback.length,
+    },
+  };
+}
+
+export function buildCraftPlanRouteResponse({ response = {}, evidence = null, includeRouteInventory = true, ...options } = {}) {
+  const routeEvidence = evidence ?? buildCraftPlanRouteEvidence(options);
+  return {
+    ...response,
+    ...(includeRouteInventory ? { routeInventory: routeEvidence.routeInventory } : {}),
+    routeEvidence: routeEvidence.evidence,
+    routeDiagnostics: routeEvidence.diagnostics,
+  };
+}
+
+export function selectCraftPlanRouteInventory(options = {}) {
+  const evidence = buildCraftPlanRouteEvidence(options);
+  return {
+    routeInventory: evidence.routeInventory,
+    evidence: evidence.evidence === "retained" ? "last_good" : "current",
   };
 }
 

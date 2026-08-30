@@ -116,6 +116,32 @@ export function orderCraftPlanRouteReviews<T extends { outputKey?: unknown; ambi
     || String(left.outputKey ?? "").localeCompare(String(right.outputKey ?? "")));
 }
 
+export function resolveCraftPlanRouteReviewState({
+  preview = null,
+  loadedRouteInventory = [],
+  draftDirty = false,
+}: {
+  preview?: AnyRecord | null;
+  loadedRouteInventory?: AnyRecord[];
+  draftDirty?: boolean;
+} = {}) {
+  const previewReviews = Array.isArray(preview?.routeReviews) ? preview.routeReviews : [];
+  const loadedReviews = Array.isArray(loadedRouteInventory) ? loadedRouteInventory : [];
+  const hasExactPreviewReviews = previewReviews.length > 0;
+  const useLoadedPlan = !hasExactPreviewReviews && !draftDirty && loadedReviews.length > 0;
+  const diagnostics = preview?.routeDiagnostics;
+  const rawEvidence = Number(diagnostics?.steps ?? 0) > 0
+    || Number(diagnostics?.materialSourceRoutes ?? 0) > 0
+    || Number(diagnostics?.directInventory ?? 0) > 0;
+  const previewOmittedLoadedRoutes = Boolean(preview) && !draftDirty && loadedReviews.length > 0 && !hasExactPreviewReviews;
+
+  return {
+    routeReviews: hasExactPreviewReviews ? previewReviews : useLoadedPlan ? loadedReviews : [],
+    evidence: hasExactPreviewReviews ? String(preview?.routeEvidence ?? "current") : useLoadedPlan ? "loaded_plan" : "none",
+    routeLoss: rawEvidence && Number(diagnostics?.returnedReviews ?? 0) === 0 || previewOmittedLoadedRoutes,
+  };
+}
+
 export type CraftPlanRouteReviewFilter = "all" | "needs-review" | "multiple" | "single";
 
 export function filterCraftPlanRouteReviews<T extends AnyRecord>(

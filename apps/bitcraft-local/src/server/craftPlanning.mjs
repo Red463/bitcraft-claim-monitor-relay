@@ -1481,7 +1481,8 @@ export function collectLocalCatalogCraftPlanDetails(
       if (producerRecipes.length > 0) usableByproductProducers += 1;
     }
     if (byproductProducers.length > 0 && usableByproductProducers === 0) {
-      warnings.add(`Local catalog byproduct routes are incomplete for ${target.name} (${key}); planner retained verified direct routes. ${byproductProducers.length} producer candidate${byproductProducers.length === 1 ? "" : "s"} require catalog data.`);
+      const diagnosticTarget = detail ? mergeDetailTarget(detail, target) : target;
+      warnings.add(`Local catalog byproduct routes are incomplete for ${diagnosticTarget.name} (${key}); planner retained verified direct routes. ${byproductProducers.length} producer candidate${byproductProducers.length === 1 ? "" : "s"} require catalog data.`);
     }
 
     const currentDetail = detailsByKey.get(key);

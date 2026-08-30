@@ -174,6 +174,20 @@ test("preview HTTP routes enforce auth, ownership, CSRF, rate limiting, and neve
   const adminPlans = await adminPlansResponse.json();
   assert.equal(adminPlansResponse.status, 200, JSON.stringify(adminPlans));
   const sharedId = adminPlans.plans[0].id;
+  const managerResponse = await fetch(`${origin}/api/local/admin/craft-plan?planId=${encodeURIComponent(sharedId)}`, {
+    headers: { cookie: adminCookie, origin, "x-csrf-token": adminAuth.csrfToken },
+  });
+  const managerBody = await managerResponse.json();
+  assert.equal(managerResponse.status, 200, JSON.stringify(managerBody));
+  assert.ok(Array.isArray(managerBody.routeInventory));
+  assert.ok(["current", "retained", "none"].includes(managerBody.routeEvidence));
+  assert.deepEqual(Object.keys(managerBody.routeDiagnostics).sort(), [
+    "directInventory",
+    "fallbackReturnedReviews",
+    "materialSourceRoutes",
+    "returnedReviews",
+    "steps",
+  ]);
   const adminPreviewUrl = `${origin}/api/local/admin/craft-plans/${encodeURIComponent(sharedId)}/preview`;
   assert.equal((await fetch(adminPreviewUrl, { method: "POST", headers: { origin, "content-type": "application/json" }, body: "{}" })).status, 401);
   assert.equal((await fetch(adminPreviewUrl, { method: "POST", headers: { cookie: adminCookie, origin, "content-type": "application/json" }, body: "{}" })).status, 403);
@@ -197,6 +211,15 @@ test("preview HTTP routes enforce auth, ownership, CSRF, rate limiting, and neve
   assert.equal(adminBody.scope, "shared");
   assert.equal(adminBody.validation.valid, true);
   assert.match(adminBody.fingerprint, /^[a-f0-9]{64}$/);
+  assert.ok(["current", "retained", "none"].includes(adminBody.routeEvidence));
+  assert.deepEqual(Object.keys(adminBody.routeDiagnostics).sort(), [
+    "directInventory",
+    "fallbackReturnedReviews",
+    "materialSourceRoutes",
+    "returnedReviews",
+    "steps",
+  ]);
+  assert.equal("routeInventory" in adminBody, false);
 
   const owner = session(dbPath, "owner");
   const other = session(dbPath, "other");
