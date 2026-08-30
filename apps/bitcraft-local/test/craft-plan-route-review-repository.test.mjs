@@ -601,7 +601,7 @@ test("real calculated ambiguous routes require confirmation of the calculated se
   db.close();
 });
 
-test("real calculated cyclic alternatives are non-selectable and do not create ambiguity", () => {
+test("real calculated cyclic alternatives remain visible read-only and do not create ambiguity", () => {
   const config = normalizeCraftPlanConfig({
     enabled: true,
     targets: [{ id: "80", kind: "items", name: "Plate", quantity: 2 }],
@@ -636,13 +636,14 @@ test("real calculated cyclic alternatives are non-selectable and do not create a
   const routeState = preview.routeReviews.find(({ outputKey }) => outputKey === "items:80");
 
   assert.equal(calculated.steps[0].alternatives.find(({ id }) => id === "cyclic-route").isSelectable, false);
-  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["valid-route"]);
+  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["cyclic-route", "valid-route"]);
+  assert.equal(routeState.alternatives.find(({ id }) => id === "cyclic-route").isSelectable, false);
   assert.equal(routeState.ambiguous, false);
   assert.equal(routeState.selectedRouteId, "valid-route");
   assert.equal(routeState.preselectedRouteId, "valid-route");
 });
 
-test("indirectly cyclic alternatives are non-selectable and do not create ambiguity", () => {
+test("indirectly cyclic alternatives remain visible read-only and do not create ambiguity", () => {
   const config = normalizeCraftPlanConfig({
     enabled: true,
     targets: [{ id: "80", kind: "items", name: "Plate", quantity: 2 }],
@@ -688,7 +689,8 @@ test("indirectly cyclic alternatives are non-selectable and do not create ambigu
   const routeState = preview.routeReviews.find(({ outputKey }) => outputKey === "items:80");
 
   assert.equal(calculated.steps[0].alternatives.find(({ id }) => id === "indirect-cycle").isSelectable, false);
-  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["valid-route"]);
+  assert.deepEqual(routeState.alternatives.map(({ id }) => id), ["indirect-cycle", "valid-route"]);
+  assert.equal(routeState.alternatives.find(({ id }) => id === "indirect-cycle").isSelectable, false);
   assert.equal(routeState.ambiguous, false);
   assert.equal(routeState.selectedRouteId, "valid-route");
 });

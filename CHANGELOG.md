@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.17] - 2026-08-30
+
+### Fixed
+
+- Kept production recipes visible in Recipe Review when an incomplete dependency chain makes them unavailable for selection, without creating an impossible confirmation requirement.
+
 ## [0.66.2-beta.16] - 2026-08-30
 
 ### Fixed

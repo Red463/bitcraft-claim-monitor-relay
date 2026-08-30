@@ -208,6 +208,33 @@ test("selectable routes remain reviewable when probability evidence is unavailab
   assert.equal(preview.routeReviews[0].alternatives[0].probabilityStatus, "unavailable");
 });
 
+test("unexpandable production routes remain visible without requiring an impossible confirmation", () => {
+  const blocked = route("items:42", "sawmill", [
+    {
+      id: "sawmill",
+      label: "Saw Fine Plank",
+      isSelectable: false,
+      isTransportRoute: false,
+      inputs: [{ key: "items:2", quantity: 3 }],
+    },
+    {
+      id: "unpack",
+      label: "Unpack Fine Plank",
+      isSelectable: false,
+      isTransportRoute: true,
+      inputs: [{ key: "cargo:2", quantity: 1 }],
+    },
+  ]);
+
+  const preview = buildCraftPlanPreview({ plan: { materials: [], steps: [blocked] } });
+
+  assert.equal(preview.routeReviews.length, 1);
+  assert.equal(preview.routeReviews[0].alternatives.length, 1);
+  assert.equal(preview.routeReviews[0].alternatives[0].isSelectable, false);
+  assert.equal(preview.routeReviews[0].ambiguous, false);
+  assert.equal(preview.routeReviews[0].preselectedRouteId, null);
+});
+
 test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {
   const plan = {
     materials: [],

@@ -93,7 +93,6 @@ function validProductionAlternatives(route = {}) {
   return (Array.isArray(route.alternatives) ? route.alternatives : [])
     .map(normalizedAlternative)
     .filter((alternative) => alternative.id
-      && alternative.isSelectable
       && !alternative.isTransportRoute)
     .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -128,10 +127,11 @@ function routeReview(route) {
   if (!key) return null;
   const alternatives = validProductionAlternatives(route);
   if (!alternatives.length) return null;
-  const safest = safestAlternative(alternatives);
+  const selectableAlternatives = alternatives.filter((alternative) => alternative.isSelectable);
+  const safest = safestAlternative(selectableAlternatives);
   const selectedRouteId = String(route.selectedRecipeId ?? "").trim() || null;
   const calculated = alternatives.find((alternative) => alternative.id === selectedRouteId) ?? null;
-  const preselected = calculated && alternativeRisk(calculated) <= alternativeRisk(safest)
+  const preselected = calculated?.isSelectable && alternativeRisk(calculated) <= alternativeRisk(safest)
     ? calculated
     : safest;
   const outputName = String(route?.output?.name ?? route?.output?.label ?? route?.output?.tag ?? "").trim();
@@ -140,7 +140,7 @@ function routeReview(route) {
     outputName: outputName || key,
     selectedRouteId,
     preselectedRouteId: preselected?.id ?? null,
-    ambiguous: alternatives.length > 1,
+    ambiguous: selectableAlternatives.length > 1,
     alternatives,
     fingerprint: routeReviewFingerprint(route),
   };
