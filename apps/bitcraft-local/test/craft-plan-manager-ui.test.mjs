@@ -23,6 +23,14 @@ function elementText(node) {
   return React.isValidElement(node) ? elementText(node.props.children) : "";
 }
 
+function visibleElementText(node) {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(visibleElementText).join("");
+  if (!React.isValidElement(node) || node.type === "details") return "";
+  return visibleElementText(node.props.children);
+}
+
 function dependenciesChanged(previous, next) {
   if (!previous || !next || previous.length !== next.length) return true;
   return next.some((value, index) => !Object.is(value, previous[index]));
@@ -145,7 +153,7 @@ const preview = {
     { outputKey: "items:9", outputName: "Wooden Peg", ambiguous: false, confirmed: true, selectedRouteId: "only", preselectedRouteId: "only", fingerprint: "one", alternatives: [{ id: "only", label: "Only route", probabilityStatus: "guaranteed", inputs: [] }] },
     { outputKey: "items:7", outputName: "Iron Ingot", ambiguous: true, confirmed: false, selectedRouteId: "risky", preselectedRouteId: "safe", fingerprint: "ambiguous", alternatives: [
       { id: "risky", label: "Risky forge", probabilityStatus: "expected", isProbabilistic: true, inputs: [{ key: "items:2", name: "Iron Ore", quantity: 3 }] },
-      { id: "safe", label: "Safe forge", probabilityStatus: "guaranteed", isProbabilistic: false, expectedYield: 5, expectedPerCraft: 5, expectedPerProgress: 0.5, expectedPerResource: 50, resourceHealth: 100, dropChance: 0.25, dropQuantity: 2, actionsRequired: 4, gatheringMode: "ordinary", gatheringSource: { label: "Forest node" }, producer: { name: "Timber bundle" }, producerRecipe: { name: "Forest extraction", buildingName: "Lumber station", skillName: "Forestry" }, inputs: [{ key: "cargo:2", quantity: 2 }] },
+      { id: "safe", label: "Safe forge", routeType: "craft", probabilityStatus: "guaranteed", isProbabilistic: false, expectedYield: 5, expectedPerCraft: 5, actionsRequired: 4, producerRecipe: { name: "Iron smelting", buildingName: "Lumber station", skillName: "Smithing" }, inputs: [{ key: "cargo:2", name: "Iron Ore Cargo", quantity: 2 }] },
     ] },
   ],
 };
@@ -229,29 +237,47 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
     tree = await harness.render(CraftPlanManagerDialog, props);
     assert.ok(requests.some(({ url, options }) => url.endsWith("/preview") && options.method === "POST"));
     const reviews = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"));
-    assert.match(elementText(reviews[0]), /items:7/);
     const routeInputs = findElements(reviews[0], (element) => element.type === "input" && element.props.type === "radio");
     assert.equal(routeInputs.length, 2);
     assert.equal(routeInputs[1].props.checked, true, "server safest preselection should be selected");
     assert.match(String(routeInputs[0].props["aria-label"]), /Risky forge/);
-    assert.match(elementText(reviews[0]), /Expected yield 5/);
-    assert.match(elementText(reviews[0]), /Per progress 0.5/);
-    assert.match(elementText(reviews[0]), /Per resource 50/);
-    assert.match(elementText(reviews[0]), /Drop 25%.*quantity 2/s);
-    assert.match(elementText(reviews[0]), /Actions 4.*Resource health 100/s);
-    assert.match(elementText(reviews[0]), /Forest node.*Timber bundle.*Forest extraction.*Lumber station.*Forestry/s);
+    assert.match(elementText(reviews[0]), /Iron Ingot/);
+    assert.match(elementText(reviews[0]), /Produces 5 Iron Ingot per craft/);
+    const header = findElements(reviews[0], (element) => element.type === "header")[0];
+    assert.match(elementText(header), /Recommended route: Safe forge at Lumber station/);
+    assert.doesNotMatch(elementText(header), /items:7|Safest server recommendation: safe/);
+    assert.equal(findElements(header, (element) => element.type === "code").length, 0, "typed IDs belong in Technical details, not the card header");
+    const safeRoute = findElements(reviews[0], (element) => element.type === "label"
+      && String(element.props.className).includes("craft-plan-review-route")
+      && findElements(element, (child) => child.type === "input" && child.props.value === "safe").length)[0];
+    assert.ok(safeRoute, "the selected safe route remains identifiable as the option being reviewed");
+    assert.match(visibleElementText(safeRoute), /Safe forge at Lumber station/);
+    assert.match(visibleElementText(safeRoute), /Iron Ore Cargo ×2/);
+    assert.doesNotMatch(visibleElementText(safeRoute), /cargo:2/, "typed input IDs are hidden from the normal route card");
+    const safeTechnicalDetails = findElements(safeRoute, (element) => element.type === "details" && /^Technical details/.test(elementText(element).trim()))[0];
+    assert.ok(safeTechnicalDetails, "the selected safe route exposes raw route facts in a Technical details disclosure");
+    assert.equal(safeTechnicalDetails.props.open, undefined, "Technical details start collapsed");
+    assert.match(elementText(safeTechnicalDetails), /items:7/);
+    assert.match(elementText(safeTechnicalDetails), /cargo:2/);
+    assert.match(elementText(safeTechnicalDetails), /safe/);
     routeInputs[0].props.onChange();
     tree = await harness.render(CraftPlanManagerDialog, props);
     tree = await harness.render(CraftPlanManagerDialog, props);
-    const buffer = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Material buffer for items:7")[0];
+    const buffer = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Safety buffer for Iron Ingot")[0];
+    assert.match(elementText(findElements(tree, (element) => element.type === "label" && findElements(element, (child) => child === buffer).length)[0]), /Safety buffer/);
     buffer.props.onChange({ target: { value: "25" } });
     tree = await harness.render(CraftPlanManagerDialog, props);
     tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /1 route choice.*1 safety buffer/s);
+    const updatedReview = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"))[0];
+    assert.match(elementText(updatedReview), /Still needed now 4/);
+    assert.match(elementText(updatedReview), /Total for this plan 12/);
+    assert.doesNotMatch(elementText(updatedReview), /missingNow|planRequired/);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Confirm review")[0].props.onClick();
     assert.equal(requests.filter(({ options }) => options.method === "PUT").length, 0);
     tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.match(elementText(tree), /Needed now 4/);
-    assert.match(elementText(tree), /Plan total 12/);
+    assert.match(elementText(tree), /Still needed now 4/);
+    assert.match(elementText(tree), /Total for this plan 12/);
 
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
     await new Promise((resolve) => setImmediate(resolve));
@@ -291,12 +317,21 @@ test("recipe review exposes the complete plan route inventory with search, statu
     await harness.render(CraftPlanManagerDialog, props);
     let tree = await harness.render(CraftPlanManagerDialog, props);
 
-    assert.match(elementText(tree), /No selectable production route is available for items:1020003/);
+    const deepLinkNotice = findElements(tree, (element) => String(element.props?.className ?? "").includes("craft-plan-route-deep-link-notice"))[0];
+    assert.match(visibleElementText(deepLinkNotice), /No selectable production route is available for the requested material/);
+    assert.doesNotMatch(visibleElementText(deepLinkNotice), /items:1020003/);
+    assert.match(elementText(findElements(deepLinkNotice, (element) => element.type === "details")[0]), /items:1020003/);
     assert.match(elementText(tree), /Iron Ingot/);
-    assert.match(elementText(tree), /Iron Ore \(items:2\)/);
+    const riskyRoute = findElements(tree, (element) => element.type === "label" && findElements(element, (child) => child.type === "input" && child.props.value === "risky").length)[0];
+    assert.match(visibleElementText(riskyRoute), /Uses: Iron Ore ×3/);
+    assert.doesNotMatch(visibleElementText(riskyRoute), /items:2/);
+    assert.match(elementText(findElements(riskyRoute, (element) => element.type === "details")[0]), /items:2/);
     assert.match(elementText(tree), /Iron Ore Cargo/);
     assert.match(elementText(tree), /Probability data unavailable/);
     assert.match(elementText(tree), /Unavailable for this plan/);
+    const unavailableRouteCard = findElements(tree, (element) => element.type === "label" && findElements(element, (child) => child.type === "input" && child.props.value === "crusher").length)[0];
+    assert.ok(unavailableRouteCard);
+    assert.doesNotMatch(elementText(unavailableRouteCard), /Produces \d|About \d|per craft|per node progress|per resource/);
     assert.match(elementText(tree), /Wooden Peg/);
     assert.match(elementText(tree), /Showing selectable routes from the last complete plan calculation/);
     assert.equal(findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry")).length, 3);
@@ -356,7 +391,10 @@ test("recipe review explains when a configured plan has no selectable production
     const tree = await harness.render(CraftPlanManagerDialog, props);
 
     assert.match(elementText(tree), /No selectable recipe routes in this plan/);
-    assert.match(elementText(tree), /No selectable production route is available for items:7/);
+    const deepLinkNotice = findElements(tree, (element) => String(element.props?.className ?? "").includes("craft-plan-route-deep-link-notice"))[0];
+    assert.match(visibleElementText(deepLinkNotice), /No selectable production route is available for the requested material/);
+    assert.doesNotMatch(visibleElementText(deepLinkNotice), /items:7/);
+    assert.match(elementText(findElements(deepLinkNotice, (element) => element.type === "details")[0]), /items:7/);
     assert.match(elementText(tree), /Raw, vendor-only, and outputs without a selectable production recipe do not require a route choice/);
     assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
   } finally {
@@ -675,7 +713,7 @@ test("public ambiguity and revision conflicts preserve the draft and expose expl
     tree = await harness.render(CraftPlanManagerDialog, props);
     const review = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"))[0];
     findElements(review, (element) => element.type === "input" && element.props.type === "radio")[0].props.onChange();
-    findElements(review, (element) => element.type === "input" && element.props["aria-label"] === "Material buffer for items:7")[0].props.onChange({ target: { value: "25" } });
+    findElements(review, (element) => element.type === "input" && element.props["aria-label"] === "Safety buffer for Iron Ingot")[0].props.onChange({ target: { value: "25" } });
     tree = await harness.render(CraftPlanManagerDialog, props);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
     await new Promise((resolve) => setImmediate(resolve));
@@ -888,7 +926,10 @@ test("recipe review can stage calculated-route reset and remove saved buffers ab
     const reset = findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Use calculated route")[0];
     const removeBuffer = findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Remove saved buffer")[0];
     assert.ok(reset);
-    assert.match(elementText(tree), /items:99.*20%/s);
+    const orphanBuffer = findElements(tree, (element) => element.type === "section" && String(element.props.className).includes("craft-plan-orphan-buffers"))[0];
+    assert.match(visibleElementText(orphanBuffer), /20% safety buffer/);
+    assert.doesNotMatch(visibleElementText(orphanBuffer), /items:99/);
+    assert.match(elementText(findElements(orphanBuffer, (element) => element.type === "details")[0]), /items:99/);
     assert.ok(removeBuffer);
     reset.props.onClick();
     removeBuffer.props.onClick();
@@ -935,10 +976,14 @@ test("choosing the safe route after reset stages and confirms an explicit overri
     await harness.render(CraftPlanManagerDialog, props);
     let tree = await harness.render(CraftPlanManagerDialog, props);
     tree = await harness.render(CraftPlanManagerDialog, props);
+    let review = findElements(tree, (element) => element.type === "article" && /items:7/.test(elementText(element)))[0];
+    let riskyRoute = findElements(review, (element) => element.type === "label" && findElements(element, (child) => child.type === "input" && child.props.value === "risky").length)[0];
+    assert.match(visibleElementText(riskyRoute), /Current route/);
+    assert.doesNotMatch(visibleElementText(riskyRoute), /Selected in draft/);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Use calculated route")[0].props.onClick();
     await harness.render(CraftPlanManagerDialog, props);
     tree = await harness.render(CraftPlanManagerDialog, props);
-    let review = findElements(tree, (element) => element.type === "article" && /items:7/.test(elementText(element)))[0];
+    review = findElements(tree, (element) => element.type === "article" && /items:7/.test(elementText(element)))[0];
     const safeRoute = findElements(review, (element) => element.type === "input" && element.props.type === "radio" && /Safe forge/.test(String(element.props["aria-label"])))[0];
     assert.equal(safeRoute.props.checked, false);
     safeRoute.props.onChange();
@@ -946,6 +991,10 @@ test("choosing the safe route after reset stages and confirms an explicit overri
     tree = await harness.render(CraftPlanManagerDialog, props);
     review = findElements(tree, (element) => element.type === "article" && /items:7/.test(elementText(element)))[0];
     assert.equal(findElements(review, (element) => element.type === "input" && /Safe forge/.test(String(element.props["aria-label"])))[0].props.checked, true);
+    riskyRoute = findElements(review, (element) => element.type === "label" && findElements(element, (child) => child.type === "input" && child.props.value === "risky").length)[0];
+    const safeRouteCard = findElements(review, (element) => element.type === "label" && findElements(element, (child) => child.type === "input" && child.props.value === "safe").length)[0];
+    assert.match(visibleElementText(riskyRoute), /Current route/);
+    assert.match(visibleElementText(safeRouteCard), /Selected in draft/);
     findElements(review, (element) => element.type === "button" && elementText(element).trim() === "Confirm review")[0].props.onClick();
     tree = await harness.render(CraftPlanManagerDialog, props);
     findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
@@ -1079,22 +1128,22 @@ test("recommendation staging and later buffer edits queue previews for the exact
     let tree = await harness.render(CraftPlanManagerDialog, props);
     assert.equal(previewBodies.length, 2, "staging the safe recommendation must queue a preview for derived draft B");
     assert.equal(previewBodies[1].config.routeOverrides["items:7"], "safe");
-    assert.doesNotMatch(elementText(tree), /Needed now 10/, "preview A must not render after it changes the draft");
+    assert.doesNotMatch(elementText(tree), /Still needed now 10/, "preview A must not render after it changes the draft");
 
     previewB.resolve(jsonResponse({ ...preview, materials: [{ key: "items:7", missingNow: 20, planRequired: 20 }] }));
     await new Promise((resolve) => setImmediate(resolve));
     tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.match(elementText(tree), /Needed now 20/);
-    findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Material buffer for items:7")[0].props.onChange({ target: { value: "25" } });
+    assert.match(elementText(tree), /Still needed now 20/);
+    findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Safety buffer for Iron Ingot")[0].props.onChange({ target: { value: "25" } });
     tree = await harness.render(CraftPlanManagerDialog, props);
     assert.equal(previewBodies.length, 3, "the buffer mutation must queue preview C");
     assert.equal(previewBodies[2].config.multipliers["items:7"].multiplier, 1.25);
-    assert.doesNotMatch(elementText(tree), /Needed now 20/, "the old material impact must be hidden while C is pending");
+    assert.doesNotMatch(elementText(tree), /Still needed now 20/, "the old material impact must be hidden while C is pending");
 
     previewC.resolve(jsonResponse({ ...preview, materials: [{ key: "items:7", missingNow: 30, planRequired: 30 }] }));
     await new Promise((resolve) => setImmediate(resolve));
     tree = await harness.render(CraftPlanManagerDialog, props);
-    assert.match(elementText(tree), /Needed now 30/);
+    assert.match(elementText(tree), /Still needed now 30/);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

@@ -49,8 +49,9 @@ function normalizedProducerRecipe(recipe = null) {
 function normalizedGatheringSource(source = null) {
   if (!source || typeof source !== "object") return null;
   const tag = source.tag == null ? null : String(source.tag);
+  const label = source.label == null ? null : String(source.label);
   const skill = source.skill == null ? null : String(source.skill);
-  return tag || skill ? { tag, skill } : null;
+  return tag || label || skill ? { tag, label, skill } : null;
 }
 
 function normalizedAlternative(alternative = {}) {
@@ -113,10 +114,12 @@ export function routeReviewFingerprint(route = {}) {
   const alternatives = validProductionAlternatives(route).map(({
     label: _displayLabel,
     buildingName: _displayBuildingName,
+    gatheringSource,
     inputs,
     ...materialSignature
   }) => ({
     ...materialSignature,
+    gatheringSource: gatheringSource ? { tag: gatheringSource.tag, skill: gatheringSource.skill } : null,
     inputs: inputs.map(({ name: _displayName, ...inputSignature }) => inputSignature),
   }));
   return fingerprint({ outputKey: outputKey(route), alternatives });
