@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.19] - 2026-08-30
+
+### Changed
+
+- Improved Recipe Review route cards with in-game names and practical explanations of craft and gathering yields.
+- Moved raw identifiers, probability evidence, and calculation details into expandable technical details while clarifying route status, safety buffers, plan impact, unsaved changes, and responsive layout.
+
 ## [0.66.2-beta.18] - 2026-08-30
 
 ### Fixed
