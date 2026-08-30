@@ -201,6 +201,12 @@ export function selectCraftPlanRouteInventory({ plan = {}, fallbackPlan = {}, al
   };
 }
 
+export function craftPlanRouteFallbackAllowed(stagedConfig = {}, storedConfig = {}) {
+  const { name: _stagedName, ...stagedCalculation } = stagedConfig && typeof stagedConfig === "object" ? stagedConfig : {};
+  const { name: _storedName, ...storedCalculation } = storedConfig && typeof storedConfig === "object" ? storedConfig : {};
+  return JSON.stringify(stable(stagedCalculation)) === JSON.stringify(stable(storedCalculation));
+}
+
 export function buildCraftPlanPreview({
   plan = {},
   routeInventory = [],

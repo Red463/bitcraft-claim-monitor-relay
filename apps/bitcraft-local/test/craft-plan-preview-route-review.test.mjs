@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildCraftPlanPreview,
+  craftPlanRouteFallbackAllowed,
   routeReviewFingerprint,
   selectCraftPlanRouteInventory,
 } from "../src/server/craftPlanRouteReview.mjs";
@@ -170,6 +171,23 @@ test("an unchanged preview can retain selectable routes from last-good plan evid
   assert.deepEqual(retained.routeInventory.map(({ outputKey }) => outputKey), ["items:42"]);
   assert.equal(changedDraft.evidence, "current");
   assert.deepEqual(changedDraft.routeInventory, []);
+});
+
+test("route fallback ignores presentation names but rejects calculation changes", () => {
+  const stored = {
+    enabled: true,
+    name: "QA T7 plan",
+    targets: [{ kind: "items", id: "42", quantity: 30 }],
+    sourceRules: { storageContainerIds: ["storage-a"] },
+    routeOverrides: {},
+  };
+  const authorizedDraft = structuredClone(stored);
+  delete authorizedDraft.name;
+  const changedTarget = structuredClone(authorizedDraft);
+  changedTarget.targets[0].quantity = 31;
+
+  assert.equal(craftPlanRouteFallbackAllowed(authorizedDraft, stored), true);
+  assert.equal(craftPlanRouteFallbackAllowed(changedTarget, stored), false);
 });
 
 test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {
