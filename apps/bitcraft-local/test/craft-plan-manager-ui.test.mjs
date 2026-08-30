@@ -254,6 +254,65 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
   }
 });
 
+test("recipe review explains when a configured plan has no selectable production routes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = loadedPlan({ config: { targets: [{ id: "7", kind: "items", name: "Raw Material", quantity: 1 }] } });
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({ ...preview, routeReviews: [], materials: [], validation: { valid: true, errors: [] } })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /No selectable recipe routes in this plan/);
+    assert.match(elementText(tree), /Raw, gathered, vendor, and unavailable outputs do not require a route choice/);
+    assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review exposes calculation validation failures instead of a blank route list", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = loadedPlan({ config: { targets: [{ id: "7", kind: "items", name: "Broken Route", quantity: 1 }] } });
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({
+        ...preview,
+        routeReviews: [],
+        materials: [],
+        validation: { valid: false, errors: [{ code: "invalid_selected_route", message: "The selected route is no longer valid." }] },
+      })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /Recipe preview validation failed/);
+    assert.match(elementText(tree), /The selected route is no longer valid/);
+    assert.doesNotMatch(elementText(tree), /No recipe routes to review/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("a failed automatic preview stays failed until an explicit retry", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });

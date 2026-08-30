@@ -314,7 +314,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const selectedNeedSourceRoutes = selectedNeed ? groupNeedCellSourceRoutes(selectedNeed, detailSteps) : [];
   const selectedNeedUsages = selectedNeed ? groupNeedCellRecipeUsages(selectedNeed) : [];
   const selectedNeedKey = selectedNeed?.items?.[0]?.key ?? (selectedNeed ? itemKey(selectedNeed.item) : "");
-  const selectedNeedReviewTargets = selectedNeed ? craftPlanNeedReviewTargets(selectedNeed) : [];
+  const selectedNeedReviewTargets = selectedNeed ? craftPlanNeedReviewTargets(selectedNeed, selectedNeedSourceRoutes) : [];
   const selectedMultiplier = Number(config.multipliers?.[selectedNeedKey]?.multiplier) || 1;
   const selectedMaterialPresentation = selectedNeed ? craftPlanNeedCellPresentation(selectedNeed) : null;
   React.useEffect(() => {
