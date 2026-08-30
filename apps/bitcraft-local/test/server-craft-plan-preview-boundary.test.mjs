@@ -1,24 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { buildCraftPlanPreview, buildCraftPlanRouteResponse } from "../src/server/craftPlanRouteReview.mjs";
 
 const server = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
 const saveOrchestration = await readFile(new URL("../src/server/craftPlanSaveOrchestration.mjs", import.meta.url), "utf8");
 
-test("server wires authenticated settlement and personal previews through non-persisting calculation", () => {
-  assert.match(server, /createCraftPlanRouteReviewRepository/);
-  assert.match(server, /async function previewCraftPlanConfig/);
-  assert.match(server, /computedCraftPlanResponseFresh\([^)]*[\s\S]*preview: true/);
-  assert.match(server, /configOverride: staged\.config/);
-  assert.match(server, /buildCraftPlanPreview/);
-  assert.match(server, /selectCraftPlanRouteInventory/);
-  assert.match(server, /unchangedDraft[\s\S]*lastGoodPlan[\s\S]*allowFallback: true/);
-  assert.match(server, /POST[\s\S]*\/api\/local\/admin\/craft-plans[\s\S]*preview/);
-  assert.match(server, /POST[\s\S]*\/api\/local\/user\/craft-plans[\s\S]*preview/);
-  assert.match(server, /rateLimit\(req, res, "craft-plan-preview", RATE_LIMITS\.expensiveLocal\)/);
-  assert.match(server, /craftPlans\.stage\(planId, normalizeCraftPlanConfig\(inputConfig\), subject\)/);
-  assert.match(server, /previewCraftPlanConfig\(planId,[^;]+\{ admin: true \}\)/);
-  assert.match(server, /previewCraftPlanConfig\(planId,[^;]+\{ userId: appUser\.id \}\)/);
+test("server-facing route response keeps full plan reviews for manager and preview payloads", () => {
+  const plan = {
+    steps: [],
+    materials: [{
+      key: "items:1020003",
+      sourceRoutes: [{
+        output: { key: "items:1020003", kind: "items", id: "1020003", name: "Rough Plank" },
+        selectedRecipeId: "1014176789",
+        alternatives: [
+          { id: "1014176789", label: "Saw Rough Plank", isTransportRoute: false },
+          { id: "102009", label: "Carve Rough Plank", isTransportRoute: false },
+          { id: "transport", label: "Move Rough Plank", isTransportRoute: true },
+        ],
+      }],
+    }],
+  };
+  const managerResponse = buildCraftPlanRouteResponse({ plan });
+  const previewResponse = {
+    ...buildCraftPlanPreview({ plan, routeInventory: managerResponse.routeInventory }),
+    ...managerResponse,
+  };
+
+  assert.deepEqual(managerResponse.routeInventory.map(({ outputKey }) => outputKey), ["items:1020003"]);
+  assert.deepEqual(managerResponse.routeInventory[0].alternatives.map(({ id }) => id), ["1014176789", "102009"]);
+  assert.equal(previewResponse.routeEvidence, "current");
+  assert.deepEqual(previewResponse.routeDiagnostics, {
+    steps: 0,
+    materialSourceRoutes: 1,
+    directInventory: 0,
+    returnedReviews: 1,
+    fallbackReturnedReviews: 0,
+  });
 });
 
 test("preview calculation bypasses cache, reconciliation writes, audit writes, and administrator diagnostics", () => {

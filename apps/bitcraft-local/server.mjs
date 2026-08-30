@@ -120,7 +120,7 @@ import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor
 import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
-import { buildCraftPlanPreview, buildCraftPlanRouteInventory, craftPlanRouteFallbackAllowed, createCraftPlanRouteReviewRepository, selectCraftPlanRouteInventory } from "./src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteInventory, buildCraftPlanRouteResponse, craftPlanRouteFallbackAllowed, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -2194,10 +2194,12 @@ async function craftPlanAdminResponse(claimId = getSettings().claimId, planId) {
     craftPlanWorkstationPresets().catch(() => []),
   ]);
   const refreshedPlanRecord = selectedCraftPlan(planRecord.id);
+  const routeResponse = buildCraftPlanRouteResponse({ plan: computedPlan });
   const response = {
     planRecord: refreshedPlanRecord,
     config: storedCraftPlanConfig(planRecord.id),
     plan: computedPlan,
+    ...routeResponse,
     sources: {
       storage: storageSources.map((source) => ({ sourceId: source.sourceId, label: source.label, itemCount: source.items.length, items: source.items.slice(0, 12) })),
       players: members.map((member) => ({ playerId: String(member.playerEntityId ?? member.entityId ?? ""), label: String(member.userName ?? member.username ?? member.playerName ?? "Unknown member") })).filter((member) => member.playerId),
@@ -2224,15 +2226,15 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
     configOverride: staged.config,
     preview: true,
   });
-  let routeSelection = selectCraftPlanRouteInventory({ plan });
+  let routeResponse = buildCraftPlanRouteResponse({ plan });
   const unchangedDraft = craftPlanRouteFallbackAllowed(staged.config, storedCraftPlanConfig(staged.plan.id));
-  if (!routeSelection.routeInventory.length && unchangedDraft) {
+  if (!routeResponse.routeInventory.length && unchangedDraft) {
     const lastGoodPlan = await computedCraftPlanResponse(getSettings().claimId, { planId: staged.plan.id });
-    routeSelection = selectCraftPlanRouteInventory({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
+    routeResponse = buildCraftPlanRouteResponse({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
   }
   const preview = buildCraftPlanPreview({
     plan,
-    routeInventory: routeSelection.routeInventory,
+    routeInventory: routeResponse.routeInventory,
     scope: staged.plan.scope,
     configurationRevision: staged.plan.revision,
     baselineRevision: plan?.effortProgress?.baselineRevision,
@@ -2242,7 +2244,8 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
   const confirmedKeys = new Set(reviewState.confirmed.map((entry) => entry.outputKey));
   return {
     ...preview,
-    routeEvidence: routeSelection.evidence,
+    routeEvidence: routeResponse.routeEvidence,
+    routeDiagnostics: routeResponse.routeDiagnostics,
     routeReviews: preview.routeReviews.map((entry) => ({ ...entry, confirmed: confirmedKeys.has(entry.outputKey) })),
   };
 }
