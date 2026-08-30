@@ -120,7 +120,7 @@ import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor
 import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
-import { buildCraftPlanPreview, buildCraftPlanRouteInventory, createCraftPlanRouteReviewRepository, selectCraftPlanRouteInventory } from "./src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteInventory, craftPlanRouteFallbackAllowed, createCraftPlanRouteReviewRepository, selectCraftPlanRouteInventory } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -2225,7 +2225,7 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
     preview: true,
   });
   let routeSelection = selectCraftPlanRouteInventory({ plan });
-  const unchangedDraft = JSON.stringify(staged.config) === JSON.stringify(storedCraftPlanConfig(staged.plan.id));
+  const unchangedDraft = craftPlanRouteFallbackAllowed(staged.config, storedCraftPlanConfig(staged.plan.id));
   if (!routeSelection.routeInventory.length && unchangedDraft) {
     const lastGoodPlan = await computedCraftPlanResponse(getSettings().claimId, { planId: staged.plan.id });
     routeSelection = selectCraftPlanRouteInventory({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
