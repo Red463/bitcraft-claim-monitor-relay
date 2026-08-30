@@ -4026,6 +4026,37 @@ test("collectLocalCatalogCraftPlanDetails reports incomplete byproduct producer 
   assert.match(byproductWarnings[0], /items:8500/);
 });
 
+test("collectLocalCatalogCraftPlanDetails names incomplete byproduct warnings from the canonical typed entity", (t) => {
+  const { repository } = createCatalogFixture(t);
+  upsertCatalogDetails(repository, [
+    {
+      item: { id: "1020003", itemType: 0, name: "Rough Plank", tag: "Plank", tier: 2 },
+      craftingRecipes: [],
+    },
+    {
+      item: { id: "1020004", itemType: 0, name: "Incomplete Plank Producer", tag: "Wood", tier: 2 },
+      craftingRecipes: [],
+      itemListPossibilities: [{
+        targetId: "1020003",
+        targetItem: { id: "1020003", itemType: 0, name: "Rough Plank", tag: "Plank", tier: 2 },
+        quantity: 1,
+        chance: 0.1,
+      }],
+    },
+  ]);
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [{ id: "1020003", kind: "items", name: "Comprehensive Codex", quantity: 1, itemType: 0 }],
+  });
+
+  const { detailsByKey, warnings } = collectLocalCatalogCraftPlanDetails(repository, config.targets, config.routeOverrides);
+  const byproductWarning = warnings.find((warning) => /byproduct routes are incomplete/i.test(warning));
+  assert.match(byproductWarning, /Rough Plank \(items:1020003\)/);
+  assert.doesNotMatch(byproductWarning, /Comprehensive Codex \(items:1020003\)/);
+  assert.equal(detailsByKey.get("items:1020003")?.item?.id, "1020003");
+  assert.equal(detailsByKey.get("items:1020003")?.item?.name, "Rough Plank");
+});
+
 test("collectLocalCatalogCraftPlanDetails ignores incomplete byproduct candidates when a usable producer exists", (t) => {
   const { repository } = createCatalogFixture(t);
   upsertCatalogDetails(repository, [
