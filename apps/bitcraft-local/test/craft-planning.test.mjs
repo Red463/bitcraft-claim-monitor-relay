@@ -2265,6 +2265,12 @@ test("computeCraftPlan stops cyclic production routes at the nearest source item
       craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
       consumedItemStacks: [{ item_id: "301", item_type: "item", quantity: 1 }],
       consumedItems: [{ id: "301", name: "Basic Wispweave Seeds", itemType: 0, tag: "Filament Seeds", tier: 1 }],
+    }, {
+      id: "upgrade-plant",
+      name: "Upgrade Crude Wispweave Plant",
+      craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+      consumedItemStacks: [{ item_id: "299", item_type: "item", quantity: 5 }],
+      consumedItems: [{ id: "299", name: "Crude Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 0 }],
     }],
   };
   const seedDetail = {
@@ -2283,12 +2289,245 @@ test("computeCraftPlan stops cyclic production routes at the nearest source item
     detailsByKey: new Map([
       [recipeKey("items", "300"), plantDetail],
       [recipeKey("items", "301"), seedDetail],
+      [recipeKey("items", "299"), { item: { id: "299", name: "Crude Wispweave Plant", itemType: 0, tag: "Filament Plant", tier: 0 }, craftingRecipes: [] }],
     ]),
   });
 
   assert.equal(plan.materials.find((material) => material.name === "Basic Wispweave Plant")?.required, 10);
   assert.equal(plan.materials.find((material) => material.name === "Basic Wispweave Seeds")?.required, 10);
+  assert.equal(plan.materials.some((material) => material.name === "Crude Wispweave Plant"), false);
   assert.equal(plan.steps.length, 1);
+});
+
+test("computeCraftPlan balances productive seed recycling instead of multiplying lower-tier plants", () => {
+  const plantKey = recipeKey("items", "300");
+  const seedKey = recipeKey("items", "301");
+  const fertilizerKey = recipeKey("items", "302");
+  const lowerPlantKey = recipeKey("items", "299");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({
+      enabled: true,
+      targets: [{ id: "300", kind: "items", name: "Basic Starbulb Plant", quantity: 10, itemType: 0 }],
+    }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "300", name: "Basic Starbulb Plant", itemType: 0, tag: "Vegetable Plant", tier: 1 },
+        craftingRecipes: [{
+          id: "grow-from-seed",
+          name: "Grow Basic Starbulb Plant",
+          craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [
+            { item_id: "301", item_type: "item", quantity: 1 },
+            { item_id: "302", item_type: "item", quantity: 1 },
+          ],
+          consumedItems: [
+            { id: "301", name: "Basic Starbulb Seeds", itemType: 0, tag: "Vegetable Seeds", tier: 1 },
+            { id: "302", name: "Basic Fertilizer", itemType: 0, tag: "Fertilizer", tier: 1 },
+          ],
+        }, {
+          id: "upgrade-lower-plant",
+          name: "Upgrade lower-tier plants",
+          craftedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "299", item_type: "item", quantity: 5 }],
+          consumedItems: [{ id: "299", name: "Crude Starbulb Plant", itemType: 0, tag: "Vegetable Plant", tier: 0 }],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "301", name: "Basic Starbulb Seeds", itemType: 0, tag: "Vegetable Seeds", tier: 1 },
+        craftingRecipes: [{
+          id: "harvest-seeds",
+          name: "Harvest Basic Starbulb Seeds",
+          craftedItemStacks: [{ item_id: "301", item_type: "item", quantity: 3 }],
+          consumedItemStacks: [{ item_id: "300", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "300", name: "Basic Starbulb Plant", itemType: 0, tag: "Vegetable Plant", tier: 1 }],
+        }],
+      }],
+      [fertilizerKey, { item: { id: "302", name: "Basic Fertilizer", itemType: 0, tag: "Fertilizer", tier: 1 }, craftingRecipes: [] }],
+      [lowerPlantKey, { item: { id: "299", name: "Crude Starbulb Plant", itemType: 0, tag: "Vegetable Plant", tier: 0 }, craftingRecipes: [] }],
+    ]),
+  });
+
+  assert.equal(plan.steps.find((step) => step.output.id === "300")?.selectedRecipeId, "grow-from-seed");
+  assert.equal(plan.steps.find((step) => step.output.id === "301")?.selectedRecipeId, "harvest-seeds");
+  assert.equal(plan.materials.find((material) => material.key === plantKey)?.required, 15, "five plants are recycled to produce enough seed for ten net plants");
+  assert.equal(plan.materials.find((material) => material.key === seedKey)?.required, 1, "only one starter seed is an external requirement");
+  assert.equal(plan.materials.find((material) => material.key === fertilizerKey)?.required, 15);
+  assert.equal(plan.materials.some((material) => material.key === lowerPlantKey), false);
+  assert.equal(plan.targets[0].missing, 10, "target progress remains based on the ten net plants requested");
+  const seedUsage = plan.materials.find((material) => material.key === seedKey)?.recipeUsages[0];
+  assert.equal(seedUsage?.requiredQuantity, 15, "the compatibility field remains gross recipe consumption");
+  assert.equal(seedUsage?.sourceRequiredQuantity, 1);
+  assert.equal(seedUsage?.recycledQuantity, 14);
+});
+
+test("computeCraftPlan keeps probabilistic reciprocal seed routes as source boundaries", () => {
+  const plantKey = recipeKey("items", "400");
+  const seedKey = recipeKey("items", "401");
+  const lowerPlantKey = recipeKey("items", "399");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({ enabled: true, targets: [{ id: "400", kind: "items", itemType: 0, name: "Simple Plant", quantity: 10 }] }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "400", name: "Simple Plant", itemType: 0, tag: "Vegetable Plant", tier: 2 },
+        craftingRecipes: [{
+          id: "grow-simple",
+          name: "Grow Simple Plant",
+          craftedItemStacks: [{ item_id: "400", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "401", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "401", name: "Simple Seed", itemType: 0, tag: "Vegetable Seeds", tier: 2 }],
+        }, {
+          id: "upgrade-simple",
+          name: "Upgrade Simple Plant",
+          craftedItemStacks: [{ item_id: "400", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "399", item_type: "item", quantity: 5 }],
+          consumedItems: [{ id: "399", name: "Lower Simple Plant", itemType: 0, tag: "Vegetable Plant", tier: 1 }],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "401", name: "Simple Seed", itemType: 0, tag: "Vegetable Seeds", tier: 2 },
+        craftingRecipes: [{
+          id: "chance-harvest",
+          name: "Chance Seed Harvest",
+          isProbabilistic: true,
+          craftedItemStacks: [{ item_id: "401", item_type: "item", quantity: 3 }],
+          consumedItemStacks: [{ item_id: "400", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "400", name: "Simple Plant", itemType: 0, tag: "Vegetable Plant", tier: 2 }],
+        }],
+      }],
+      [lowerPlantKey, { item: { id: "399", name: "Lower Simple Plant", itemType: 0, tag: "Vegetable Plant", tier: 1 }, craftingRecipes: [] }],
+    ]),
+  });
+
+  assert.equal(plan.steps.find((step) => step.output.id === "400")?.selectedRecipeId, "grow-simple");
+  assert.equal(plan.steps.some((step) => step.selectedRecipeId === "chance-harvest"), false);
+  assert.equal(plan.materials.find((material) => material.key === seedKey)?.required, 10);
+  assert.equal(plan.materials.some((material) => material.key === lowerPlantKey), false);
+});
+
+test("computeCraftPlan does not recycle an expected-yield grow route", () => {
+  const plantKey = recipeKey("items", "450");
+  const seedKey = recipeKey("items", "451");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({ enabled: true, targets: [{ id: "450", kind: "items", itemType: 0, name: "Expected Plant", quantity: 10 }] }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "450", name: "Expected Plant", itemType: 0, tag: "Vegetable Plant", tier: 2 },
+        craftingRecipes: [{
+          id: "expected-grow",
+          name: "Expected Grow",
+          probabilityStatus: "expected",
+          isExpectedYield: true,
+          expectedYield: 1,
+          craftedItemStacks: [{ item_id: "450", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "451", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "451", name: "Expected Seed", itemType: 0, tag: "Vegetable Seeds", tier: 2 }],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "451", name: "Expected Seed", itemType: 0, tag: "Vegetable Seeds", tier: 2 },
+        craftingRecipes: [{
+          id: "guaranteed-recycle",
+          name: "Guaranteed Recycle",
+          craftedItemStacks: [{ item_id: "451", item_type: "item", quantity: 3 }],
+          consumedItemStacks: [{ item_id: "450", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "450", name: "Expected Plant", itemType: 0, tag: "Vegetable Plant", tier: 2 }],
+        }],
+      }],
+    ]),
+  });
+
+  assert.equal(plan.steps.some((step) => step.selectedRecipeId === "guaranteed-recycle"), false);
+  assert.equal(plan.materials.find((material) => material.key === seedKey)?.required, 10);
+});
+
+test("computeCraftPlan honors an explicit non-recycling seed route", () => {
+  const plantKey = recipeKey("items", "500");
+  const seedKey = recipeKey("items", "501");
+  const rawKey = recipeKey("items", "502");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({
+      enabled: true,
+      targets: [{ id: "500", kind: "items", itemType: 0, name: "Override Plant", quantity: 10 }],
+      routeOverrides: { [seedKey]: "external-seeds" },
+    }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "500", name: "Override Plant", itemType: 0, tag: "Vegetable Plant", tier: 3 },
+        craftingRecipes: [{
+          id: "grow-override",
+          name: "Grow Override Plant",
+          craftedItemStacks: [{ item_id: "500", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "501", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "501", name: "Override Seed", itemType: 0, tag: "Vegetable Seeds", tier: 3 }],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "501", name: "Override Seed", itemType: 0, tag: "Vegetable Seeds", tier: 3 },
+        craftingRecipes: [{
+          id: "harvest-override",
+          name: "Harvest Override Seed",
+          craftedItemStacks: [{ item_id: "501", item_type: "item", quantity: 3 }],
+          consumedItemStacks: [{ item_id: "500", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "500", name: "Override Plant", itemType: 0, tag: "Vegetable Plant", tier: 3 }],
+        }, {
+          id: "external-seeds",
+          name: "Prepare External Seeds",
+          craftedItemStacks: [{ item_id: "501", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [{ item_id: "502", item_type: "item", quantity: 1 }],
+          consumedItems: [{ id: "502", name: "Seed Stock", itemType: 0, tier: 1 }],
+        }],
+      }],
+      [rawKey, { item: { id: "502", name: "Seed Stock", itemType: 0, tier: 1 }, craftingRecipes: [] }],
+    ]),
+  });
+
+  assert.equal(plan.steps.some((step) => step.selectedRecipeId === "harvest-override"), false);
+  assert.equal(plan.steps.find((step) => step.output.id === "501")?.selectedRecipeId, "external-seeds");
+  assert.equal(plan.materials.find((material) => material.key === rawKey)?.required, 10);
+});
+
+test("computeCraftPlan requires enough starter seed to start a non-unit recycling recipe", () => {
+  const plantKey = recipeKey("items", "600");
+  const seedKey = recipeKey("items", "601");
+  const fertilizerKey = recipeKey("items", "602");
+  const plan = computeCraftPlan({
+    config: normalizeCraftPlanConfig({ enabled: true, targets: [{ id: "600", kind: "items", itemType: 0, name: "Frontier Plant", quantity: 10 }] }),
+    detailsByKey: new Map([
+      [plantKey, {
+        item: { id: "600", name: "Frontier Plant", itemType: 0, tag: "Vegetable Plant", tier: 4 },
+        craftingRecipes: [{
+          id: "grow-frontier",
+          name: "Grow Frontier Plant",
+          craftedItemStacks: [{ item_id: "600", item_type: "item", quantity: 1 }],
+          consumedItemStacks: [
+            { item_id: "601", item_type: "item", quantity: 1 },
+            { item_id: "602", item_type: "item", quantity: 1 },
+          ],
+          consumedItems: [
+            { id: "601", name: "Frontier Seed", itemType: 0, tag: "Vegetable Seeds", tier: 4 },
+            { id: "602", name: "Frontier Fertilizer", itemType: 0, tier: 4 },
+          ],
+        }],
+      }],
+      [seedKey, {
+        item: { id: "601", name: "Frontier Seed", itemType: 0, tag: "Vegetable Seeds", tier: 4 },
+        craftingRecipes: [{
+          id: "recycle-frontier",
+          name: "Recycle Frontier Plant",
+          craftedItemStacks: [{ item_id: "601", item_type: "item", quantity: 3 }],
+          consumedItemStacks: [{ item_id: "600", item_type: "item", quantity: 2 }],
+          consumedItems: [{ id: "600", name: "Frontier Plant", itemType: 0, tag: "Vegetable Plant", tier: 4 }],
+        }],
+      }],
+      [fertilizerKey, { item: { id: "602", name: "Frontier Fertilizer", itemType: 0, tier: 4 }, craftingRecipes: [] }],
+    ]),
+  });
+
+  assert.equal(plan.steps.find((step) => step.output.id === "600")?.craftCount, 26);
+  assert.equal(plan.steps.find((step) => step.output.id === "601")?.craftCount, 8);
+  assert.equal(plan.materials.find((material) => material.key === seedKey)?.required, 2);
+  assert.equal(plan.materials.find((material) => material.key === fertilizerKey)?.required, 26);
+  assert.equal(plan.targets[0].missing, 10);
 });
 
 test("computeCraftPlan honors an explicit route before stopping its cyclic dependency at the nearest source", () => {

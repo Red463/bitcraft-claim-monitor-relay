@@ -26,6 +26,8 @@ export type GroupedNeedUsage = {
   selectedRecipeId: string | null;
   alternatives: AnyRecord[];
   requiredQuantity: number;
+  sourceRequiredQuantity: number;
+  recycledQuantity: number;
   craftCount: number;
   quantityPerCraft: number;
   entries: AnyRecord[];
@@ -138,12 +140,16 @@ export function groupNeedCellRecipeUsages(cell: NeedCell): GroupedNeedUsage[] {
         selectedRecipeId: usage.selectedRecipeId == null ? null : String(usage.selectedRecipeId),
         alternatives: Array.isArray(usage.alternatives) ? usage.alternatives : [],
         requiredQuantity: 0,
+        sourceRequiredQuantity: 0,
+        recycledQuantity: 0,
         craftCount: 0,
         quantityPerCraft: toQuantity(usage.quantityPerCraft),
         entries: [],
       };
       current.output = { ...current.output, ...output, quantity: toQuantity(current.output.quantity) + toQuantity(output.quantity) };
       current.requiredQuantity += toQuantity(usage.requiredQuantity);
+      current.sourceRequiredQuantity += toQuantity(usage.sourceRequiredQuantity ?? usage.requiredQuantity);
+      current.recycledQuantity += toQuantity(usage.recycledQuantity);
       current.craftCount += toQuantity(usage.craftCount);
       current.entries.push(usage);
       if (!current.alternatives.length && Array.isArray(usage.alternatives)) current.alternatives = usage.alternatives;

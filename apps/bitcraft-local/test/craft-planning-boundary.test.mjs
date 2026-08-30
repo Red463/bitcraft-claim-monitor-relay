@@ -36,6 +36,13 @@ test("Craft Planning labels estimated active output as material-planning coverag
   assert.doesNotMatch(page, />Estimated active output; not counted<\/span>/);
 });
 
+test("needs board red state describes missing direct coverage without claiming a recipe error", () => {
+  const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /No direct stock or craft coverage/);
+  assert.doesNotMatch(page, /Recipe cannot start from counted stock/);
+});
+
 test("Craft Planning exposes a public probability workbook download with explicit gathering units", () => {
   const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/pages/CraftPlanningPage.tsx", import.meta.url), "utf8");

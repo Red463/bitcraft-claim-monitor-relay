@@ -427,6 +427,13 @@ export function CraftPlanManagerDialog({
     }
   }, [adminApi, config, ownerManaged, planId]);
 
+  const requestPreview = React.useCallback((draft: CraftPlanConfig) => {
+    const path = ownerManaged
+      ? `/user/craft-plans/${encodeURIComponent(planId)}/preview`
+      : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
+    return adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
+  }, [adminApi, ownerManaged, planId]);
+
   async function compareCheckpoints() {
     if (!comparisonFrom || !comparisonTo) return;
     const requestId = ++comparisonRequestId.current;
@@ -788,13 +795,25 @@ export function CraftPlanManagerDialog({
       const path = ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}` : `/admin/craft-plans/${encodeURIComponent(planId)}`;
       let confirmations = Object.values(routeConfirmations);
       if (confirmPublicRoutes) {
-        submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, publicRouteGate ?? [], suppressedRouteRecommendations.current);
+        let reviews = publicRouteGate ?? [];
+        let latestPreview: AnyRecord | null = null;
+        let converged = false;
+        for (let attempt = 0; attempt < 16; attempt += 1) {
+          submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, reviews, suppressedRouteRecommendations.current);
+          latestPreview = await requestPreview(submittedConfig);
+          reviews = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : []);
+          const nextConfig = stageCraftPlanRouteRecommendations(submittedConfig, reviews, suppressedRouteRecommendations.current);
+          if (JSON.stringify(nextConfig) === JSON.stringify(submittedConfig)) {
+            converged = true;
+            break;
+          }
+          submittedConfig = nextConfig;
+        }
+        if (!converged) throw new Error("Recipe recommendations did not settle. Refresh the plan and try again.");
         updateConfig(submittedConfig);
-        const latestPreview = await loadPreview(submittedConfig);
-        const gatedKeys = new Set((publicRouteGate ?? []).map((entry) => String(entry.outputKey)));
-        confirmations = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : [])
+        confirmations = reviews
           .map((entry: AnyRecord) => ({ entry, selectedRouteId: craftPlanRouteSelection(entry, submittedConfig.routeOverrides[String(entry.outputKey)]) }))
-          .filter(({ entry, selectedRouteId }) => gatedKeys.has(String(entry.outputKey)) && selectedRouteId)
+          .filter(({ entry, selectedRouteId }) => entry.ambiguous === true && selectedRouteId)
           .map(({ entry, selectedRouteId }) => ({ outputKey: String(entry.outputKey), fingerprint: String(entry.fingerprint), selectedRouteId }));
       }
       await adminApi(path, { method: "PUT", body: JSON.stringify({ name: submittedConfig.name, config: submittedConfig, expectedRevision: revision, routeReviewConfirmations: confirmations }) });
