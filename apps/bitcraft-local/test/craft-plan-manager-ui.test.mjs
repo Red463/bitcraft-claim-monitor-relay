@@ -390,6 +390,45 @@ test("recipe review retains saved Rough Plank alternatives when an unchanged pre
     assert.match(elementText(tree), /Saw Rough Plank/);
     assert.match(elementText(tree), /Carve Rough Plank/);
     assert.match(elementText(tree), /saved full calculation/);
+    assert.match(elementText(tree), /Saved routes remain reviewable while the current preview evidence is incomplete/);
+    assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review preserves validation errors alongside saved Rough Plank fallback routes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = {
+    ...loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Rough Plank", quantity: 1 }] } }),
+    routeInventory: roughPlankRouteInventory,
+  };
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({
+        ...preview,
+        routeReviews: [],
+        routeEvidence: "none",
+        routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 },
+        validation: { valid: false, errors: [{ code: "invalid_selected_route", message: "The selected route is no longer valid." }] },
+      })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /Rough Plank/);
+    assert.match(elementText(tree), /Recipe preview validation failed/);
+    assert.match(elementText(tree), /The selected route is no longer valid/);
+    assert.match(elementText(tree), /Saved routes remain reviewable while the current preview evidence is incomplete/);
     assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
   } finally {
     globalThis.fetch = originalFetch;
