@@ -9,6 +9,14 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.11] - 2026-08-30
+
+### Fixed
+
+- Prevented renewable plant and seed recipe loops from inflating Craft Plan requirements to extreme values.
+- Fixed T7 preset plans failing to save while recipe recommendations were still being resolved.
+- Fixed blank Recipe Review entries by linking only materials with selectable production routes and explaining unavailable routes or preview validation failures.
+
 ## [0.66.2-beta.10] - 2026-08-29
 
 ### Fixed
