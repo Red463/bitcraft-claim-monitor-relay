@@ -4,6 +4,8 @@ import {
   buildCraftPlanPreview,
   routeReviewFingerprint,
 } from "../src/server/craftPlanRouteReview.mjs";
+import { compactCraftPlanEffortInput } from "../src/server/craftPlanEffortProgress.mjs";
+import * as craftPlanRouteReview from "../src/server/craftPlanRouteReview.mjs";
 
 function route(outputKey, selectedRecipeId, alternatives) {
   const [kind, id] = outputKey.split(":");
@@ -82,6 +84,67 @@ test("settlement preview returns stable material impact, ambiguity, revisions, v
   assert.deepEqual(first.routeReviews[0].alternatives.map(({ id }) => id), ["risky", "safe"]);
   assert.match(first.fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(first.fingerprint, second.fingerprint);
+});
+
+test("preview keeps every baseline dependency route when live stock suppresses route expansion", () => {
+  assert.equal(typeof craftPlanRouteReview.buildCraftPlanRouteInventory, "function");
+  const baselinePlan = {
+    materials: [{
+      key: "items:42",
+      kind: "items",
+      id: "42",
+      name: "Fine Plank",
+      sourceRoutes: [route("items:42", "sawmill", [
+        { id: "sawmill", label: "Saw Fine Plank", probabilityStatus: "guaranteed", inputs: [{ key: "items:2", name: "Rough Plank", quantity: 3 }] },
+        { id: "carving", label: "Carve Fine Plank", probabilityStatus: "guaranteed", inputs: [{ key: "items:3", quantity: 2 }] },
+      ])],
+    }],
+    steps: [],
+  };
+  baselinePlan.materials[0].sourceRoutes[0].output.name = "Fine Plank";
+  const routeInventory = craftPlanRouteReview.buildCraftPlanRouteInventory(baselinePlan);
+
+  const preview = buildCraftPlanPreview({
+    plan: {
+      materials: [{ key: "items:42", kind: "items", id: "42", name: "Fine Plank", planRequired: 12, requiredNow: 0, missingNow: 0 }],
+      steps: [],
+    },
+    routeInventory,
+    scope: "shared",
+    configurationRevision: 5,
+    baselineRevision: "baseline-stock-covered",
+  });
+
+  assert.deepEqual(preview.routeReviews.map(({ outputKey, outputName, ambiguous }) => ({ outputKey, outputName, ambiguous })), [
+    { outputKey: "items:42", outputName: "Fine Plank", ambiguous: true },
+  ]);
+  assert.deepEqual(preview.routeReviews[0].alternatives.map(({ id }) => id), ["carving", "sawmill"]);
+  assert.deepEqual(preview.routeReviews[0].alternatives.find(({ id }) => id === "sawmill").inputs, [
+    { key: "items:2", name: "Rough Plank", quantity: 3 },
+  ]);
+});
+
+test("the compact zero-stock baseline retains root and nested dependency routes", () => {
+  const root = route("items:700", "assemble", [
+    { id: "assemble", label: "Assemble T7 Codex", probabilityStatus: "guaranteed", inputs: [{ key: "items:701", name: "T7 Binding", quantity: 2 }] },
+  ]);
+  root.output.name = "T7 Codex";
+  const nested = route("items:701", "bind", [
+    { id: "bind", label: "Bind T7 Codex", probabilityStatus: "guaranteed", inputs: [{ key: "items:702", name: "T7 Parchment", quantity: 4 }] },
+    { id: "weave", label: "Weave T7 Binding", probabilityStatus: "guaranteed", inputs: [{ key: "items:703", name: "T7 Thread", quantity: 3 }] },
+  ]);
+  nested.output.name = "T7 Binding";
+  const baselinePlan = {
+    steps: [root],
+    materials: [{ key: "items:701", sourceRoutes: [nested] }],
+  };
+
+  const routeInventory = craftPlanRouteReview.buildCraftPlanRouteInventory(baselinePlan);
+  const compact = compactCraftPlanEffortInput(baselinePlan, { routeInventory });
+  const preview = buildCraftPlanPreview({ plan: { materials: [], steps: [] }, routeInventory: compact.routeInventory });
+
+  assert.deepEqual(preview.routeReviews.map(({ outputKey }) => outputKey), ["items:700", "items:701"]);
+  assert.equal(preview.routeReviews[1].ambiguous, true);
 });
 
 test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {

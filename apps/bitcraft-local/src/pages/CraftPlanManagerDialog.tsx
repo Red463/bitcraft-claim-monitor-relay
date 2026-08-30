@@ -7,7 +7,7 @@ import type { AnyRecord } from "../main-app-data";
 import { dateLabel, formatNumber, timeAgo } from "../utils/format";
 import { createDelayedRefreshTask } from "../refresh/pageRefresh.mjs";
 import { buildCraftPlanBankGroups, finalizeLegacyBankMigrations, initiallyExpandedBankPlayerIds, mergeLegacyBankDiscovery, runBankDiscoveryQueue } from "./craftPlanBankSelection.mjs";
-import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace } from "./craftPlanManagerModel";
+import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, filterCraftPlanRouteReviews, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace, type CraftPlanRouteReviewFilter } from "./craftPlanManagerModel";
 
 const LOCAL_API = "/api/local";
 const BANK_LOAD_CONCURRENCY = 3;
@@ -186,6 +186,12 @@ function routeOptionDetails(alternative: AnyRecord) {
   return details;
 }
 
+function routeInputLabel(input: AnyRecord) {
+  const key = String(input.key ?? "").trim();
+  const name = String(input.name ?? "").trim();
+  return name && name !== key ? `${name} (${key})` : key;
+}
+
 function firstText(...values: unknown[]) {
   for (const value of values) {
     const text = String(value ?? "").trim();
@@ -278,6 +284,8 @@ export function CraftPlanManagerDialog({
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [previewError, setPreviewError] = React.useState<string | null>(null);
   const [routeConfirmations, setRouteConfirmations] = React.useState<Record<string, RouteConfirmation>>({});
+  const [routeQuery, setRouteQuery] = React.useState("");
+  const [routeFilter, setRouteFilter] = React.useState<CraftPlanRouteReviewFilter>("all");
   const [publicRouteGate, setPublicRouteGate] = React.useState<AnyRecord[] | null>(null);
   const [revisionConflict, setRevisionConflict] = React.useState<AnyRecord | null>(null);
   const [conflictDraft, setConflictDraft] = React.useState<CraftPlanConfig | null>(null);
@@ -554,9 +562,15 @@ export function CraftPlanManagerDialog({
   }, [open, activeTab, config, currentPreview, loadPreview, previewError, previewLoading, state]);
 
   React.useEffect(() => {
+    if (!open || activeTab !== "recipes" || !initialOutputKey) return;
+    setRouteQuery("");
+    setRouteFilter("all");
+  }, [open, activeTab, initialOutputKey]);
+
+  React.useEffect(() => {
     if (!open || activeTab !== "recipes" || !initialOutputKey || !currentPreview || typeof document === "undefined") return;
     document.getElementById(`craft-plan-review-${encodeURIComponent(initialOutputKey)}`)?.focus();
-  }, [open, activeTab, initialOutputKey, currentPreview]);
+  }, [open, activeTab, initialOutputKey, currentPreview, routeFilter, routeQuery]);
 
   async function loadPlayerBanks(player: AnyRecord) {
     const playerId = String(player.playerId ?? "");
@@ -857,6 +871,20 @@ export function CraftPlanManagerDialog({
     ? currentPreview.validation.errors
     : [];
   const reviewedOutputKeys = new Set(routeReviews.map((review: AnyRecord) => String(review.outputKey)));
+  const confirmedOutputKeys = new Set(Object.keys(routeConfirmations));
+  const visibleRouteReviews = filterCraftPlanRouteReviews(routeReviews, { mode: routeFilter, query: routeQuery, confirmedOutputKeys });
+  const routeFilterCounts = {
+    all: routeReviews.length,
+    "needs-review": filterCraftPlanRouteReviews(routeReviews, { mode: "needs-review", confirmedOutputKeys }).length,
+    multiple: filterCraftPlanRouteReviews(routeReviews, { mode: "multiple", confirmedOutputKeys }).length,
+    single: filterCraftPlanRouteReviews(routeReviews, { mode: "single", confirmedOutputKeys }).length,
+  };
+  const routeFilterOptions: Array<{ id: CraftPlanRouteReviewFilter; label: string }> = [
+    { id: "all", label: "All routes" },
+    { id: "needs-review", label: "Needs review" },
+    { id: "multiple", label: "Multiple routes" },
+    { id: "single", label: "Single route" },
+  ];
   const orphanMultipliers = Object.entries(config.multipliers).filter(([outputKey]) => !reviewedOutputKeys.has(outputKey));
   const previewMaterials = new Map((Array.isArray(currentPreview?.materials) ? currentPreview.materials : []).map((material: AnyRecord) => [String(material.key), craftPlanMaterialPresentation(material)]));
   const sourceSuggestion = craftPlanSourceSuggestion({ personal, sources: state?.sources ?? {} });
@@ -987,22 +1015,29 @@ export function CraftPlanManagerDialog({
           </section> : null}
 
           {activeTab === "recipes" ? <section className="craft-plan-manager-panel craft-plan-recipe-review" aria-labelledby="craft-plan-recipe-review-heading">
-            <div className="split-header"><div><h3 id="craft-plan-recipe-review-heading">Recipe Review</h3><p className="legend">Ambiguous typed outputs appear first. Choose comparison cards, confirm the review in this draft, then use the single Save Plan action.</p></div><button className="toolbar-button" type="button" onClick={() => void loadPreview(config)} disabled={previewLoading}>{previewLoading ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} Refresh preview</button></div>
+            <div className="split-header"><div><h3 id="craft-plan-recipe-review-heading">Recipe Review</h3><p className="legend">Every selectable production route in the stable plan graph is shown here, with ambiguous and unconfirmed outputs first.</p></div><button className="toolbar-button" type="button" onClick={() => void loadPreview(config)} disabled={previewLoading}>{previewLoading ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} Refresh preview</button></div>
             {previewLoading && !currentPreview ? <div className="craft-plan-audit-state" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={22} /><strong>Loading recipe preview</strong><span>Calculating route choices and material impact without saving.</span></div> : null}
             {previewError ? <div className="alert error" role="alert">Recipe preview could not be loaded: {previewError}</div> : null}
             {!previewLoading && !previewError && !routeReviews.length && previewValidationErrors.length ? <div className="alert error craft-plan-preview-validation" role="alert"><div><strong>Recipe preview validation failed</strong><span>The planner did not publish route choices from this calculation.</span><ul>{previewValidationErrors.map((entry: AnyRecord, index: number) => <li key={`${String(entry.code ?? "validation")}-${index}`}>{String(entry.message ?? entry.code ?? "Unknown validation error")}</li>)}</ul></div></div> : null}
             {!previewLoading && !previewError && !routeReviews.length && !previewValidationErrors.length ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>{config.targets.length ? "No selectable recipe routes in this plan" : "No recipe routes to review"}</strong><span>{config.targets.length ? "Raw, gathered, vendor, and unavailable outputs do not require a route choice." : "Add goals, then refresh the preview. Nothing is saved until Save Plan."}</span></div> : null}
-            {routeReviews.length ? <div className="craft-plan-review-list">{routeReviews.map((review: AnyRecord) => {
+            {!previewLoading && !previewError && initialOutputKey && !reviewedOutputKeys.has(initialOutputKey) ? <div className="alert info craft-plan-route-deep-link-notice" role="status"><div><strong>No selectable production route is available for {initialOutputKey}.</strong><span>Showing every selectable route in this plan’s dependency chain instead.</span></div></div> : null}
+            {routeReviews.length ? <div className="craft-plan-recipe-toolbar">
+              <label className="search"><Search size={16} /><input type="search" aria-label="Search recipe routes" value={routeQuery} onChange={(event) => setRouteQuery(event.target.value)} placeholder="Search materials, recipes, stations, or typed IDs" /></label>
+              <div className="craft-plan-recipe-filters" aria-label="Filter recipe routes">{routeFilterOptions.map((option) => <button className="toolbar-button" type="button" aria-pressed={routeFilter === option.id} key={option.id} onClick={() => setRouteFilter(option.id)}>{option.label} {routeFilterCounts[option.id]}</button>)}</div>
+              <span className="legend" role="status">Showing {visibleRouteReviews.length} of {routeReviews.length} production outputs</span>
+            </div> : null}
+            {routeReviews.length && !visibleRouteReviews.length ? <div className="craft-plan-audit-state compact"><Search size={22} /><strong>No recipe routes match</strong><span>Clear the search or choose another route filter.</span></div> : null}
+            {visibleRouteReviews.length ? <div className="craft-plan-review-list">{visibleRouteReviews.map((review: AnyRecord) => {
               const selectedRouteId = craftPlanRouteSelection(review, config.routeOverrides[review.outputKey]);
               const material = previewMaterials.get(String(review.outputKey));
               const confirmation = routeConfirmations[String(review.outputKey)];
               const bufferPercent = Math.max(0, (Number(config.multipliers[String(review.outputKey)]?.multiplier ?? 1) - 1) * 100);
               return <article id={`craft-plan-review-${encodeURIComponent(String(review.outputKey))}`} tabIndex={initialOutputKey === review.outputKey ? 0 : -1} className={`craft-plan-review-entry${review.ambiguous ? " is-ambiguous" : ""}`} key={review.outputKey}>
-                <header><div><span className="craft-plan-route-kind is-craft">{review.ambiguous ? "Ambiguous route" : "Single route"}</span><strong>{review.outputKey}</strong><small>{review.confirmed ? "Previously confirmed" : confirmation ? "Confirmed in draft" : "Needs review"}</small></div>{review.preselectedRouteId ? <span className="legend">Safest server recommendation: {review.preselectedRouteId}</span> : null}</header>
+                <header><div><span className="craft-plan-route-kind is-craft">{review.ambiguous ? "Multiple routes" : "Single route"}</span><strong>{review.outputName || review.outputKey}</strong><code>{review.outputKey}</code><small>{review.confirmed ? "Previously confirmed" : confirmation ? "Confirmed in draft" : review.ambiguous ? "Needs review" : "No confirmation required"}</small></div>{review.preselectedRouteId ? <span className="legend">Safest server recommendation: {review.preselectedRouteId}</span> : null}</header>
                 <fieldset className="craft-plan-review-options"><legend>Production route for {review.outputKey}</legend>{(review.alternatives ?? []).map((alternative: AnyRecord) => {
                   const selected = selectedRouteId === String(alternative.id);
                   const risky = alternative.probabilityStatus !== "guaranteed" || alternative.isProbabilistic === true;
-                  return <label className={`craft-plan-review-route${selected ? " is-selected" : ""}`} key={alternative.id}><input type="radio" name={`route-${review.outputKey}`} value={alternative.id} checked={selected} aria-label={`${routeOptionLabel(alternative)}; ${risky ? "estimated output risk" : "guaranteed output"}`} onChange={() => selectRoute(review, String(alternative.id))} /><span><strong>{routeOptionLabel(alternative)}</strong><small>{risky ? "Estimated/probabilistic output" : "Guaranteed output"}{alternative.buildingName ? ` · ${alternative.buildingName}` : ""}</small><span className="craft-plan-route-metrics">{routeOptionDetails(alternative).map((detail) => <small key={detail}>{detail}</small>)}</span>{Array.isArray(alternative.inputs) && alternative.inputs.length ? <em>Inputs: {alternative.inputs.map((input: AnyRecord) => `${input.key} ×${formatNumber(input.quantity, 2)}`).join(", ")}</em> : <em>No material inputs</em>}</span></label>;
+                  return <label className={`craft-plan-review-route${selected ? " is-selected" : ""}`} key={alternative.id}><input type="radio" name={`route-${review.outputKey}`} value={alternative.id} checked={selected} aria-label={`${routeOptionLabel(alternative)}; ${risky ? "estimated output risk" : "guaranteed output"}`} onChange={() => selectRoute(review, String(alternative.id))} /><span><strong>{routeOptionLabel(alternative)}</strong><small>{risky ? "Estimated/probabilistic output" : "Guaranteed output"}{alternative.buildingName ? ` · ${alternative.buildingName}` : ""}</small><span className="craft-plan-route-metrics">{routeOptionDetails(alternative).map((detail) => <small key={detail}>{detail}</small>)}</span>{Array.isArray(alternative.inputs) && alternative.inputs.length ? <em>Inputs: {alternative.inputs.map((input: AnyRecord) => `${routeInputLabel(input)} ×${formatNumber(input.quantity, 2)}`).join(", ")}</em> : <em>No material inputs</em>}</span></label>;
                 })}</fieldset>
                 <div className="craft-plan-review-footer">
                   <label className="field compact-field"><span>Material buffer (% extra)</span><input type="number" min="0" max="1900" step="5" aria-label={`Material buffer for ${review.outputKey}`} value={formatNumber(bufferPercent, 1)} onChange={(event) => updateMaterialBuffer(String(review.outputKey), event.target.value)} /></label>

@@ -110,9 +110,43 @@ export function applyCraftPlanSourceSuggestion<T extends { sourceRules?: Partial
   return { ...draft, sourceRules: structuredClone(suggestion.sourceRules) };
 }
 
-export function orderCraftPlanRouteReviews<T extends { outputKey?: unknown; ambiguous?: unknown }>(reviews: T[]): T[] {
+export function orderCraftPlanRouteReviews<T extends { outputKey?: unknown; ambiguous?: unknown; confirmed?: unknown }>(reviews: T[], confirmedOutputKeys: ReadonlySet<string> = new Set()): T[] {
   return [...reviews].sort((left, right) => Number(Boolean(right.ambiguous)) - Number(Boolean(left.ambiguous))
+    || Number(left.confirmed === true || confirmedOutputKeys.has(String(left.outputKey ?? ""))) - Number(right.confirmed === true || confirmedOutputKeys.has(String(right.outputKey ?? "")))
     || String(left.outputKey ?? "").localeCompare(String(right.outputKey ?? "")));
+}
+
+export type CraftPlanRouteReviewFilter = "all" | "needs-review" | "multiple" | "single";
+
+export function filterCraftPlanRouteReviews<T extends AnyRecord>(
+  reviews: T[],
+  {
+    mode = "all" as CraftPlanRouteReviewFilter,
+    query = "",
+    confirmedOutputKeys = new Set<string>(),
+  } = {},
+): T[] {
+  const normalizedQuery = String(query).trim().toLocaleLowerCase();
+  return orderCraftPlanRouteReviews(Array.isArray(reviews) ? reviews : [], confirmedOutputKeys).filter((review) => {
+    const outputKey = String(review.outputKey ?? "");
+    const confirmed = review.confirmed === true || confirmedOutputKeys.has(outputKey);
+    if (mode === "needs-review" && (!review.ambiguous || confirmed)) return false;
+    if (mode === "multiple" && !review.ambiguous) return false;
+    if (mode === "single" && review.ambiguous) return false;
+    if (!normalizedQuery) return true;
+    const searchable = [
+      outputKey,
+      review.outputName,
+      ...(Array.isArray(review.alternatives) ? review.alternatives.flatMap((alternative: AnyRecord) => [
+        alternative.id,
+        alternative.label,
+        alternative.recipeName,
+        alternative.buildingName,
+        ...(Array.isArray(alternative.inputs) ? alternative.inputs.flatMap((input: AnyRecord) => [input.name, input.key]) : []),
+      ]) : []),
+    ].map((value) => String(value ?? "").toLocaleLowerCase());
+    return searchable.some((value) => value.includes(normalizedQuery));
+  });
 }
 
 export function craftPlanRouteSelection(review: AnyRecord, stagedOverride: unknown = "") {

@@ -79,7 +79,11 @@ function normalizedAlternative(alternative = {}) {
     guaranteedYield: nullableNumber(alternative.guaranteedYield),
     gatheringSource: normalizedGatheringSource(alternative.gatheringSource),
     inputs: (Array.isArray(alternative.inputs) ? alternative.inputs : [])
-      .map((input) => ({ key: inputIdentity(input), quantity: Number(input.quantity ?? 0) }))
+      .map((input) => ({
+        key: inputIdentity(input),
+        name: String(input.name ?? input.label ?? input.tag ?? "").trim() || inputIdentity(input),
+        quantity: Number(input.quantity ?? 0),
+      }))
       .filter((input) => input.key)
       .sort((left, right) => left.key.localeCompare(right.key) || left.quantity - right.quantity),
   };
@@ -111,8 +115,12 @@ export function routeReviewFingerprint(route = {}) {
   const alternatives = validProductionAlternatives(route).map(({
     label: _displayLabel,
     buildingName: _displayBuildingName,
+    inputs,
     ...materialSignature
-  }) => materialSignature);
+  }) => ({
+    ...materialSignature,
+    inputs: inputs.map(({ name: _displayName, ...inputSignature }) => inputSignature),
+  }));
   return fingerprint({ outputKey: outputKey(route), alternatives });
 }
 
@@ -120,14 +128,17 @@ function routeReview(route) {
   const key = outputKey(route);
   if (!key) return null;
   const alternatives = validProductionAlternatives(route);
+  if (!alternatives.length) return null;
   const safest = safestAlternative(alternatives);
   const selectedRouteId = String(route.selectedRecipeId ?? "").trim() || null;
   const calculated = alternatives.find((alternative) => alternative.id === selectedRouteId) ?? null;
   const preselected = calculated && alternativeRisk(calculated) <= alternativeRisk(safest)
     ? calculated
     : safest;
+  const outputName = String(route?.output?.name ?? route?.output?.label ?? route?.output?.tag ?? "").trim();
   return {
     outputKey: key,
+    outputName: outputName || key,
     selectedRouteId,
     preselectedRouteId: preselected?.id ?? null,
     ambiguous: alternatives.length > 1,
@@ -158,8 +169,18 @@ function materialImpact(material = {}) {
   };
 }
 
+export function buildCraftPlanRouteInventory(plan = {}) {
+  const byOutput = new Map();
+  for (const route of planRoutes(plan)) {
+    const review = routeReview(route);
+    if (review && !byOutput.has(review.outputKey)) byOutput.set(review.outputKey, review);
+  }
+  return [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));
+}
+
 export function buildCraftPlanPreview({
   plan = {},
+  routeInventory = [],
   scope,
   configurationRevision,
   baselineRevision,
@@ -168,10 +189,11 @@ export function buildCraftPlanPreview({
   const materials = (Array.isArray(plan.materials) ? plan.materials : [])
     .map(materialImpact)
     .sort((left, right) => left.key.localeCompare(right.key));
-  const byOutput = new Map();
-  for (const route of planRoutes(plan)) {
-    const review = routeReview(route);
-    if (review && !byOutput.has(review.outputKey)) byOutput.set(review.outputKey, review);
+  const byOutput = new Map((Array.isArray(routeInventory) ? routeInventory : [])
+    .filter((review) => review?.outputKey && Array.isArray(review?.alternatives) && review.alternatives.length)
+    .map((review) => [String(review.outputKey), review]));
+  for (const review of buildCraftPlanRouteInventory(plan)) {
+    if (!byOutput.has(review.outputKey)) byOutput.set(review.outputKey, review);
   }
   const routeReviews = [...byOutput.values()].sort((left, right) => left.outputKey.localeCompare(right.outputKey));
   const preview = {
