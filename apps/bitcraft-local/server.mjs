@@ -120,7 +120,7 @@ import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor
 import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
-import { buildCraftPlanPreview, buildCraftPlanRouteInventory, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteInventory, createCraftPlanRouteReviewRepository, selectCraftPlanRouteInventory } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -2224,9 +2224,15 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
     configOverride: staged.config,
     preview: true,
   });
+  let routeSelection = selectCraftPlanRouteInventory({ plan });
+  const unchangedDraft = JSON.stringify(staged.config) === JSON.stringify(storedCraftPlanConfig(staged.plan.id));
+  if (!routeSelection.routeInventory.length && unchangedDraft) {
+    const lastGoodPlan = await computedCraftPlanResponse(getSettings().claimId, { planId: staged.plan.id });
+    routeSelection = selectCraftPlanRouteInventory({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
+  }
   const preview = buildCraftPlanPreview({
     plan,
-    routeInventory: plan.routeInventory,
+    routeInventory: routeSelection.routeInventory,
     scope: staged.plan.scope,
     configurationRevision: staged.plan.revision,
     baselineRevision: plan?.effortProgress?.baselineRevision,
@@ -2236,6 +2242,7 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
   const confirmedKeys = new Set(reviewState.confirmed.map((entry) => entry.outputKey));
   return {
     ...preview,
+    routeEvidence: routeSelection.evidence,
     routeReviews: preview.routeReviews.map((entry) => ({ ...entry, confirmed: confirmedKeys.has(entry.outputKey) })),
   };
 }

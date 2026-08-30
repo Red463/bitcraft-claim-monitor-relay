@@ -11,6 +11,8 @@ test("server wires authenticated settlement and personal previews through non-pe
   assert.match(server, /computedCraftPlanResponseFresh\([^)]*[\s\S]*preview: true/);
   assert.match(server, /configOverride: staged\.config/);
   assert.match(server, /buildCraftPlanPreview/);
+  assert.match(server, /selectCraftPlanRouteInventory/);
+  assert.match(server, /unchangedDraft[\s\S]*lastGoodPlan[\s\S]*allowFallback: true/);
   assert.match(server, /POST[\s\S]*\/api\/local\/admin\/craft-plans[\s\S]*preview/);
   assert.match(server, /POST[\s\S]*\/api\/local\/user\/craft-plans[\s\S]*preview/);
   assert.match(server, /rateLimit\(req, res, "craft-plan-preview", RATE_LIMITS\.expensiveLocal\)/);

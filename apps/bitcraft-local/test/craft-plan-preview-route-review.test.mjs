@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildCraftPlanPreview,
   routeReviewFingerprint,
+  selectCraftPlanRouteInventory,
 } from "../src/server/craftPlanRouteReview.mjs";
 import { compactCraftPlanEffortInput } from "../src/server/craftPlanEffortProgress.mjs";
 import * as craftPlanRouteReview from "../src/server/craftPlanRouteReview.mjs";
@@ -145,6 +146,30 @@ test("the compact zero-stock baseline retains root and nested dependency routes"
 
   assert.deepEqual(preview.routeReviews.map(({ outputKey }) => outputKey), ["items:700", "items:701"]);
   assert.equal(preview.routeReviews[1].ambiguous, true);
+});
+
+test("an unchanged preview can retain selectable routes from last-good plan evidence", () => {
+  const lastGoodRoute = route("items:42", "sawmill", [
+    { id: "sawmill", label: "Saw Fine Plank", probabilityStatus: "guaranteed", inputs: [{ key: "items:2", quantity: 3 }] },
+    { id: "carving", label: "Carve Fine Plank", probabilityStatus: "guaranteed", inputs: [{ key: "items:3", quantity: 2 }] },
+  ]);
+  lastGoodRoute.output.name = "Fine Plank";
+
+  const retained = selectCraftPlanRouteInventory({
+    plan: { materials: [{ key: "items:42", planRequired: 12 }], steps: [] },
+    fallbackPlan: { materials: [{ key: "items:42", sourceRoutes: [lastGoodRoute] }], steps: [] },
+    allowFallback: true,
+  });
+  const changedDraft = selectCraftPlanRouteInventory({
+    plan: { materials: [{ key: "items:42", planRequired: 24 }], steps: [] },
+    fallbackPlan: { materials: [{ key: "items:42", sourceRoutes: [lastGoodRoute] }], steps: [] },
+    allowFallback: false,
+  });
+
+  assert.equal(retained.evidence, "last_good");
+  assert.deepEqual(retained.routeInventory.map(({ outputKey }) => outputKey), ["items:42"]);
+  assert.equal(changedDraft.evidence, "current");
+  assert.deepEqual(changedDraft.routeInventory, []);
 });
 
 test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {
