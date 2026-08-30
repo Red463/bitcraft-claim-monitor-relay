@@ -442,7 +442,9 @@ test("Craft Planning reads the continuously projected Relay catalog without a sc
   assert.doesNotMatch(computedCraftPlan, /passive-crafts\?status=all/);
   assert.match(computedCraftPlan, /craftPlanEffortBaselineKey/);
   assert.match(computedCraftPlan, /craftPlanEffortBaselineCache\.getOrCreate/);
-  assert.match(computedCraftPlan, /compactCraftPlanEffortInput\(await computeCraftPlanOffThread/);
+  assert.match(computedCraftPlan, /const computedBaseline = await computeCraftPlanOffThread/);
+  assert.match(computedCraftPlan, /compactCraftPlanEffortInput\(computedBaseline/);
+  assert.match(computedCraftPlan, /routeInventory: buildCraftPlanRouteInventory\(computedBaseline\)/);
   assert.match(computedCraftPlan, /const livePlan = await computeCraftPlanOffThread/);
   assert.match(computedCraftPlan, /calculateCraftPlanEffortProgress/);
   assert.match(computedCraftPlan, /effortProgress/);

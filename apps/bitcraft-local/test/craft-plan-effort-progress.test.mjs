@@ -275,6 +275,24 @@ test("compact effort input excludes planner drilldown payloads", () => {
   assert.equal("steps" in compact, false);
 });
 
+test("compact baseline input retains an explicitly prepared route inventory for stable review", () => {
+  const routeInventory = [{
+    outputKey: "items:42",
+    outputName: "Fine Plank",
+    selectedRouteId: "sawmill",
+    preselectedRouteId: "sawmill",
+    ambiguous: false,
+    alternatives: [{ id: "sawmill", label: "Saw Fine Plank", inputs: [] }],
+    fingerprint: "route-fingerprint",
+  }];
+
+  const compact = compactCraftPlanEffortInput({ materials: [] }, { routeInventory });
+
+  assert.deepEqual(compact.routeInventory, routeInventory);
+  assert.notEqual(compact.routeInventory, routeInventory, "the cache value must not retain the caller's mutable array");
+  assert.notEqual(compact.routeInventory[0], routeInventory[0], "the cache value must not retain mutable route objects");
+});
+
 test("resource outputs become gathering effort candidates without merging item and cargo ids", () => {
   const candidates = normalizeGameResourceEffortCandidates({ resources: [{
     id: 44,

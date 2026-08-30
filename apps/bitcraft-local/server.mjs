@@ -120,7 +120,7 @@ import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor
 import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
-import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteInventory, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -2226,6 +2226,7 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
   });
   const preview = buildCraftPlanPreview({
     plan,
+    routeInventory: plan.routeInventory,
     scope: staged.plan.scope,
     configurationRevision: staged.plan.revision,
     baselineRevision: plan?.effortProgress?.baselineRevision,
@@ -2539,9 +2540,12 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const baselineKey = `${planId}:${craftPlanEffortBaselineKey(baselineConfig, catalogRevision, CRAFT_PLAN_EFFORT_MODEL_VERSION)}`;
   const baselineStartedAt = Date.now();
   const statsBefore = craftPlanEffortBaselineCache.stats();
-  const baselinePlan = await craftPlanEffortBaselineCache.getOrCreate(baselineKey, async () => (
-    compactCraftPlanEffortInput(await computeCraftPlanOffThread({ config: baselineConfig, detailsByKey, catalogWarnings }))
-  ));
+  const baselinePlan = await craftPlanEffortBaselineCache.getOrCreate(baselineKey, async () => {
+    const computedBaseline = await computeCraftPlanOffThread({ config: baselineConfig, detailsByKey, catalogWarnings });
+    return compactCraftPlanEffortInput(computedBaseline, {
+      routeInventory: buildCraftPlanRouteInventory(computedBaseline),
+    });
+  });
   const baselineStats = craftPlanEffortBaselineCache.stats();
   if (baselineStats.misses > statsBefore.misses) plannerTelemetry.lastBaselineDurationMs = Date.now() - baselineStartedAt;
   plannerTelemetry.baselineHits = baselineStats.hits;
@@ -2605,7 +2609,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   livePlan.gatherNext = completedPublication.candidatePlan.gatherNext;
   const validation = completedPublication.validation;
   const publication = completedPublication;
-  if (options.preview) return { ...livePlan, validation };
+  if (options.preview) return { ...livePlan, validation, routeInventory: baselinePlan.routeInventory ?? [] };
   if (validation.valid) {
     craftPlanCalculationValidationWarnings.delete(planId);
   }

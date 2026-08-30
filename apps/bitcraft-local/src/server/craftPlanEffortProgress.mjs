@@ -124,7 +124,7 @@ function compactFishingRoute(route = {}) {
   };
 }
 
-export function compactCraftPlanEffortInput(plan = {}) {
+export function compactCraftPlanEffortInput(plan = {}, { routeInventory = null } = {}) {
   const effortPlan = plan?.confirmedEffortPlan ?? plan;
   return {
     materials: (Array.isArray(effortPlan?.materials) ? effortPlan.materials : []).map((material) => {
@@ -147,6 +147,7 @@ export function compactCraftPlanEffortInput(plan = {}) {
         })),
       },
     },
+    ...(Array.isArray(routeInventory) ? { routeInventory: structuredClone(routeInventory) } : {}),
   };
 }
 

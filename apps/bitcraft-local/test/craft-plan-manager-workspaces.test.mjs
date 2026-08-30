@@ -18,6 +18,7 @@ import {
   orderCraftPlanRouteReviews,
   stageCraftPlanRouteRecommendations,
 } from "../src/pages/craftPlanManagerModel.ts";
+import * as craftPlanManagerModel from "../src/pages/craftPlanManagerModel.ts";
 
 test("failed calculations keep the authorized audit action available", () => {
   assert.deepEqual(craftPlanUnavailableActions({ canOpenManager: true, canEdit: false }), {
@@ -285,4 +286,22 @@ test("grouped detail review targets include only exact typed outputs with select
     { outputKey: "cargo:7", label: "Cargo Seven" },
   ]);
   assert.deepEqual(craftPlanNeedReviewTargets(cell, []), []);
+});
+
+test("recipe review filters the complete plan inventory by status and human-readable route text", () => {
+  assert.equal(typeof craftPlanManagerModel.filterCraftPlanRouteReviews, "function");
+  const filterCraftPlanRouteReviews = craftPlanManagerModel.filterCraftPlanRouteReviews;
+  const reviews = [
+    { outputKey: "items:7", outputName: "Iron Ingot", ambiguous: true, confirmed: false, alternatives: [{ label: "Bloomery", buildingName: "Forge", inputs: [{ key: "items:2", name: "Hematite" }] }] },
+    { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: true, confirmed: true, alternatives: [{ label: "Crush cargo", buildingName: "Crusher" }] },
+    { outputKey: "items:9", outputName: "Wooden Peg", ambiguous: false, confirmed: true, alternatives: [{ label: "Carve peg", buildingName: "Workbench" }] },
+  ];
+
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "needs-review" }).map(({ outputKey }) => outputKey), ["items:7"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "multiple" }).map(({ outputKey }) => outputKey), ["items:7", "cargo:7"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "single" }).map(({ outputKey }) => outputKey), ["items:9"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "all", query: "crusher" }).map(({ outputKey }) => outputKey), ["cargo:7"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "all", query: "iron ingot" }).map(({ outputKey }) => outputKey), ["items:7"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "all", query: "cargo:7" }).map(({ outputKey }) => outputKey), ["cargo:7"]);
+  assert.deepEqual(filterCraftPlanRouteReviews(reviews, { mode: "all", query: "hematite" }).map(({ outputKey }) => outputKey), ["items:7"]);
 });

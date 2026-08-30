@@ -142,9 +142,9 @@ const preview = {
   validation: { valid: true, errors: [] },
   materials: [{ key: "items:7", kind: "items", id: "7", missingNow: 4, planRequired: 12, requiredNow: 8 }],
   routeReviews: [
-    { outputKey: "items:9", ambiguous: false, confirmed: true, selectedRouteId: "only", preselectedRouteId: "only", fingerprint: "one", alternatives: [{ id: "only", label: "Only route", probabilityStatus: "guaranteed", inputs: [] }] },
-    { outputKey: "items:7", ambiguous: true, confirmed: false, selectedRouteId: "risky", preselectedRouteId: "safe", fingerprint: "ambiguous", alternatives: [
-      { id: "risky", label: "Risky forge", probabilityStatus: "expected", isProbabilistic: true, inputs: [{ key: "items:2", quantity: 3 }] },
+    { outputKey: "items:9", outputName: "Wooden Peg", ambiguous: false, confirmed: true, selectedRouteId: "only", preselectedRouteId: "only", fingerprint: "one", alternatives: [{ id: "only", label: "Only route", probabilityStatus: "guaranteed", inputs: [] }] },
+    { outputKey: "items:7", outputName: "Iron Ingot", ambiguous: true, confirmed: false, selectedRouteId: "risky", preselectedRouteId: "safe", fingerprint: "ambiguous", alternatives: [
+      { id: "risky", label: "Risky forge", probabilityStatus: "expected", isProbabilistic: true, inputs: [{ key: "items:2", name: "Iron Ore", quantity: 3 }] },
       { id: "safe", label: "Safe forge", probabilityStatus: "guaranteed", isProbabilistic: false, expectedYield: 5, expectedPerCraft: 5, expectedPerProgress: 0.5, expectedPerResource: 50, resourceHealth: 100, dropChance: 0.25, dropQuantity: 2, actionsRequired: 4, gatheringMode: "ordinary", gatheringSource: { label: "Forest node" }, producer: { name: "Timber bundle" }, producerRecipe: { name: "Forest extraction", buildingName: "Lumber station", skillName: "Forestry" }, inputs: [{ key: "cargo:2", quantity: 2 }] },
     ] },
   ],
@@ -254,6 +254,71 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
   }
 });
 
+test("recipe review exposes the complete plan route inventory with search, status filters, and a non-route deep-link notice", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const originalDocument = globalThis.document;
+  const focusedRouteIds = [];
+  const routePreview = {
+    ...preview,
+    routeReviews: [
+      ...preview.routeReviews,
+      { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: true, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: "crusher", fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "guaranteed", inputs: [] }] },
+    ],
+  };
+  globalThis.fetch = async (url) => String(url).endsWith("/preview") ? jsonResponse(routePreview) : jsonResponse(loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Codex", quantity: 1 }] } }));
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes", initialOutputKey: "items:1020003" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /No selectable production route is available for items:1020003/);
+    assert.match(elementText(tree), /Iron Ingot/);
+    assert.match(elementText(tree), /Iron Ore \(items:2\)/);
+    assert.match(elementText(tree), /Iron Ore Cargo/);
+    assert.match(elementText(tree), /Wooden Peg/);
+    assert.equal(findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry")).length, 3);
+
+    const search = findElements(tree, (element) => element.type === "input" && element.props["aria-label"] === "Search recipe routes")[0];
+    assert.ok(search);
+    search.props.onChange({ target: { value: "wooden peg" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const searched = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"));
+    assert.equal(searched.length, 1);
+    assert.match(elementText(searched[0]), /Wooden Peg/);
+
+    search.props.onChange({ target: { value: "" } });
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const filters = findElements(tree, (element) => element.type === "div" && element.props["aria-label"] === "Filter recipe routes")[0];
+    const needsReview = findElements(filters, (element) => element.type === "button" && /^Needs review/.test(elementText(element).trim()))[0];
+    assert.ok(needsReview);
+    needsReview.props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    const needsReviewEntries = findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry"));
+    assert.equal(needsReviewEntries.length, 1);
+    assert.match(elementText(needsReviewEntries[0]), /Iron Ingot/);
+
+    const cargoProps = { ...props, initialOutputKey: "cargo:7" };
+    globalThis.document = { getElementById: (id) => ({ focus: () => focusedRouteIds.push(id) }) };
+    await harness.render(CraftPlanManagerDialog, cargoProps);
+    focusedRouteIds.length = 0;
+    tree = await harness.render(CraftPlanManagerDialog, cargoProps);
+    assert.equal(findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry")).length, 3, "a deep link must clear filters that hide its target");
+    assert.deepEqual(focusedRouteIds, ["craft-plan-review-cargo%3A7"], "focus must rerun after the deep-link filter reset reveals the target");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) Reflect.deleteProperty(globalThis, "document");
+    else globalThis.document = originalDocument;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("recipe review explains when a configured plan has no selectable production routes", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
@@ -265,13 +330,14 @@ test("recipe review explains when a configured plan has no selectable production
     : jsonResponse(plan);
   try {
     const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
-    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes", initialOutputKey: "items:7" };
     await harness.render(CraftPlanManagerDialog, props);
     await harness.render(CraftPlanManagerDialog, props);
     await harness.render(CraftPlanManagerDialog, props);
     const tree = await harness.render(CraftPlanManagerDialog, props);
 
     assert.match(elementText(tree), /No selectable recipe routes in this plan/);
+    assert.match(elementText(tree), /No selectable production route is available for items:7/);
     assert.match(elementText(tree), /Raw, gathered, vendor, and unavailable outputs do not require a route choice/);
     assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
   } finally {
