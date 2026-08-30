@@ -94,8 +94,7 @@ function validProductionAlternatives(route = {}) {
     .map(normalizedAlternative)
     .filter((alternative) => alternative.id
       && alternative.isSelectable
-      && !alternative.isTransportRoute
-      && alternative.probabilityStatus !== "unavailable")
+      && !alternative.isTransportRoute)
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 

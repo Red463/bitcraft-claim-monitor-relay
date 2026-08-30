@@ -266,7 +266,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
     routeEvidence: "last_good",
     routeReviews: [
       ...preview.routeReviews,
-      { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: true, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: "crusher", fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "guaranteed", inputs: [] }] },
+      { outputKey: "cargo:7", outputName: "Iron Ore Cargo", ambiguous: true, confirmed: true, selectedRouteId: "crusher", preselectedRouteId: "crusher", fingerprint: "cargo", alternatives: [{ id: "crusher", label: "Crush cargo", buildingName: "Crusher", probabilityStatus: "unavailable", inputs: [] }] },
     ],
   };
   globalThis.fetch = async (url) => String(url).endsWith("/preview") ? jsonResponse(routePreview) : jsonResponse(loadedPlan({ config: { targets: [{ id: "1020003", kind: "items", name: "Codex", quantity: 1 }] } }));
@@ -282,6 +282,7 @@ test("recipe review exposes the complete plan route inventory with search, statu
     assert.match(elementText(tree), /Iron Ingot/);
     assert.match(elementText(tree), /Iron Ore \(items:2\)/);
     assert.match(elementText(tree), /Iron Ore Cargo/);
+    assert.match(elementText(tree), /Probability data unavailable/);
     assert.match(elementText(tree), /Wooden Peg/);
     assert.match(elementText(tree), /Showing selectable routes from the last complete plan calculation/);
     assert.equal(findElements(tree, (element) => element.type === "article" && String(element.props.className).includes("craft-plan-review-entry")).length, 3);
@@ -340,7 +341,7 @@ test("recipe review explains when a configured plan has no selectable production
 
     assert.match(elementText(tree), /No selectable recipe routes in this plan/);
     assert.match(elementText(tree), /No selectable production route is available for items:7/);
-    assert.match(elementText(tree), /Raw, gathered, vendor, and unavailable outputs do not require a route choice/);
+    assert.match(elementText(tree), /Raw, vendor-only, and outputs without a selectable production recipe do not require a route choice/);
     assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
   } finally {
     globalThis.fetch = originalFetch;

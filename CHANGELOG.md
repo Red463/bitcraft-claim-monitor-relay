@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.16] - 2026-08-30
+
+### Fixed
+
+- Kept selectable Recipe Review routes visible when probability evidence is unavailable, with an explicit warning instead of a blank route list.
+
 ## [0.66.2-beta.15] - 2026-08-30
 
 ### Fixed
