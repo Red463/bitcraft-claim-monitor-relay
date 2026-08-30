@@ -7,7 +7,7 @@ import type { AnyRecord } from "../main-app-data";
 import { dateLabel, formatNumber, timeAgo } from "../utils/format";
 import { createDelayedRefreshTask } from "../refresh/pageRefresh.mjs";
 import { buildCraftPlanBankGroups, finalizeLegacyBankMigrations, initiallyExpandedBankPlayerIds, mergeLegacyBankDiscovery, runBankDiscoveryQueue } from "./craftPlanBankSelection.mjs";
-import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, filterCraftPlanRouteReviews, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace, type CraftPlanRouteReviewFilter } from "./craftPlanManagerModel";
+import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, filterCraftPlanRouteReviews, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, resolveCraftPlanRouteReviewState, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace, type CraftPlanRouteReviewFilter } from "./craftPlanManagerModel";
 
 const LOCAL_API = "/api/local";
 const BANK_LOAD_CONCURRENCY = 3;
@@ -866,7 +866,12 @@ export function CraftPlanManagerDialog({
   const deployableGroups = groupDeployablesByPlayer(visibleDeployableSources);
   const tierPresets = state?.sources?.tierPresets ?? [];
   const workstationPresets = state?.sources?.workstationPresets ?? [];
-  const routeReviews = orderCraftPlanRouteReviews(Array.isArray(currentPreview?.routeReviews) ? currentPreview.routeReviews : []);
+  const routeReviewState = resolveCraftPlanRouteReviewState({
+    preview: currentPreview,
+    loadedRouteInventory: Array.isArray(state?.routeInventory) ? state.routeInventory : [],
+    draftDirty,
+  });
+  const routeReviews = orderCraftPlanRouteReviews(routeReviewState.routeReviews);
   const previewValidationErrors = currentPreview?.validation?.valid === false && Array.isArray(currentPreview.validation.errors)
     ? currentPreview.validation.errors
     : [];
@@ -1018,10 +1023,12 @@ export function CraftPlanManagerDialog({
             <div className="split-header"><div><h3 id="craft-plan-recipe-review-heading">Recipe Review</h3><p className="legend">Every selectable production route in the stable plan graph is shown here, with ambiguous and unconfirmed outputs first.</p></div><button className="toolbar-button" type="button" onClick={() => void loadPreview(config)} disabled={previewLoading}>{previewLoading ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} Refresh preview</button></div>
             {previewLoading && !currentPreview ? <div className="craft-plan-audit-state" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={22} /><strong>Loading recipe preview</strong><span>Calculating route choices and material impact without saving.</span></div> : null}
             {previewError ? <div className="alert error" role="alert">Recipe preview could not be loaded: {previewError}</div> : null}
-            {currentPreview?.routeEvidence === "last_good" && routeReviews.length ? <div className="alert info" role="status">Showing selectable routes from the last complete plan calculation because the current live preview did not contain route evidence. Changes remain staged until Save Plan.</div> : null}
+            {routeReviewState.evidence === "loaded_plan" && routeReviews.length ? <div className="alert info" role="status">Showing selectable routes from the saved full calculation. Changes remain staged until Save Plan.</div> : null}
+            {routeReviewState.evidence === "last_good" && routeReviews.length ? <div className="alert info" role="status">Showing selectable routes from the last complete plan calculation because the current live preview did not contain route evidence. Changes remain staged until Save Plan.</div> : null}
+            {!previewLoading && !previewError && routeReviewState.routeLoss ? <div className="alert error" role="alert"><strong>Route evidence was lost.</strong> Refresh the preview and try again before selecting a recipe route.</div> : null}
             {!previewLoading && !previewError && !routeReviews.length && previewValidationErrors.length ? <div className="alert error craft-plan-preview-validation" role="alert"><div><strong>Recipe preview validation failed</strong><span>The planner did not publish route choices from this calculation.</span><ul>{previewValidationErrors.map((entry: AnyRecord, index: number) => <li key={`${String(entry.code ?? "validation")}-${index}`}>{String(entry.message ?? entry.code ?? "Unknown validation error")}</li>)}</ul></div></div> : null}
-            {!previewLoading && !previewError && !routeReviews.length && !previewValidationErrors.length ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>{config.targets.length ? "No selectable recipe routes in this plan" : "No recipe routes to review"}</strong><span>{config.targets.length ? "Raw, vendor-only, and outputs without a selectable production recipe do not require a route choice." : "Add goals, then refresh the preview. Nothing is saved until Save Plan."}</span></div> : null}
-            {!previewLoading && !previewError && initialOutputKey && !reviewedOutputKeys.has(initialOutputKey) ? <div className="alert info craft-plan-route-deep-link-notice" role="status"><div><strong>No selectable production route is available for {initialOutputKey}.</strong><span>Showing every selectable route in this plan’s dependency chain instead.</span></div></div> : null}
+            {!previewLoading && !previewError && !routeReviews.length && !previewValidationErrors.length && !routeReviewState.routeLoss ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>{config.targets.length ? "No selectable recipe routes in this plan" : "No recipe routes to review"}</strong><span>{config.targets.length ? "Raw, vendor-only, and outputs without a selectable production recipe do not require a route choice." : "Add goals, then refresh the preview. Nothing is saved until Save Plan."}</span></div> : null}
+            {!previewLoading && !previewError && !routeReviewState.routeLoss && initialOutputKey && !reviewedOutputKeys.has(initialOutputKey) ? <div className="alert info craft-plan-route-deep-link-notice" role="status"><div><strong>No selectable production route is available for {initialOutputKey}.</strong><span>Showing every selectable route in this plan’s dependency chain instead.</span></div></div> : null}
             {routeReviews.length ? <div className="craft-plan-recipe-toolbar">
               <label className="search"><Search size={16} /><input type="search" aria-label="Search recipe routes" value={routeQuery} onChange={(event) => setRouteQuery(event.target.value)} placeholder="Search materials, recipes, stations, or typed IDs" /></label>
               <div className="craft-plan-recipe-filters" aria-label="Filter recipe routes">{routeFilterOptions.map((option) => <button className="toolbar-button" type="button" aria-pressed={routeFilter === option.id} key={option.id} onClick={() => setRouteFilter(option.id)}>{option.label} {routeFilterCounts[option.id]}</button>)}</div>

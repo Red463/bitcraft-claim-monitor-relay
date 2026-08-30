@@ -12,6 +12,7 @@ import {
   craftPlanNeedReviewTargets,
   craftPlanRecipeReviewHref,
   rebaseCraftPlanDraft,
+  resolveCraftPlanRouteReviewState,
   resolveCraftPlanDraftConflict,
   craftPlanRouteSelection,
   craftPlanSourceSuggestion,
@@ -19,6 +20,17 @@ import {
   stageCraftPlanRouteRecommendations,
 } from "../src/pages/craftPlanManagerModel.ts";
 import * as craftPlanManagerModel from "../src/pages/craftPlanManagerModel.ts";
+
+const roughPlankReviews = [{
+  outputKey: "items:1020003",
+  outputName: "Rough Plank",
+  ambiguous: true,
+  selectedRouteId: "1014176789",
+  alternatives: [
+    { id: "1014176789", label: "Saw Rough Plank", inputs: [] },
+    { id: "102009", label: "Carve Rough Plank", inputs: [] },
+  ],
+}];
 
 test("failed calculations keep the authorized audit action available", () => {
   assert.deepEqual(craftPlanUnavailableActions({ canOpenManager: true, canEdit: false }), {
@@ -33,6 +45,39 @@ test("failed calculations keep the authorized audit action available", () => {
     retry: true,
     managerLabel: null,
   });
+});
+
+test("recipe review retains saved Rough Plank inventory when an unchanged preview omits routes", () => {
+  const state = resolveCraftPlanRouteReviewState({
+    preview: { routeReviews: [] },
+    loadedRouteInventory: roughPlankReviews,
+    draftDirty: false,
+  });
+
+  assert.deepEqual(state.routeReviews, roughPlankReviews);
+  assert.equal(state.evidence, "loaded_plan");
+  assert.equal(state.routeLoss, true);
+});
+
+test("recipe review never reuses saved routes for a changed draft", () => {
+  const state = resolveCraftPlanRouteReviewState({
+    preview: { routeReviews: [] },
+    loadedRouteInventory: roughPlankReviews,
+    draftDirty: true,
+  });
+
+  assert.deepEqual(state.routeReviews, []);
+  assert.notEqual(state.evidence, "loaded_plan");
+});
+
+test("recipe review flags lost raw route evidence instead of a valid empty state", () => {
+  const state = resolveCraftPlanRouteReviewState({
+    preview: { routeReviews: [], routeDiagnostics: { steps: 0, materialSourceRoutes: 1, directInventory: 0, returnedReviews: 0 } },
+    loadedRouteInventory: [],
+    draftDirty: true,
+  });
+
+  assert.equal(state.routeLoss, true);
 });
 
 test("administrator audit preserves exact structured calculation diagnostics", () => {
