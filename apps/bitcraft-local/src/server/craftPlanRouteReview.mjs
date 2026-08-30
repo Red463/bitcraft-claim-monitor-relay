@@ -212,12 +212,13 @@ export function buildCraftPlanRouteEvidence({ plan = {}, fallbackPlan = {}, allo
   };
 }
 
-export function buildCraftPlanRouteResponse(options = {}) {
-  const { routeInventory, evidence, diagnostics } = buildCraftPlanRouteEvidence(options);
+export function buildCraftPlanRouteResponse({ response = {}, evidence = null, includeRouteInventory = true, ...options } = {}) {
+  const routeEvidence = evidence ?? buildCraftPlanRouteEvidence(options);
   return {
-    routeInventory,
-    routeEvidence: evidence,
-    routeDiagnostics: diagnostics,
+    ...response,
+    ...(includeRouteInventory ? { routeInventory: routeEvidence.routeInventory } : {}),
+    routeEvidence: routeEvidence.evidence,
+    routeDiagnostics: routeEvidence.diagnostics,
   };
 }
 

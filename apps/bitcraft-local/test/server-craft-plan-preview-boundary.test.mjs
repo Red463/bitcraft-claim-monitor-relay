@@ -22,15 +22,21 @@ test("server-facing route response keeps full plan reviews for manager and previ
       }],
     }],
   };
-  const managerResponse = buildCraftPlanRouteResponse({ plan });
-  const previewResponse = {
-    ...buildCraftPlanPreview({ plan, routeInventory: managerResponse.routeInventory }),
-    ...managerResponse,
-  };
+  const managerResponse = buildCraftPlanRouteResponse({
+    plan,
+    response: { planRecord: { id: "plan-1" }, plan },
+  });
+  const previewResponse = buildCraftPlanRouteResponse({
+    plan,
+    includeRouteInventory: false,
+    response: buildCraftPlanPreview({ plan, routeInventory: managerResponse.routeInventory }),
+  });
 
+  assert.equal(managerResponse.plan, plan);
   assert.deepEqual(managerResponse.routeInventory.map(({ outputKey }) => outputKey), ["items:1020003"]);
   assert.deepEqual(managerResponse.routeInventory[0].alternatives.map(({ id }) => id), ["1014176789", "102009"]);
   assert.equal(previewResponse.routeEvidence, "current");
+  assert.equal("routeInventory" in previewResponse, false);
   assert.deepEqual(previewResponse.routeDiagnostics, {
     steps: 0,
     materialSourceRoutes: 1,
