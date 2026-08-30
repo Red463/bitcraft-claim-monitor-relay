@@ -155,9 +155,13 @@ test("recipe review uses the calculated route unless the draft explicitly stages
   assert.deepEqual(stageCraftPlanRouteRecommendations({ routeOverrides: { "items:8": "route-kept" } }, [
     { outputKey: "items:7", selectedRouteId: "route-risky", preselectedRouteId: "route-safe" },
     { outputKey: "items:8", selectedRouteId: "route-other", preselectedRouteId: "route-recommended" },
+    { outputKey: "items:9", selectedRouteId: "route-only", preselectedRouteId: "route-only" },
+    { outputKey: "items:10", selectedRouteId: "route-safe", preselectedRouteId: "route-safe", ambiguous: true },
+    { outputKey: "items:11", preselectedRouteId: "route-default" },
   ]).routeOverrides, {
     "items:7": "route-safe",
     "items:8": "route-kept",
+    "items:11": "route-default",
   });
   assert.equal(craftPlanRouteSelection(review, "route-safe"), "route-safe");
 });

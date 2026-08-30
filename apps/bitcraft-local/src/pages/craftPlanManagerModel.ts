@@ -159,8 +159,9 @@ export function stageCraftPlanRouteRecommendations<T extends { routeOverrides?: 
   for (const review of Array.isArray(reviews) ? reviews : []) {
     const outputKey = String(review.outputKey ?? "").trim();
     if (!outputKey || excludedOutputKeys.has(outputKey) || String(routeOverrides[outputKey] ?? "").trim()) continue;
-    const recommended = String(review.preselectedRouteId ?? review.selectedRouteId ?? "").trim();
-    if (recommended) routeOverrides[outputKey] = recommended;
+    const selected = String(review.selectedRouteId ?? "").trim();
+    const recommended = String(review.preselectedRouteId ?? selected).trim();
+    if (recommended && recommended !== selected) routeOverrides[outputKey] = recommended;
   }
   return { ...draft, routeOverrides };
 }
