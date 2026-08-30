@@ -103,6 +103,10 @@ function safestAlternative(alternatives) {
   })[0] ?? null;
 }
 
+function alternativeRisk(alternative) {
+  return alternative?.probabilityStatus === "guaranteed" && alternative?.isProbabilistic !== true ? 0 : 1;
+}
+
 export function routeReviewFingerprint(route = {}) {
   const alternatives = validProductionAlternatives(route).map(({
     label: _displayLabel,
@@ -117,10 +121,15 @@ function routeReview(route) {
   if (!key) return null;
   const alternatives = validProductionAlternatives(route);
   const safest = safestAlternative(alternatives);
+  const selectedRouteId = String(route.selectedRecipeId ?? "").trim() || null;
+  const calculated = alternatives.find((alternative) => alternative.id === selectedRouteId) ?? null;
+  const preselected = calculated && alternativeRisk(calculated) <= alternativeRisk(safest)
+    ? calculated
+    : safest;
   return {
     outputKey: key,
-    selectedRouteId: String(route.selectedRecipeId ?? "").trim() || null,
-    preselectedRouteId: safest?.id ?? null,
+    selectedRouteId,
+    preselectedRouteId: preselected?.id ?? null,
     ambiguous: alternatives.length > 1,
     alternatives,
     fingerprint: routeReviewFingerprint(route),

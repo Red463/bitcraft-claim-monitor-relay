@@ -746,6 +746,16 @@ function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOve
   });
   if (memo.has(memoKey)) return memo.get(memoKey);
   memo.set(memoKey, false);
+  const output = recipeOutputs(recipe).find((candidate) => blockedKeys.includes(recipeKey(stackKind(candidate), stackId(candidate))))
+    ?? recipeOutputs(recipe)[0];
+  const outputKey = output ? recipeKey(stackKind(output), stackId(output)) : "";
+  const outputDetail = detailsByKey.get(outputKey);
+  const outputTarget = outputDetail
+    ? mergeDetailTarget(outputDetail, stackDisplay(output, recipe.craftedItems, 0))
+    : output ? stackDisplay(output, recipe.craftedItems, 0) : null;
+  const reciprocalCycle = outputTarget
+    ? reciprocalCycleForRecipe(recipe, outputTarget, detailsByKey, routeOverrides)
+    : null;
   for (const [index, input] of recipeInputs(recipe).entries()) {
     const inputKey = recipeKey(stackKind(input), stackId(input));
     if (blockedKeys.includes(inputKey)) return false;
@@ -757,6 +767,7 @@ function recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOve
     const nextBlockedKeys = [...blockedKeys, inputKey];
     const productionRecipes = recipes.filter((candidate) => !recipeLooksTransportRoute(candidate));
     if (!productionRecipes.length) continue;
+    if (reciprocalCycle?.inputIndex === index) continue;
     const overridden = productionRecipes.find((candidate) => recipeMatchesOverride(candidate, routeOverrides[inputKey]));
     if (overridden && recipeExpansionIsSelectable(overridden, nextBlockedKeys, detailsByKey, routeOverrides, depth + 1, maxDepth, memo)) continue;
     if (!productionRecipes.some((candidate) => candidate !== overridden
@@ -779,6 +790,82 @@ function routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrid
     ...recipe,
     isSelectable: recipeExpansionIsSelectable(recipe, blockedKeys, detailsByKey, routeOverrides, 0, 64, memo),
   }));
+}
+
+function reciprocalCycleForRecipe(recipe, target, detailsByKey, routeOverrides) {
+  const targetKey = recipeKey(target.kind, target.id);
+  const targetOutput = recipeOutputs(recipe).find((output) => recipeKey(stackKind(output), stackId(output)) === targetKey);
+  const targetOutputPerCraft = toNumber(targetOutput?.quantity ?? recipe.outputQuantity) || 1;
+  const targetFamily = String(target.tag ?? target.name ?? "").trim();
+  if (!/\bPlant$/i.test(targetFamily)) return null;
+  for (const [inputIndex, input] of recipeInputs(recipe).entries()) {
+    const inputKey = recipeKey(stackKind(input), stackId(input));
+    const detail = detailsByKey.get(inputKey);
+    if (!detail) continue;
+    const material = mergeDetailTarget(detail, stackDisplay(input, recipe.consumedItems, inputIndex));
+    const materialFamily = String(material.tag ?? material.name ?? "").trim();
+    if (!/\bSeeds?$/i.test(materialFamily)) continue;
+    const recipes = recipesForTarget(detail, material, detailsByKey).filter((candidate) => !recipeLooksTransportRoute(candidate));
+    const overridden = recipes.find((candidate) => recipeMatchesOverride(candidate, routeOverrides[inputKey]));
+    const candidates = overridden ? [overridden] : recipes;
+    for (const producer of candidates) {
+      const producerOutput = recipeOutputs(producer).find((output) => recipeKey(stackKind(output), stackId(output)) === inputKey);
+      const producerInput = recipeInputs(producer).find((candidate) => recipeKey(stackKind(candidate), stackId(candidate)) === targetKey);
+      const inputPerCraft = toNumber(input.quantity);
+      const outputPerRecycle = toNumber(producerOutput?.guaranteedQuantity ?? producerOutput?.quantity);
+      const targetPerRecycle = toNumber(producerInput?.quantity);
+      if (!(inputPerCraft > 0 && outputPerRecycle > 0 && targetPerRecycle > 0)) continue;
+      return {
+        inputIndex,
+        inputKey,
+        inputPerCraft,
+        material,
+        producer,
+        producerRecipes: recipes,
+        outputPerRecycle,
+        targetPerRecycle,
+        targetOutputPerCraft,
+      };
+    }
+  }
+  return null;
+}
+
+function productiveRenewableCycleForRecipe(recipe, target, detailsByKey, routeOverrides) {
+  const cycle = reciprocalCycleForRecipe(recipe, target, detailsByKey, routeOverrides);
+  if (!cycle) return null;
+  const producerMetadata = routeMetadata(cycle.producer, cycle.material);
+  if (cycle.producer.isProbabilistic === true || cycle.producer.isExpectedYield === true || producerMetadata.probabilityStatus !== "guaranteed") return null;
+  if (cycle.outputPerRecycle * cycle.targetOutputPerCraft <= cycle.inputPerCraft * cycle.targetPerRecycle) return null;
+  return cycle;
+}
+
+function renewableCraftBalance({ netOutput, targetOutputPerCraft, inputPerCraft, outputPerRecycle, targetPerRecycle, availableInput }) {
+  const starterInput = inputPerCraft * Math.ceil(targetPerRecycle / targetOutputPerCraft);
+  const sourceCapacity = Math.max(starterInput, Math.max(0, toNumber(availableInput)));
+  const craftCountFor = (recycleCraftCount) => Math.ceil((netOutput + targetPerRecycle * recycleCraftCount) / targetOutputPerCraft);
+  const isCovered = (recycleCraftCount) => inputPerCraft * craftCountFor(recycleCraftCount) <= sourceCapacity + outputPerRecycle * recycleCraftCount;
+  let upper = 0;
+  if (!isCovered(upper)) {
+    upper = 1;
+    while (!isCovered(upper) && upper < Number.MAX_SAFE_INTEGER / 2) upper *= 2;
+  }
+  let lower = 0;
+  while (lower < upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    if (isCovered(middle)) upper = middle;
+    else lower = middle + 1;
+  }
+  const recycleCraftCount = lower;
+  const craftCount = craftCountFor(recycleCraftCount);
+  const grossInput = inputPerCraft * craftCount;
+  return {
+    craftCount,
+    recycleCraftCount,
+    grossInput,
+    sourceInput: Math.min(grossInput, sourceCapacity),
+    recycledInput: Math.max(0, grossInput - sourceCapacity),
+  };
 }
 
 function sourceRoutesForTarget(target, detailsByKey, routeOverrides, gatheredItemKeys, viabilityMemo = new Map()) {
@@ -874,10 +961,36 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
     const output = recipeOutputs(selected).find((stackItem) => stackMatches(stackItem, normalizedTarget));
     const rawOutputPerCraft = toNumber(metadata.expectedYield ?? output?.quantity ?? selected.outputQuantity) || 1;
     const outputPerCraft = Math.max(0.0001, rawOutputPerCraft);
-    const unbufferedCraftCount = Math.ceil(quantityToCraft / outputPerCraft);
-    const multiplier = selected.isProbabilistic === true ? multipliers[key]?.multiplier ?? 1 : 1;
-    const craftCount = Math.ceil(quantityToCraft * multiplier / outputPerCraft);
+    let unbufferedCraftCount = Math.ceil(quantityToCraft / outputPerCraft);
+    const probabilisticRoute = metadata.isProbabilistic === true || selected.isExpectedYield === true || metadata.probabilityStatus !== "guaranteed";
+    const multiplier = probabilisticRoute ? multipliers[key]?.multiplier ?? 1 : 1;
+    let craftCount = Math.ceil(quantityToCraft * multiplier / outputPerCraft);
     const section = sectionForMaterial(normalizedTarget, selected);
+    const renewableCycle = probabilisticRoute
+      ? null
+      : productiveRenewableCycleForRecipe(selected, normalizedTarget, detailsByKey, routeOverrides);
+    const reciprocalCycle = renewableCycle
+      ?? reciprocalCycleForRecipe(selected, normalizedTarget, detailsByKey, routeOverrides);
+    const renewableBalance = renewableCycle
+      ? renewableCraftBalance({
+          netOutput: quantityToCraft,
+          targetOutputPerCraft: renewableCycle.targetOutputPerCraft,
+          inputPerCraft: renewableCycle.inputPerCraft,
+          outputPerRecycle: renewableCycle.outputPerRecycle,
+          targetPerRecycle: renewableCycle.targetPerRecycle,
+          availableInput: remainingSupply.get(renewableCycle.inputKey) ?? 0,
+        })
+      : null;
+    if (renewableBalance) {
+      craftCount = renewableBalance.craftCount;
+      unbufferedCraftCount = renewableBalance.craftCount;
+      addRequired(
+        required,
+        normalizedTarget,
+        renewableBalance.recycleCraftCount * renewableCycle.targetPerRecycle,
+        section,
+      );
+    }
     const visibleRecipes = routeAlternativesForUi(recipes, blockedKeys, detailsByKey, routeOverrides, viabilityMemo);
     const alternatives = visibleRecipes.map((recipe) => ({
       id: recipeId(recipe),
@@ -916,6 +1029,8 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
       const requiredQuantity = toNumber(input.quantity) * craftCount;
       const usageKey = recipeKey(material.kind, material.id);
       const currentUsages = usages.get(usageKey) ?? [];
+      const renewableInput = renewableCycle && renewableBalance && index === renewableCycle.inputIndex;
+      const reciprocalBoundaryInput = !renewableInput && reciprocalCycle && index === reciprocalCycle.inputIndex;
       currentUsages.push({
         outputKey: key,
         output: { ...normalizedTarget, quantity: craftCount * outputPerCraft },
@@ -923,6 +1038,8 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
         selectedRecipeId: recipeId(selected),
         alternatives,
         requiredQuantity,
+        sourceRequiredQuantity: renewableInput ? renewableBalance.sourceInput : undefined,
+        recycledQuantity: renewableInput ? renewableBalance.recycledInput : undefined,
         quantityPerCraft: toNumber(input.quantity),
         craftCount,
         unbufferedCraftCount,
@@ -931,9 +1048,83 @@ function buildRequirementMapPass(targets, detailsByKey, routeOverrides, gathered
         section,
       });
       usages.set(usageKey, currentUsages);
+      if (renewableInput) {
+        addRequired(required, material, renewableBalance.sourceInput, sectionForMaterial(material, renewableCycle.producer));
+        const availableInput = remainingSupply.get(renewableCycle.inputKey) ?? 0;
+        remainingSupply.set(renewableCycle.inputKey, Math.max(0, availableInput - Math.min(availableInput, renewableBalance.sourceInput)));
+        return {
+          ...material,
+          quantity: requiredQuantity,
+          sourceQuantity: renewableBalance.sourceInput,
+          recycledQuantity: renewableBalance.recycledInput,
+        };
+      }
+      if (reciprocalBoundaryInput) {
+        const availableInput = remainingSupply.get(usageKey) ?? 0;
+        const allocatedInput = Math.min(requiredQuantity, availableInput);
+        remainingSupply.set(usageKey, availableInput - allocatedInput);
+        addRequired(required, material, requiredQuantity, sectionForMaterial(material, selected));
+        return { ...material, quantity: requiredQuantity };
+      }
       resolve(material, requiredQuantity, [...stack, key], selected);
       return { ...material, quantity: requiredQuantity };
     });
+    if (renewableCycle && renewableBalance?.recycleCraftCount > 0) {
+      const recycleCount = renewableBalance.recycleCraftCount;
+      const recycleMetadata = routeMetadata(renewableCycle.producer, renewableCycle.material);
+      const recycleInputs = recipeInputs(renewableCycle.producer).map((input, index) => {
+        const material = enrichDisplayFromDetails(stackDisplay(input, renewableCycle.producer.consumedItems, index), detailsByKey);
+        const requiredQuantity = toNumber(input.quantity) * recycleCount;
+        const inputKey = recipeKey(material.kind, material.id);
+        const currentUsages = usages.get(inputKey) ?? [];
+        currentUsages.push({
+          outputKey: renewableCycle.inputKey,
+          output: { ...renewableCycle.material, quantity: renewableCycle.outputPerRecycle * recycleCount },
+          recipeName: String(renewableCycle.producer.name ?? renewableCycle.material.name),
+          selectedRecipeId: recipeId(renewableCycle.producer),
+          alternatives: [],
+          requiredQuantity,
+          quantityPerCraft: toNumber(input.quantity),
+          craftCount: recycleCount,
+          unbufferedCraftCount: recycleCount,
+          multiplier: 1,
+          buildingName: renewableCycle.producer.buildingName ?? null,
+          section: sectionForMaterial(renewableCycle.material, renewableCycle.producer),
+        });
+        usages.set(inputKey, currentUsages);
+        if (inputKey !== key) resolve(material, requiredQuantity, [...stack, key, renewableCycle.inputKey], renewableCycle.producer);
+        return { ...material, quantity: requiredQuantity, recycled: inputKey === key };
+      });
+      steps.push({
+        id: recipeId(renewableCycle.producer),
+        recipeName: String(renewableCycle.producer.name ?? renewableCycle.material.name),
+        ...recycleMetadata,
+        output: { ...renewableCycle.material, quantity: renewableCycle.outputPerRecycle * recycleCount },
+        inputs: recycleInputs,
+        craftCount: recycleCount,
+        unbufferedCraftCount: recycleCount,
+        multiplier: 1,
+        outputPerCraft: renewableCycle.outputPerRecycle,
+        unbufferedExpectedEffort: recycleCount * Math.max(1, toNumber(renewableCycle.producer.actionsRequired)),
+        expectedEffort: recycleCount * Math.max(1, toNumber(renewableCycle.producer.actionsRequired)),
+        expectedResourceEquivalents: null,
+        section: sectionForMaterial(renewableCycle.material, renewableCycle.producer),
+        buildingName: renewableCycle.producer.buildingName ?? null,
+        alternatives: renewableCycle.producerRecipes.map((recipe) => ({
+          id: recipeId(recipe),
+          label: recipeLabel(recipe),
+          ...routeMetadata(recipe, renewableCycle.material),
+          isSelectable: recipe === renewableCycle.producer || recipeExpansionIsSelectable(recipe, [...stack, key, renewableCycle.inputKey], detailsByKey, routeOverrides, 0, 64, viabilityMemo),
+          buildingName: recipe.buildingName ?? recipe.building_name ?? null,
+          inputs: recipeInputs(recipe).map((input, index) => ({
+            ...enrichDisplayFromDetails(stackDisplay(input, recipe.consumedItems, index), detailsByKey),
+            quantity: toNumber(input.quantity),
+          })),
+        })),
+        selectedRecipeId: recipeId(renewableCycle.producer),
+        renewableCycle: { targetKey: key, starterInput: renewableBalance.sourceInput, recycledInput: renewableBalance.recycledInput },
+      });
+    }
     steps.push({
       id: recipeId(selected),
       recipeName: String(selected.name ?? normalizedTarget.name),
@@ -2085,7 +2276,7 @@ export function computeCraftPlan({
       ...target,
       ...enrichedTarget,
       quantity: target.quantity,
-      missing: material?.missing ?? 0,
+      missing: Math.max(0, target.quantity - (material?.available ?? 0) - (material?.inProgress ?? 0)),
       available: material?.available ?? 0,
       inProgress: material?.inProgress ?? 0,
       guaranteedInProgress: material?.guaranteedInProgress ?? 0,

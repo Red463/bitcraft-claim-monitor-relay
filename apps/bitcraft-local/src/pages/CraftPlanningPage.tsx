@@ -314,7 +314,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
   const selectedNeedSourceRoutes = selectedNeed ? groupNeedCellSourceRoutes(selectedNeed, detailSteps) : [];
   const selectedNeedUsages = selectedNeed ? groupNeedCellRecipeUsages(selectedNeed) : [];
   const selectedNeedKey = selectedNeed?.items?.[0]?.key ?? (selectedNeed ? itemKey(selectedNeed.item) : "");
-  const selectedNeedReviewTargets = selectedNeed ? craftPlanNeedReviewTargets(selectedNeed) : [];
+  const selectedNeedReviewTargets = selectedNeed ? craftPlanNeedReviewTargets(selectedNeed, selectedNeedSourceRoutes) : [];
   const selectedMultiplier = Number(config.multipliers?.[selectedNeedKey]?.multiplier) || 1;
   const selectedMaterialPresentation = selectedNeed ? craftPlanNeedCellPresentation(selectedNeed) : null;
   React.useEffect(() => {
@@ -540,6 +540,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                       <div>
                         <strong>Needed for {quantity(usage.output?.quantity)} {usage.output?.name ?? "planned output"}</strong>
                         <p className="legend">Uses {quantity(usage.requiredQuantity)} total from this cell</p>
+                        {usage.recycledQuantity > 0 ? <p className="legend">Renewable loop: {quantity(usage.requiredQuantity)} used in total, with {quantity(usage.recycledQuantity)} supplied by recycling and {quantity(usage.sourceRequiredQuantity)} from starter stock.</p> : null}
                       </div>
                     </div>
                     {selectedRecipe && Array.isArray(selectedRecipe.inputs) && selectedRecipe.inputs.length ? (
@@ -763,7 +764,7 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                 return <button className={selected ? "active" : ""} type="button" aria-pressed={selected} key={group.section} onClick={() => toggleSection(group.section)}>{group.section} <span>{group.rows.length}</span></button>;
               })}
             </div> : null}
-            <div className="craft-plan-needs-legend" aria-label="Needs board legend"><span className="covered">Covered for material planning</span><span className="short">More needed</span><span className="active icon-state"><Factory size={11} aria-hidden="true" />Guaranteed craft counted</span><span className="approximate icon-state"><EqualApproximately size={12} aria-hidden="true" />Approximate requirement</span><span className="estimated-output icon-state"><Factory size={11} aria-hidden="true" />Estimated craft output; counted for material planning</span><span className="blocked">Recipe cannot start from counted stock</span></div>
+            <div className="craft-plan-needs-legend" aria-label="Needs board legend"><span className="covered">Covered for material planning</span><span className="short">More needed</span><span className="active icon-state"><Factory size={11} aria-hidden="true" />Guaranteed craft counted</span><span className="approximate icon-state"><EqualApproximately size={12} aria-hidden="true" />Approximate requirement</span><span className="estimated-output icon-state"><Factory size={11} aria-hidden="true" />Estimated craft output; counted for material planning</span><span className="blocked">No direct stock or craft coverage</span></div>
             {filteredNeedsBoard.length ? <div className="craft-plan-needs-scroll" tabIndex={0} aria-label="Craft plan needs board">
               <div className="craft-plan-needs-table-wrap craft-plan-needs-matrix">
                 <table className="craft-plan-needs-table">

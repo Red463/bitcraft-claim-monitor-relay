@@ -267,15 +267,22 @@ test("three-way draft rebase keeps overlapping server values explicit until reso
   });
 });
 
-test("grouped detail review targets retain every exact typed output", () => {
-  assert.deepEqual(craftPlanNeedReviewTargets({ items: [
+test("grouped detail review targets include only exact typed outputs with selectable production routes", () => {
+  const cell = { items: [
     { key: "items:7", name: "Item Seven" },
     { key: "cargo:7", name: "Cargo Seven" },
     { key: "items:9", name: "Later Grouped Item" },
     { key: "items:7", name: "Duplicate" },
-  ] }), [
+  ] };
+  const routes = [
+    { output: { key: "items:7" }, alternatives: [{ id: "item-route", isSelectable: true }] },
+    { output: { key: "cargo:7" }, alternatives: [{ id: "cargo-route", isSelectable: true }] },
+    { output: { key: "items:9" }, alternatives: [{ id: "blocked-route", isSelectable: false }] },
+  ];
+
+  assert.deepEqual(craftPlanNeedReviewTargets(cell, routes), [
     { outputKey: "items:7", label: "Item Seven" },
     { outputKey: "cargo:7", label: "Cargo Seven" },
-    { outputKey: "items:9", label: "Later Grouped Item" },
   ]);
+  assert.deepEqual(craftPlanNeedReviewTargets(cell, []), []);
 });

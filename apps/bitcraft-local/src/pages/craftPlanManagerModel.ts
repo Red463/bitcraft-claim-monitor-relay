@@ -161,11 +161,20 @@ export function craftPlanNeedCellPresentation(cell: AnyRecord) {
   };
 }
 
-export function craftPlanNeedReviewTargets(cell: AnyRecord) {
+export function craftPlanNeedReviewTargets(cell: AnyRecord, routes: AnyRecord[] = []) {
+  const reviewableOutputKeys = new Set((Array.isArray(routes) ? routes : []).flatMap((route: AnyRecord) => {
+    const alternatives = (Array.isArray(route?.alternatives) ? route.alternatives : [])
+      .filter((alternative: AnyRecord) => String(alternative?.id ?? "").trim()
+        && alternative?.isSelectable !== false
+        && alternative?.isTransportRoute !== true
+        && alternative?.probabilityStatus !== "unavailable");
+    const outputKey = String(route?.key ?? route?.output?.key ?? "").trim();
+    return outputKey && alternatives.length ? [outputKey] : [];
+  }));
   const seen = new Set<string>();
   return (Array.isArray(cell?.items) ? cell.items : []).flatMap((item: AnyRecord) => {
     const outputKey = String(item.key ?? "").trim();
-    if (!outputKey || seen.has(outputKey)) return [];
+    if (!outputKey || seen.has(outputKey) || !reviewableOutputKeys.has(outputKey)) return [];
     seen.add(outputKey);
     return [{ outputKey, label: String(item.name ?? item.label ?? outputKey) }];
   });

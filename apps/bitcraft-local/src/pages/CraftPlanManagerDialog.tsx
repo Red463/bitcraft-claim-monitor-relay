@@ -427,6 +427,13 @@ export function CraftPlanManagerDialog({
     }
   }, [adminApi, config, ownerManaged, planId]);
 
+  const requestPreview = React.useCallback((draft: CraftPlanConfig) => {
+    const path = ownerManaged
+      ? `/user/craft-plans/${encodeURIComponent(planId)}/preview`
+      : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
+    return adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
+  }, [adminApi, ownerManaged, planId]);
+
   async function compareCheckpoints() {
     if (!comparisonFrom || !comparisonTo) return;
     const requestId = ++comparisonRequestId.current;
@@ -788,13 +795,25 @@ export function CraftPlanManagerDialog({
       const path = ownerManaged ? `/user/craft-plans/${encodeURIComponent(planId)}` : `/admin/craft-plans/${encodeURIComponent(planId)}`;
       let confirmations = Object.values(routeConfirmations);
       if (confirmPublicRoutes) {
-        submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, publicRouteGate ?? [], suppressedRouteRecommendations.current);
+        let reviews = publicRouteGate ?? [];
+        let latestPreview: AnyRecord | null = null;
+        let converged = false;
+        for (let attempt = 0; attempt < 16; attempt += 1) {
+          submittedConfig = stageCraftPlanRouteRecommendations(submittedConfig, reviews, suppressedRouteRecommendations.current);
+          latestPreview = await requestPreview(submittedConfig);
+          reviews = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : []);
+          const nextConfig = stageCraftPlanRouteRecommendations(submittedConfig, reviews, suppressedRouteRecommendations.current);
+          if (JSON.stringify(nextConfig) === JSON.stringify(submittedConfig)) {
+            converged = true;
+            break;
+          }
+          submittedConfig = nextConfig;
+        }
+        if (!converged) throw new Error("Recipe recommendations did not settle. Refresh the plan and try again.");
         updateConfig(submittedConfig);
-        const latestPreview = await loadPreview(submittedConfig);
-        const gatedKeys = new Set((publicRouteGate ?? []).map((entry) => String(entry.outputKey)));
-        confirmations = orderCraftPlanRouteReviews(Array.isArray(latestPreview?.routeReviews) ? latestPreview.routeReviews : [])
+        confirmations = reviews
           .map((entry: AnyRecord) => ({ entry, selectedRouteId: craftPlanRouteSelection(entry, submittedConfig.routeOverrides[String(entry.outputKey)]) }))
-          .filter(({ entry, selectedRouteId }) => gatedKeys.has(String(entry.outputKey)) && selectedRouteId)
+          .filter(({ entry, selectedRouteId }) => entry.ambiguous === true && selectedRouteId)
           .map(({ entry, selectedRouteId }) => ({ outputKey: String(entry.outputKey), fingerprint: String(entry.fingerprint), selectedRouteId }));
       }
       await adminApi(path, { method: "PUT", body: JSON.stringify({ name: submittedConfig.name, config: submittedConfig, expectedRevision: revision, routeReviewConfirmations: confirmations }) });
@@ -834,6 +853,9 @@ export function CraftPlanManagerDialog({
   const tierPresets = state?.sources?.tierPresets ?? [];
   const workstationPresets = state?.sources?.workstationPresets ?? [];
   const routeReviews = orderCraftPlanRouteReviews(Array.isArray(currentPreview?.routeReviews) ? currentPreview.routeReviews : []);
+  const previewValidationErrors = currentPreview?.validation?.valid === false && Array.isArray(currentPreview.validation.errors)
+    ? currentPreview.validation.errors
+    : [];
   const reviewedOutputKeys = new Set(routeReviews.map((review: AnyRecord) => String(review.outputKey)));
   const orphanMultipliers = Object.entries(config.multipliers).filter(([outputKey]) => !reviewedOutputKeys.has(outputKey));
   const previewMaterials = new Map((Array.isArray(currentPreview?.materials) ? currentPreview.materials : []).map((material: AnyRecord) => [String(material.key), craftPlanMaterialPresentation(material)]));
@@ -968,7 +990,8 @@ export function CraftPlanManagerDialog({
             <div className="split-header"><div><h3 id="craft-plan-recipe-review-heading">Recipe Review</h3><p className="legend">Ambiguous typed outputs appear first. Choose comparison cards, confirm the review in this draft, then use the single Save Plan action.</p></div><button className="toolbar-button" type="button" onClick={() => void loadPreview(config)} disabled={previewLoading}>{previewLoading ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />} Refresh preview</button></div>
             {previewLoading && !currentPreview ? <div className="craft-plan-audit-state" role="status" aria-live="polite"><LoaderCircle className="is-spinning" size={22} /><strong>Loading recipe preview</strong><span>Calculating route choices and material impact without saving.</span></div> : null}
             {previewError ? <div className="alert error" role="alert">Recipe preview could not be loaded: {previewError}</div> : null}
-            {!previewLoading && !previewError && !routeReviews.length ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>No recipe routes to review</strong><span>Add goals, then refresh the preview. Nothing is saved until Save Plan.</span></div> : null}
+            {!previewLoading && !previewError && !routeReviews.length && previewValidationErrors.length ? <div className="alert error craft-plan-preview-validation" role="alert"><div><strong>Recipe preview validation failed</strong><span>The planner did not publish route choices from this calculation.</span><ul>{previewValidationErrors.map((entry: AnyRecord, index: number) => <li key={`${String(entry.code ?? "validation")}-${index}`}>{String(entry.message ?? entry.code ?? "Unknown validation error")}</li>)}</ul></div></div> : null}
+            {!previewLoading && !previewError && !routeReviews.length && !previewValidationErrors.length ? <div className="craft-plan-audit-state compact"><Route size={22} /><strong>{config.targets.length ? "No selectable recipe routes in this plan" : "No recipe routes to review"}</strong><span>{config.targets.length ? "Raw, gathered, vendor, and unavailable outputs do not require a route choice." : "Add goals, then refresh the preview. Nothing is saved until Save Plan."}</span></div> : null}
             {routeReviews.length ? <div className="craft-plan-review-list">{routeReviews.map((review: AnyRecord) => {
               const selectedRouteId = craftPlanRouteSelection(review, config.routeOverrides[review.outputKey]);
               const material = previewMaterials.get(String(review.outputKey));

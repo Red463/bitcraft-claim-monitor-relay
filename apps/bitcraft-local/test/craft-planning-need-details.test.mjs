@@ -181,6 +181,27 @@ test("groupNeedCellRecipeUsages groups repeated usages by output item", () => {
   assert.equal(strippedWood.requiredQuantity, 1752);
 });
 
+test("groupNeedCellRecipeUsages preserves gross usage while keeping renewable source and recycled quantities visible", () => {
+  const groups = groupNeedCellRecipeUsages({
+    items: [{
+      recipeUsages: [{
+        outputKey: "items:300",
+        output: { key: "items:300", id: "300", kind: "items", name: "Basic Starbulb Plant", quantity: 15 },
+        selectedRecipeId: "grow-from-seed",
+        recipeName: "Grow Basic Starbulb Plant",
+        requiredQuantity: 15,
+        sourceRequiredQuantity: 1,
+        recycledQuantity: 14,
+        craftCount: 15,
+      }],
+    }],
+  });
+
+  assert.equal(groups[0].requiredQuantity, 15);
+  assert.equal(groups[0].sourceRequiredQuantity, 1);
+  assert.equal(groups[0].recycledQuantity, 14);
+});
+
 test("groupNeedCellSourceRoutes finds selected plan recipes that create the clicked item", () => {
   const routes = groupNeedCellSourceRoutes(roughLogCell, [
     {

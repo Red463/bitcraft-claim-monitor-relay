@@ -254,6 +254,65 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
   }
 });
 
+test("recipe review explains when a configured plan has no selectable production routes", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = loadedPlan({ config: { targets: [{ id: "7", kind: "items", name: "Raw Material", quantity: 1 }] } });
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({ ...preview, routeReviews: [], materials: [], validation: { valid: true, errors: [] } })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /No selectable recipe routes in this plan/);
+    assert.match(elementText(tree), /Raw, gathered, vendor, and unavailable outputs do not require a route choice/);
+    assert.doesNotMatch(elementText(tree), /Add goals, then refresh the preview/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("recipe review exposes calculation validation failures instead of a blank route list", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const plan = loadedPlan({ config: { targets: [{ id: "7", kind: "items", name: "Broken Route", quantity: 1 }] } });
+  globalThis.fetch = async (url) => String(url).endsWith("/preview")
+    ? jsonResponse({
+        ...preview,
+        routeReviews: [],
+        materials: [],
+        validation: { valid: false, errors: [{ code: "invalid_selected_route", message: "The selected route is no longer valid." }] },
+      })
+    : jsonResponse(plan);
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    await harness.render(CraftPlanManagerDialog, props);
+    const tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.match(elementText(tree), /Recipe preview validation failed/);
+    assert.match(elementText(tree), /The selected route is no longer valid/);
+    assert.doesNotMatch(elementText(tree), /No recipe routes to review/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("a failed automatic preview stays failed until an explicit retry", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
@@ -310,6 +369,86 @@ test("publication gate keeps exactly one Save action", async () => {
     const saveActions = findElements(tree, (element) => element.type === "button" && /Save Plan/.test(elementText(element)));
     assert.equal(saveActions.length, 1);
     assert.equal(elementText(saveActions[0]).trim(), "Confirm routes and Save Plan");
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
+test("T7 preset can confirm newly ambiguous routes and save on the retry", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const putBodies = [];
+  const previewBodies = [];
+  const plan = loadedPlan();
+  plan.sources.tierPresets = [{ key: "tier-7", label: "T7", tier: 7, items: [{ id: "2080555135", kind: "items", itemType: 0, name: "Comprehensive Codex", quantity: "30" }] }];
+  const codexReview = {
+    outputKey: "items:2080555135",
+    ambiguous: true,
+    confirmed: false,
+    selectedRouteId: "codex-risky",
+    preselectedRouteId: "codex-safe",
+    fingerprint: "codex-fingerprint",
+    alternatives: [
+      { id: "codex-risky", label: "Expected Codex route", probabilityStatus: "expected", isProbabilistic: true, inputs: [] },
+      { id: "codex-safe", label: "Guaranteed Codex route", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [] },
+    ],
+  };
+  const nestedReview = {
+    outputKey: "items:300",
+    ambiguous: true,
+    confirmed: false,
+    selectedRouteId: "plant-upgrade",
+    preselectedRouteId: "plant-seed",
+    fingerprint: "plant-fingerprint",
+    alternatives: [
+      { id: "plant-upgrade", label: "Upgrade plants", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [] },
+      { id: "plant-seed", label: "Grow from seed", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [] },
+    ],
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/preview")) {
+      const body = JSON.parse(options.body);
+      previewBodies.push(body);
+      const codexRouteStaged = body.config?.routeOverrides?.[codexReview.outputKey] === codexReview.preselectedRouteId;
+      return jsonResponse({ ...preview, routeReviews: codexRouteStaged ? [codexReview, nestedReview] : [codexReview] });
+    }
+    if (options.method === "PUT") {
+      const body = JSON.parse(options.body);
+      putBodies.push(body);
+      if (putBodies.length === 1) {
+        return jsonResponse({ error: "Confirm routes", code: "craft_plan_route_review_required", unconfirmedRoutes: [{ outputKey: codexReview.outputKey, fingerprint: codexReview.fingerprint, preselectedRouteId: codexReview.preselectedRouteId }] }, { ok: false, status: 409 });
+      }
+      return jsonResponse({ planRecord: { id: "plan-a", revision: 5 } });
+    }
+    return jsonResponse(plan);
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: ["settings.manage"] };
+    await harness.render(CraftPlanManagerDialog, props);
+    let tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && element.props["aria-label"] === "Add upgrade materials for T7")[0].props.onClick();
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+    tree = await harness.render(CraftPlanManagerDialog, props);
+    findElements(tree, (element) => element.type === "button" && elementText(element).trim() === "Confirm routes and Save Plan")[0].props.onClick();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(putBodies.length, 2);
+    assert.deepEqual(putBodies[1].config.targets.map(({ id, kind, quantity }) => ({ id, kind, quantity })), [{ id: "2080555135", kind: "items", quantity: 30 }]);
+    assert.equal(putBodies[1].config.routeOverrides[codexReview.outputKey], "codex-safe");
+    assert.equal(putBodies[1].config.routeOverrides[nestedReview.outputKey], "plant-seed");
+    assert.equal(previewBodies.some((body) => body.config?.routeOverrides?.[codexReview.outputKey] === "codex-safe" && body.config?.routeOverrides?.[nestedReview.outputKey] == null), true);
+    assert.equal(previewBodies.some((body) => body.config?.routeOverrides?.[codexReview.outputKey] === "codex-safe" && body.config?.routeOverrides?.[nestedReview.outputKey] === "plant-seed"), true);
+    assert.deepEqual(putBodies[1].routeReviewConfirmations, [
+      { outputKey: codexReview.outputKey, fingerprint: codexReview.fingerprint, selectedRouteId: "codex-safe" },
+      { outputKey: nestedReview.outputKey, fingerprint: nestedReview.fingerprint, selectedRouteId: "plant-seed" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
     harness.restore();

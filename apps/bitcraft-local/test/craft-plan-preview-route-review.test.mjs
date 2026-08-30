@@ -84,6 +84,21 @@ test("settlement preview returns stable material impact, ambiguity, revisions, v
   assert.equal(first.fingerprint, second.fingerprint);
 });
 
+test("route review keeps the calculated renewable route when guaranteed alternatives are equally safe", () => {
+  const plan = {
+    materials: [],
+    steps: [route("items:300", "210007", [
+      { id: "210006", label: "Upgrade lower-tier plants", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [{ key: "items:299", quantity: 5 }] },
+      { id: "210007", label: "Grow from renewable seed", probabilityStatus: "guaranteed", isProbabilistic: false, inputs: [{ key: "items:301", quantity: 1 }] },
+    ])],
+  };
+
+  const preview = buildCraftPlanPreview({ plan, scope: "shared", configurationRevision: 1 });
+
+  assert.equal(preview.routeReviews[0].selectedRouteId, "210007");
+  assert.equal(preview.routeReviews[0].preselectedRouteId, "210007");
+});
+
 test("personal preview keeps exact item and cargo identities distinct in route signatures", () => {
   const itemRoute = route("items:7", "safe", productionAlternatives);
   const cargoRoute = route("cargo:7", "safe", productionAlternatives);
