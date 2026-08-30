@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.13] - 2026-08-30
+
+### Fixed
+
+- Fixed Recipe Review appearing empty after loading a large plan by avoiding redundant route overrides and recalculations for routes that already use the recommended choice.
+
 ## [0.66.2-beta.12] - 2026-08-30
 
 ### Added
