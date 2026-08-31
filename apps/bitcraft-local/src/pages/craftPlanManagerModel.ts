@@ -116,29 +116,125 @@ export function orderCraftPlanRouteReviews<T extends { outputKey?: unknown; ambi
     || String(left.outputKey ?? "").localeCompare(String(right.outputKey ?? "")));
 }
 
+function stableCraftPlanConfig(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableCraftPlanConfig);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as AnyRecord)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, stableCraftPlanConfig(entry)]));
+}
+
+function routeInputs(alternative: AnyRecord = {}) {
+  return (Array.isArray(alternative.inputs) ? alternative.inputs : [])
+    .map((input: AnyRecord) => ({ key: String(input?.key ?? ""), quantity: Number(input?.quantity ?? 0) }))
+    .filter((input) => input.key)
+    .sort((left, right) => left.key.localeCompare(right.key) || left.quantity - right.quantity);
+}
+
+function nullableRouteNumber(value: unknown) {
+  return value == null ? null : Number(value);
+}
+
+function routeProducerIdentity(producer: unknown) {
+  if (typeof producer === "string") return producer.trim() || null;
+  if (!producer || typeof producer !== "object") return null;
+  const record = producer as AnyRecord;
+  const explicit = String(record.key ?? "").trim();
+  if (explicit) return explicit;
+  const kind = String(record.kind ?? "").trim();
+  const id = String(record.id ?? "").trim();
+  return kind && id ? `${kind}:${id}` : null;
+}
+
+function routeCalculationSignature(alternative: AnyRecord = {}) {
+  const producerRecipeId = String(alternative.producerRecipe?.id ?? "").trim();
+  const gatheringSourceTag = alternative.gatheringSource?.tag == null ? null : String(alternative.gatheringSource.tag);
+  const gatheringSourceSkill = alternative.gatheringSource?.skill == null ? null : String(alternative.gatheringSource.skill);
+  return JSON.stringify(stableCraftPlanConfig({
+    routeType: String(alternative.routeType ?? "craft"),
+    gatheringMode: alternative.gatheringMode == null ? null : String(alternative.gatheringMode),
+    gatheringSkill: alternative.gatheringSkill == null ? null : String(alternative.gatheringSkill),
+    producer: routeProducerIdentity(alternative.producer),
+    producerRecipe: producerRecipeId ? {
+      id: producerRecipeId,
+      skillName: alternative.producerRecipe?.skillName == null ? null : String(alternative.producerRecipe.skillName),
+    } : null,
+    probabilityStatus: String(alternative.probabilityStatus ?? (alternative.isProbabilistic === true ? "expected" : "guaranteed")),
+    isProbabilistic: alternative.isProbabilistic === true,
+    isTransportRoute: alternative.isTransportRoute === true,
+    expectedYield: nullableRouteNumber(alternative.expectedYield),
+    yieldBasis: alternative.yieldBasis == null ? null : String(alternative.yieldBasis),
+    expectedPerCraft: nullableRouteNumber(alternative.expectedPerCraft),
+    expectedPerProgress: nullableRouteNumber(alternative.expectedPerProgress),
+    expectedPerResource: nullableRouteNumber(alternative.expectedPerResource),
+    resourceHealth: nullableRouteNumber(alternative.resourceHealth),
+    actionsRequired: nullableRouteNumber(alternative.actionsRequired),
+    dropChance: nullableRouteNumber(alternative.dropChance),
+    dropQuantity: nullableRouteNumber(alternative.dropQuantity),
+    guaranteedYield: nullableRouteNumber(alternative.guaranteedYield),
+    gatheringSource: gatheringSourceTag || gatheringSourceSkill ? { tag: gatheringSourceTag, skill: gatheringSourceSkill } : null,
+    inputs: routeInputs(alternative),
+  }));
+}
+
+function zeroInputGatheringAlternative(alternative: AnyRecord = {}) {
+  const routeType = String(alternative.routeType ?? "craft");
+  return alternative.isTransportRoute !== true
+    && (routeType === "gathering" || routeType === "gathering-byproduct")
+    && routeInputs(alternative).length === 0;
+}
+
+function routeOverrideFallbackCompatible(previous: AnyRecord = {}, selected: AnyRecord = {}) {
+  return (zeroInputGatheringAlternative(previous) && zeroInputGatheringAlternative(selected))
+    || routeCalculationSignature(previous) === routeCalculationSignature(selected);
+}
+
+export function craftPlanRetainedRoutesAllowed(stagedConfig: AnyRecord = {}, storedConfig: AnyRecord = {}, routeInventory: AnyRecord[] = []) {
+  const { name: _stagedName, routeOverrides: _stagedRoutes, ...stagedCalculation } = stagedConfig;
+  const { name: _storedName, routeOverrides: _storedRoutes, ...storedCalculation } = storedConfig;
+  if (JSON.stringify(stableCraftPlanConfig(stagedCalculation)) !== JSON.stringify(stableCraftPlanConfig(storedCalculation))) return false;
+  const stagedRoutes = stagedConfig.routeOverrides && typeof stagedConfig.routeOverrides === "object" ? stagedConfig.routeOverrides : {};
+  const storedRoutes = storedConfig.routeOverrides && typeof storedConfig.routeOverrides === "object" ? storedConfig.routeOverrides : {};
+  const changedOutputKeys = [...new Set([...Object.keys(stagedRoutes), ...Object.keys(storedRoutes)])]
+    .filter((outputKey) => String(stagedRoutes[outputKey] ?? "") !== String(storedRoutes[outputKey] ?? ""));
+  const reviewsByOutput = new Map((Array.isArray(routeInventory) ? routeInventory : [])
+    .map((review) => [String(review?.outputKey ?? ""), review]));
+  return changedOutputKeys.every((outputKey) => {
+    const selectedRouteId = String(stagedRoutes[outputKey] ?? "").trim();
+    const review = reviewsByOutput.get(outputKey);
+    const alternatives = Array.isArray(review?.alternatives) ? review.alternatives : [];
+    const previous = alternatives.find((alternative: AnyRecord) => String(alternative?.id ?? "") === String(review?.selectedRouteId ?? ""));
+    const selected = alternatives.find((alternative: AnyRecord) => String(alternative?.id ?? "") === selectedRouteId);
+    return Boolean(selectedRouteId && previous && selected && previous.isSelectable !== false && selected.isSelectable !== false
+      && routeOverrideFallbackCompatible(previous, selected));
+  });
+}
+
 export function resolveCraftPlanRouteReviewState({
   preview = null,
   loadedRouteInventory = [],
   draftDirty = false,
+  allowRetainedRoutes = false,
 }: {
   preview?: AnyRecord | null;
   loadedRouteInventory?: AnyRecord[];
   draftDirty?: boolean;
+  allowRetainedRoutes?: boolean;
 } = {}) {
   const previewReviews = Array.isArray(preview?.routeReviews) ? preview.routeReviews : [];
   const loadedReviews = Array.isArray(loadedRouteInventory) ? loadedRouteInventory : [];
   const hasExactPreviewReviews = previewReviews.length > 0;
-  const useLoadedPlan = !hasExactPreviewReviews && !draftDirty && loadedReviews.length > 0;
+  const useLoadedPlan = !hasExactPreviewReviews && (!draftDirty || allowRetainedRoutes) && loadedReviews.length > 0;
   const diagnostics = preview?.routeDiagnostics;
   const rawEvidence = Number(diagnostics?.steps ?? 0) > 0
     || Number(diagnostics?.materialSourceRoutes ?? 0) > 0
     || Number(diagnostics?.directInventory ?? 0) > 0;
-  const previewOmittedLoadedRoutes = Boolean(preview) && !draftDirty && loadedReviews.length > 0 && !hasExactPreviewReviews;
+  const previewOmittedLoadedRoutes = Boolean(preview) && useLoadedPlan;
 
   return {
     routeReviews: hasExactPreviewReviews ? previewReviews : useLoadedPlan ? loadedReviews : [],
-    evidence: hasExactPreviewReviews ? String(preview?.routeEvidence ?? "current") : useLoadedPlan ? "loaded_plan" : "none",
-    routeLoss: rawEvidence && Number(diagnostics?.returnedReviews ?? 0) === 0 || previewOmittedLoadedRoutes,
+    evidence: hasExactPreviewReviews ? String(preview?.routeEvidence ?? "current") : useLoadedPlan ? draftDirty ? "retained" : "loaded_plan" : "none",
+    routeLoss: (rawEvidence && Number(diagnostics?.returnedReviews ?? 0) === 0) || previewOmittedLoadedRoutes,
   };
 }
 

@@ -293,6 +293,71 @@ test("recipe review is ambiguous-first, keyboard-selectable, staged, previewed, 
   }
 });
 
+test("selecting Mature Pine Tree never turns Fine Trunk into a no-routes plan", async () => {
+  const appRoot = fileURLToPath(new URL("..", import.meta.url));
+  const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  const harness = installHookHarness();
+  const originalFetch = globalThis.fetch;
+  const fineTrunkReview = {
+    outputKey: "cargo:1003",
+    outputName: "Fine Trunk",
+    ambiguous: true,
+    confirmed: false,
+    selectedRouteId: "extraction:1660372877",
+    preselectedRouteId: "extraction:1660372877",
+    fingerprint: "fine-trunk-routes",
+    alternatives: [
+      { id: "extraction:1660372877", label: "Fine Hexite Infused Tree", routeType: "gathering", probabilityStatus: "expected", isSelectable: true, gatheringSource: { label: "Fine Hexite Infused Tree", skill: "Forestry" }, inputs: [] },
+      { id: "possibility:extraction:26:cargo:1003", label: "Mature Pine Tree", routeType: "gathering", probabilityStatus: "expected", isSelectable: true, gatheringSource: { label: "Mature Pine Tree", skill: "Forestry" }, inputs: [] },
+    ],
+  };
+  let previewCalls = 0;
+  const previewBodies = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith("/preview")) {
+      previewCalls += 1;
+      previewBodies.push(JSON.parse(options.body));
+      return jsonResponse(previewCalls === 1
+        ? { ...preview, routeEvidence: "current", routeReviews: [fineTrunkReview] }
+        : {
+            ...preview,
+            routeEvidence: "none",
+            routeDiagnostics: { steps: 0, materialSourceRoutes: 0, directInventory: 0, returnedReviews: 0 },
+            routeReviews: [],
+          });
+    }
+    return jsonResponse(loadedPlan({
+      personal: true,
+      config: { targets: [{ id: "1003", kind: "cargo", name: "Fine Trunk", quantity: 10 }] },
+    }));
+  };
+  try {
+    const { CraftPlanManagerDialog } = await vite.ssrLoadModule("/src/pages/CraftPlanManagerDialog.tsx");
+    const props = { open: true, onClose() {}, csrfToken: "csrf", onSaved() {}, planId: "plan-a", permissions: [], initialWorkspace: "recipes" };
+    let tree;
+    for (let index = 0; index < 5; index += 1) tree = await harness.render(CraftPlanManagerDialog, props);
+    assert.match(elementText(tree), /Fine Trunk/);
+    const maturePineRouteId = "possibility:extraction:26:cargo:1003";
+    const maturePine = findElements(tree, (element) => element.type === "input" && element.props.value === maturePineRouteId)[0];
+    assert.ok(maturePine, "Mature Pine Tree must be selectable before the staged route change");
+
+    maturePine.props.onChange();
+    for (let index = 0; index < 5; index += 1) tree = await harness.render(CraftPlanManagerDialog, props);
+
+    assert.equal(previewCalls, 2, "the staged route must be checked by a fresh preview");
+    assert.equal(previewBodies[1].config.routeOverrides["cargo:1003"], maturePineRouteId);
+    assert.doesNotMatch(elementText(tree), /No selectable recipe routes in this plan/);
+    assert.match(elementText(tree), /changed preview lost route evidence/i);
+    assert.match(elementText(tree), /Fine Trunk/);
+    assert.match(elementText(tree), /Mature Pine Tree/);
+    assert.equal(findElements(tree, (element) => element.type === "input" && element.props.value === maturePineRouteId)[0].props.checked, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    harness.restore();
+    await vite.close();
+  }
+});
+
 test("recipe review exposes the complete plan route inventory with search, status filters, and a non-route deep-link notice", async () => {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
   const vite = await createViteServer({ root: appRoot, appType: "custom", logLevel: "silent", server: { middlewareMode: true } });

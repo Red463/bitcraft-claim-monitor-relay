@@ -70,6 +70,73 @@ test("recipe review never reuses saved routes for a changed draft", () => {
   assert.notEqual(state.evidence, "loaded_plan");
 });
 
+test("recipe review retains the last complete inventory for a route-only draft", () => {
+  const state = resolveCraftPlanRouteReviewState({
+    preview: { routeReviews: [], routeEvidence: "none" },
+    loadedRouteInventory: roughPlankReviews,
+    draftDirty: true,
+    allowRetainedRoutes: true,
+  });
+
+  assert.deepEqual(state.routeReviews, roughPlankReviews);
+  assert.equal(state.evidence, "retained");
+  assert.equal(state.routeLoss, true);
+});
+
+test("retained route evidence is allowed only for route and name changes", () => {
+  const saved = {
+    enabled: true,
+    name: "Saved plan",
+    targets: [{ kind: "cargo", id: "1003", quantity: 10 }],
+    sourceRules: { storageContainerIds: ["storage-a"] },
+    routeOverrides: { "cargo:1003": "extraction:1660372877" },
+    multipliers: {},
+  };
+  const routeDraft = structuredClone(saved);
+  routeDraft.name = "Renamed plan";
+  routeDraft.routeOverrides["cargo:1003"] = "possibility:extraction:26:cargo:1003";
+  const targetDraft = structuredClone(routeDraft);
+  targetDraft.targets[0].quantity = 11;
+  const bufferDraft = structuredClone(routeDraft);
+  bufferDraft.multipliers["cargo:1003"] = { multiplier: 1.1 };
+  const changedGraphDraft = structuredClone(routeDraft);
+  changedGraphDraft.routeOverrides["cargo:1003"] = "craft:milled-trunk";
+  const routeInventory = [{
+    outputKey: "cargo:1003",
+    selectedRouteId: "extraction:1660372877",
+    alternatives: [
+      { id: "extraction:1660372877", routeType: "gathering", expectedPerProgress: 0.0103, isSelectable: true, inputs: [] },
+      { id: "possibility:extraction:26:cargo:1003", routeType: "gathering-byproduct", expectedPerProgress: 0.0077, isSelectable: true, inputs: [] },
+      { id: "craft:milled-trunk", routeType: "craft", expectedPerCraft: 1, isSelectable: true, inputs: [{ key: "items:42", quantity: 2 }] },
+    ],
+  }];
+
+  assert.equal(craftPlanManagerModel.craftPlanRetainedRoutesAllowed(routeDraft, saved, routeInventory), true);
+  assert.equal(craftPlanManagerModel.craftPlanRetainedRoutesAllowed(targetDraft, saved, routeInventory), false);
+  assert.equal(craftPlanManagerModel.craftPlanRetainedRoutesAllowed(bufferDraft, saved, routeInventory), false);
+  assert.equal(craftPlanManagerModel.craftPlanRetainedRoutesAllowed(changedGraphDraft, saved, routeInventory), false);
+});
+
+test("retained client routes reject same-input craft alternatives with different yields", () => {
+  const saved = {
+    enabled: true,
+    targets: [{ kind: "items", id: "1", quantity: 1 }],
+    routeOverrides: { "items:1": "old-craft" },
+  };
+  const routeDraft = structuredClone(saved);
+  routeDraft.routeOverrides["items:1"] = "new-craft";
+  const routeInventory = [{
+    outputKey: "items:1",
+    selectedRouteId: "old-craft",
+    alternatives: [
+      { id: "old-craft", routeType: "craft", expectedPerCraft: 1, probabilityStatus: "guaranteed", inputs: [{ key: "items:2", quantity: 1 }] },
+      { id: "new-craft", routeType: "craft", expectedPerCraft: 2, probabilityStatus: "guaranteed", inputs: [{ key: "items:2", quantity: 1 }] },
+    ],
+  }];
+
+  assert.equal(craftPlanManagerModel.craftPlanRetainedRoutesAllowed(routeDraft, saved, routeInventory), false);
+});
+
 test("recipe review preserves retained evidence for exact preview routes", () => {
   const state = resolveCraftPlanRouteReviewState({
     preview: { routeReviews: roughPlankReviews, routeEvidence: "retained" },

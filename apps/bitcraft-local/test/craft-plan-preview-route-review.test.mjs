@@ -4,6 +4,7 @@ import {
   buildCraftPlanRouteEvidence,
   buildCraftPlanPreview,
   craftPlanRouteFallbackAllowed,
+  retainCraftPlanRouteInventoryForEquivalentOverrides,
   routeReviewFingerprint,
   selectCraftPlanRouteInventory,
 } from "../src/server/craftPlanRouteReview.mjs";
@@ -213,9 +214,103 @@ test("route fallback ignores presentation names but rejects calculation changes"
   delete authorizedDraft.name;
   const changedTarget = structuredClone(authorizedDraft);
   changedTarget.targets[0].quantity = 31;
+  const changedRoute = structuredClone(authorizedDraft);
+  changedRoute.routeOverrides["items:42"] = "carving";
 
   assert.equal(craftPlanRouteFallbackAllowed(authorizedDraft, stored), true);
+  assert.equal(craftPlanRouteFallbackAllowed(changedRoute, stored), false);
   assert.equal(craftPlanRouteFallbackAllowed(changedTarget, stored), false);
+});
+
+test("retained route evidence accepts only graph-equivalent route overrides", () => {
+  const storedConfig = {
+    enabled: true,
+    targets: [{ kind: "cargo", id: "1003", quantity: 10 }],
+    sourceRules: {},
+    routeOverrides: { "cargo:1003": "extraction:1660372877" },
+  };
+  const routeInventory = [{
+    outputKey: "cargo:1003",
+    selectedRouteId: "extraction:1660372877",
+    fingerprint: "fine-trunk-routes",
+    alternatives: [
+      { id: "extraction:1660372877", routeType: "gathering", expectedPerProgress: 0.0103, isSelectable: true, inputs: [] },
+      { id: "possibility:extraction:26:cargo:1003", routeType: "gathering-byproduct", expectedPerProgress: 0.0077, isSelectable: true, inputs: [] },
+      { id: "craft:milled-trunk", routeType: "craft", expectedPerCraft: 1, isSelectable: true, inputs: [{ key: "items:42", quantity: 2 }] },
+    ],
+  }];
+  const equivalentDraft = structuredClone(storedConfig);
+  equivalentDraft.routeOverrides["cargo:1003"] = "possibility:extraction:26:cargo:1003";
+  const changedGraphDraft = structuredClone(storedConfig);
+  changedGraphDraft.routeOverrides["cargo:1003"] = "craft:milled-trunk";
+  const changedTargetDraft = structuredClone(equivalentDraft);
+  changedTargetDraft.targets[0].quantity = 11;
+
+  const retained = retainCraftPlanRouteInventoryForEquivalentOverrides({
+    stagedConfig: equivalentDraft,
+    storedConfig,
+    routeInventory,
+  });
+  assert.equal(retained?.routeInventory[0].selectedRouteId, "possibility:extraction:26:cargo:1003");
+  assert.deepEqual(retained?.changedOutputKeys, ["cargo:1003"]);
+  assert.equal(retainCraftPlanRouteInventoryForEquivalentOverrides({ stagedConfig: changedGraphDraft, storedConfig, routeInventory }), null);
+  assert.equal(retainCraftPlanRouteInventoryForEquivalentOverrides({ stagedConfig: changedTargetDraft, storedConfig, routeInventory }), null);
+});
+
+test("same-input craft routes with different calculation semantics reject retained fallback", () => {
+  const storedConfig = {
+    enabled: true,
+    targets: [{ kind: "items", id: "1", quantity: 1 }],
+    routeOverrides: { "items:1": "old-craft" },
+  };
+  const stagedConfig = structuredClone(storedConfig);
+  stagedConfig.routeOverrides["items:1"] = "new-craft";
+  const routeInventory = [{
+    outputKey: "items:1",
+    selectedRouteId: "old-craft",
+    alternatives: [
+      { id: "old-craft", routeType: "craft", expectedPerCraft: 1, probabilityStatus: "guaranteed", inputs: [{ key: "items:2", quantity: 1 }] },
+      { id: "new-craft", routeType: "craft", expectedPerCraft: 2, probabilityStatus: "guaranteed", inputs: [{ key: "items:2", quantity: 1 }] },
+    ],
+  }];
+
+  assert.equal(retainCraftPlanRouteInventoryForEquivalentOverrides({ stagedConfig, storedConfig, routeInventory }), null);
+});
+
+test("normalized route inventory rejects a producer-only route change", () => {
+  const storedConfig = {
+    enabled: true,
+    targets: [{ kind: "items", id: "1", quantity: 1 }],
+    routeOverrides: { "items:1": "old-craft" },
+  };
+  const stagedConfig = structuredClone(storedConfig);
+  stagedConfig.routeOverrides["items:1"] = "new-craft";
+  const routeInventory = [{
+    outputKey: "items:1",
+    selectedRouteId: "old-craft",
+    alternatives: [
+      { id: "old-craft", routeType: "craft", expectedPerCraft: 1, producer: "items:20", inputs: [{ key: "items:2", quantity: 1 }] },
+      { id: "new-craft", routeType: "craft", expectedPerCraft: 1, producer: "items:21", inputs: [{ key: "items:2", quantity: 1 }] },
+    ],
+  }];
+
+  assert.equal(retainCraftPlanRouteInventoryForEquivalentOverrides({ stagedConfig, storedConfig, routeInventory }), null);
+});
+
+test("one graph-changing override rejects a multi-route retained fallback", () => {
+  const storedConfig = {
+    enabled: true,
+    targets: [{ kind: "items", id: "1", quantity: 1 }],
+    routeOverrides: { "items:1": "old-a", "items:2": "old-b" },
+  };
+  const stagedConfig = structuredClone(storedConfig);
+  stagedConfig.routeOverrides = { "items:1": "new-a", "items:2": "new-b" };
+  const routeInventory = [
+    { outputKey: "items:1", selectedRouteId: "old-a", alternatives: [{ id: "old-a", inputs: [] }, { id: "new-a", inputs: [] }] },
+    { outputKey: "items:2", selectedRouteId: "old-b", alternatives: [{ id: "old-b", inputs: [{ key: "items:3", quantity: 1 }] }, { id: "new-b", inputs: [{ key: "items:4", quantity: 1 }] }] },
+  ];
+
+  assert.equal(retainCraftPlanRouteInventoryForEquivalentOverrides({ stagedConfig, storedConfig, routeInventory }), null);
 });
 
 test("selectable routes remain reviewable when probability evidence is unavailable", () => {

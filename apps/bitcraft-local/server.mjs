@@ -120,7 +120,7 @@ import { computeCraftPlanOffThread } from "./src/server/craftPlanComputeExecutor
 import { refreshFailureEntry, refreshRetryAllowed, serveRetainedLastGoodOrWait } from "./src/server/lastGoodRefresh.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository } from "./src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "./src/server/craftPlanConfigAudit.mjs";
-import { buildCraftPlanPreview, buildCraftPlanRouteEvidence, buildCraftPlanRouteInventory, buildCraftPlanRouteResponse, craftPlanRouteFallbackAllowed, createCraftPlanRouteReviewRepository } from "./src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteEvidence, buildCraftPlanRouteInventory, buildCraftPlanRouteResponse, craftPlanRouteFallbackAllowed, craftPlanRouteOverrideFallbackCandidate, createCraftPlanRouteReviewRepository, retainCraftPlanRouteInventoryForEquivalentOverrides } from "./src/server/craftPlanRouteReview.mjs";
 import {
   CRAFT_PLAN_EFFORT_MODEL_VERSION,
   calculateCraftPlanEffortProgress,
@@ -2228,10 +2228,19 @@ async function previewCraftPlanConfig(planId, inputConfig, subject) {
     preview: true,
   });
   let routeEvidence = buildCraftPlanRouteEvidence({ plan });
-  const unchangedDraft = craftPlanRouteFallbackAllowed(staged.config, storedCraftPlanConfig(staged.plan.id));
-  if (!routeEvidence.routeInventory.length && unchangedDraft) {
+  const storedConfig = storedCraftPlanConfig(staged.plan.id);
+  const unchangedDraft = craftPlanRouteFallbackAllowed(staged.config, storedConfig);
+  const equivalentOverrideCandidate = !unchangedDraft && craftPlanRouteOverrideFallbackCandidate(staged.config, storedConfig);
+  if (!routeEvidence.routeInventory.length && (unchangedDraft || equivalentOverrideCandidate)) {
     const lastGoodPlan = await computedCraftPlanResponse(getSettings().claimId, { planId: staged.plan.id });
-    routeEvidence = buildCraftPlanRouteEvidence({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
+    const fallbackEvidence = buildCraftPlanRouteEvidence({ plan, fallbackPlan: lastGoodPlan, allowFallback: true });
+    const equivalentRoutes = unchangedDraft ? null : retainCraftPlanRouteInventoryForEquivalentOverrides({
+      stagedConfig: staged.config,
+      storedConfig,
+      routeInventory: fallbackEvidence.routeInventory,
+    });
+    if (unchangedDraft) routeEvidence = fallbackEvidence;
+    else if (equivalentRoutes) routeEvidence = { ...fallbackEvidence, routeInventory: equivalentRoutes.routeInventory };
   }
   const preview = buildCraftPlanPreview({
     plan,

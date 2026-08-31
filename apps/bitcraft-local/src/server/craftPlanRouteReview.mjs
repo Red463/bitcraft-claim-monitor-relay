@@ -33,6 +33,10 @@ function nullableNumber(value) {
 }
 
 function normalizedProducer(producer = null) {
+  if (typeof producer === "string") {
+    const key = producer.trim();
+    return TYPED_OUTPUT_KEY.test(key) ? key : null;
+  }
   const key = inputIdentity(producer ?? {});
   return key || null;
 }
@@ -237,6 +241,74 @@ export function craftPlanRouteFallbackAllowed(stagedConfig = {}, storedConfig = 
   const { name: _stagedName, ...stagedCalculation } = stagedConfig && typeof stagedConfig === "object" ? stagedConfig : {};
   const { name: _storedName, ...storedCalculation } = storedConfig && typeof storedConfig === "object" ? storedConfig : {};
   return JSON.stringify(stable(stagedCalculation)) === JSON.stringify(stable(storedCalculation));
+}
+
+export function craftPlanRouteOverrideFallbackCandidate(stagedConfig = {}, storedConfig = {}) {
+  const { name: _stagedName, routeOverrides: _stagedRoutes, ...stagedCalculation } = stagedConfig && typeof stagedConfig === "object" ? stagedConfig : {};
+  const { name: _storedName, routeOverrides: _storedRoutes, ...storedCalculation } = storedConfig && typeof storedConfig === "object" ? storedConfig : {};
+  return JSON.stringify(stable(stagedCalculation)) === JSON.stringify(stable(storedCalculation));
+}
+
+function routeCalculationSignature(alternative = {}) {
+  const {
+    id: _routeId,
+    label: _displayLabel,
+    buildingName: _displayBuildingName,
+    isSelectable: _isSelectable,
+    gatheringSource,
+    inputs,
+    ...calculationSignature
+  } = normalizedAlternative(alternative);
+  return JSON.stringify(stable({
+    ...calculationSignature,
+    gatheringSource: gatheringSource ? { tag: gatheringSource.tag, skill: gatheringSource.skill } : null,
+    inputs: inputs.map(({ name: _displayName, ...inputSignature }) => inputSignature),
+  }));
+}
+
+function zeroInputGatheringAlternative(alternative = {}) {
+  const normalized = normalizedAlternative(alternative);
+  return !normalized.isTransportRoute
+    && (normalized.routeType === "gathering" || normalized.routeType === "gathering-byproduct")
+    && normalized.inputs.length === 0;
+}
+
+function routeOverrideFallbackCompatible(previous = {}, selected = {}) {
+  return (zeroInputGatheringAlternative(previous) && zeroInputGatheringAlternative(selected))
+    || routeCalculationSignature(previous) === routeCalculationSignature(selected);
+}
+
+export function retainCraftPlanRouteInventoryForEquivalentOverrides({
+  stagedConfig = {},
+  storedConfig = {},
+  routeInventory = [],
+} = {}) {
+  if (!craftPlanRouteOverrideFallbackCandidate(stagedConfig, storedConfig)) return null;
+  const stagedRoutes = stagedConfig?.routeOverrides && typeof stagedConfig.routeOverrides === "object" ? stagedConfig.routeOverrides : {};
+  const storedRoutes = storedConfig?.routeOverrides && typeof storedConfig.routeOverrides === "object" ? storedConfig.routeOverrides : {};
+  const changedOutputKeys = [...new Set([...Object.keys(stagedRoutes), ...Object.keys(storedRoutes)])]
+    .filter((outputKey) => String(stagedRoutes[outputKey] ?? "") !== String(storedRoutes[outputKey] ?? ""))
+    .sort();
+  const reviewsByOutput = new Map((Array.isArray(routeInventory) ? routeInventory : [])
+    .map((review) => [String(review?.outputKey ?? ""), review]));
+  const selectedByOutput = new Map();
+  for (const outputKey of changedOutputKeys) {
+    const selectedRouteId = String(stagedRoutes[outputKey] ?? "").trim();
+    const review = reviewsByOutput.get(outputKey);
+    const alternatives = Array.isArray(review?.alternatives) ? review.alternatives : [];
+    const previous = alternatives.find((alternative) => String(alternative?.id ?? "") === String(review?.selectedRouteId ?? ""));
+    const selected = alternatives.find((alternative) => String(alternative?.id ?? "") === selectedRouteId);
+    if (!selectedRouteId || !previous || !selected || previous.isSelectable === false || selected.isSelectable === false
+      || !routeOverrideFallbackCompatible(previous, selected)) return null;
+    selectedByOutput.set(outputKey, selectedRouteId);
+  }
+  return {
+    changedOutputKeys,
+    routeInventory: (Array.isArray(routeInventory) ? routeInventory : []).map((review) => {
+      const selectedRouteId = selectedByOutput.get(String(review?.outputKey ?? ""));
+      return selectedRouteId ? { ...review, selectedRouteId } : review;
+    }),
+  };
 }
 
 export function buildCraftPlanPreview({

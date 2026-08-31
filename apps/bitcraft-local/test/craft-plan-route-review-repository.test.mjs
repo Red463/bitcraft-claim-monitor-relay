@@ -6,7 +6,7 @@ import { applySchemaBootstrap } from "../src/server/schemaBootstrap.mjs";
 import { applyCraftPlanRecordsMigration, createCraftPlanRepository, LEGACY_PRIMARY_PLAN_ID } from "../src/server/craftPlanRepository.mjs";
 import { createCraftPlanConfigAuditRepository } from "../src/server/craftPlanConfigAudit.mjs";
 import { computeCraftPlan, normalizeCraftPlanConfig } from "../src/server/craftPlanning.mjs";
-import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository } from "../src/server/craftPlanRouteReview.mjs";
+import { buildCraftPlanPreview, createCraftPlanRouteReviewRepository, retainCraftPlanRouteInventoryForEquivalentOverrides } from "../src/server/craftPlanRouteReview.mjs";
 
 const now = () => "2026-08-28T12:00:00.000Z";
 const actor = { type: "admin_user", id: "4", displayName: "Reviewer" };
@@ -176,6 +176,34 @@ test("submitted and stored confirmations bind to the calculated selected route",
   const selectedOther = review("items:7", "fingerprint-a", { selectedRouteId: "other" });
   assert.deepEqual(routeReviews.previewState(plan.id, [selectedOther], []).unconfirmed.map(({ outputKey }) => outputKey), ["items:7"]);
   assert.equal(routeReviews.listForPlan(plan.id)[0].selectedRouteId, "safe");
+  db.close();
+});
+
+test("graph-equivalent retained routes bind confirmations to the staged selection", () => {
+  const { db, plans, routeReviews } = fixture();
+  const plan = plans.primary();
+  const storedConfig = { enabled: true, targets: [{ kind: "cargo", id: "1003", quantity: 10 }], routeOverrides: {} };
+  const stagedConfig = { ...storedConfig, routeOverrides: { "cargo:1003": "mature-pine" } };
+  const retained = retainCraftPlanRouteInventoryForEquivalentOverrides({
+    storedConfig,
+    stagedConfig,
+    routeInventory: [{
+      outputKey: "cargo:1003",
+      fingerprint: "fine-trunk-routes",
+      ambiguous: true,
+      selectedRouteId: "hexite-tree",
+      preselectedRouteId: "hexite-tree",
+      alternatives: [
+        { id: "hexite-tree", isSelectable: true, inputs: [] },
+        { id: "mature-pine", isSelectable: true, inputs: [] },
+      ],
+    }],
+  });
+  const confirmation = { outputKey: "cargo:1003", fingerprint: "fine-trunk-routes", selectedRouteId: "mature-pine" };
+  const state = routeReviews.previewState(plan.id, retained.routeInventory, [confirmation]);
+
+  assert.deepEqual(state.confirmed.map(({ selectedRouteId }) => selectedRouteId), ["mature-pine"]);
+  assert.deepEqual(state.rejectedConfirmations, []);
   db.close();
 });
 

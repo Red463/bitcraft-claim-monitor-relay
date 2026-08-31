@@ -7,7 +7,7 @@ import type { AnyRecord } from "../main-app-data";
 import { dateLabel, formatNumber, timeAgo } from "../utils/format";
 import { createDelayedRefreshTask } from "../refresh/pageRefresh.mjs";
 import { buildCraftPlanBankGroups, finalizeLegacyBankMigrations, initiallyExpandedBankPlayerIds, mergeLegacyBankDiscovery, runBankDiscoveryQueue } from "./craftPlanBankSelection.mjs";
-import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, filterCraftPlanRouteReviews, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, resolveCraftPlanRouteReviewState, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace, type CraftPlanRouteReviewFilter } from "./craftPlanManagerModel";
+import { applyCraftPlanSourceSuggestion, craftPlanAuditInstant, craftPlanAuditLocalDateTime, craftPlanManagerWorkspaces, craftPlanMaterialPresentation, craftPlanRetainedRoutesAllowed, craftPlanRouteSelection, craftPlanSourceSuggestion, craftPlanValidationDiagnostics, filterCraftPlanRouteReviews, orderCraftPlanRouteReviews, rebaseCraftPlanDraft, resolveCraftPlanDraftConflict, resolveCraftPlanRouteReviewState, stageCraftPlanRouteRecommendations, type CraftPlanDraftConflict, type CraftPlanManagerWorkspace, type CraftPlanRouteReviewFilter } from "./craftPlanManagerModel";
 import { acquisitionRouteKind, acquisitionRouteReviewItemName, acquisitionRouteReviewPresentation, acquisitionRouteReviewTechnicalFacts } from "./craftPlanningRoutePresentation.mjs";
 
 const LOCAL_API = "/api/local";
@@ -276,6 +276,7 @@ export function CraftPlanManagerDialog({
   const loadRequestId = React.useRef(0);
   const previewRequestId = React.useRef(0);
   const previewAttemptSignature = React.useRef("");
+  const retainedRouteInventory = React.useRef<AnyRecord[]>([]);
   const configSignatureRef = React.useRef(JSON.stringify(config));
   const suppressedRouteRecommendations = React.useRef(new Set<string>());
   configSignatureRef.current = JSON.stringify(config);
@@ -310,6 +311,7 @@ export function CraftPlanManagerDialog({
     const requestId = ++loadRequestId.current;
     previewRequestId.current += 1;
     previewAttemptSignature.current = "";
+    retainedRouteInventory.current = [];
     suppressedRouteRecommendations.current.clear();
     comparisonRequestId.current += 1;
     setBusy(true);
@@ -329,6 +331,7 @@ export function CraftPlanManagerDialog({
           : `/admin/craft-plan?planId=${encodeURIComponent(planId)}`);
       if (requestId !== loadRequestId.current) return;
       const loadedConfig = managerConfigFromResult(result);
+      retainedRouteInventory.current = Array.isArray(result.routeInventory) ? result.routeInventory : [];
       setState(result);
       updateConfig(loadedConfig);
       setBaseConfig(loadedConfig);
@@ -396,6 +399,7 @@ export function CraftPlanManagerDialog({
         : `/admin/craft-plans/${encodeURIComponent(planId)}/preview`;
       const result = await adminApi(path, { method: "POST", body: JSON.stringify({ config: draft }) });
       if (requestId !== previewRequestId.current || draftSignature !== configSignatureRef.current) return null;
+      if (Array.isArray(result.routeReviews) && result.routeReviews.length && result.routeEvidence !== "retained" && result.routeEvidence !== "last_good") retainedRouteInventory.current = result.routeReviews;
       const recommendedDraft = stageCraftPlanRouteRecommendations(draft, result.routeReviews, suppressedRouteRecommendations.current);
       if (JSON.stringify(recommendedDraft) !== draftSignature) {
         updateConfig(recommendedDraft);
@@ -481,6 +485,7 @@ export function CraftPlanManagerDialog({
     loadRequestId.current += 1;
     previewRequestId.current += 1;
     previewAttemptSignature.current = "";
+    retainedRouteInventory.current = [];
     auditRequestId.current += 1;
     comparisonRequestId.current += 1;
     setState(null);
@@ -843,13 +848,19 @@ export function CraftPlanManagerDialog({
   const deployableGroups = groupDeployablesByPlayer(visibleDeployableSources);
   const tierPresets = state?.sources?.tierPresets ?? [];
   const workstationPresets = state?.sources?.workstationPresets ?? [];
+  const loadedRouteInventory = retainedRouteInventory.current.length
+    ? retainedRouteInventory.current
+    : Array.isArray(state?.routeInventory) ? state.routeInventory : [];
   const routeReviewState = resolveCraftPlanRouteReviewState({
     preview: currentPreview,
-    loadedRouteInventory: Array.isArray(state?.routeInventory) ? state.routeInventory : [],
+    loadedRouteInventory,
     draftDirty,
+    allowRetainedRoutes: craftPlanRetainedRoutesAllowed(config, baseConfig, loadedRouteInventory),
   });
   const routeLossMessage = draftDirty
-    ? "The changed preview lost route evidence. Refresh the preview before saving changes."
+    ? routeReviewState.routeReviews.length
+      ? "The changed preview lost route evidence. The last complete route list and your staged choice have been kept; refresh the preview before saving changes."
+      : "The changed preview lost route evidence. Refresh the preview before saving changes."
     : routeReviewState.evidence === "loaded_plan"
       ? "Saved routes remain reviewable while the current preview evidence is incomplete. Refresh the preview before saving changes."
       : "Route evidence was lost. Refresh the preview before saving changes.";

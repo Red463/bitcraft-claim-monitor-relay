@@ -19,6 +19,7 @@ import {
 } from "../src/server/craftPlanning.mjs";
 import { createGameCatalogRepository } from "../src/server/gameCatalog.mjs";
 import { normalizeGameDataItemLists, normalizeGameDataResources } from "../src/server/itemProbability.mjs";
+import { buildCraftPlanPreview, buildCraftPlanRouteInventory } from "../src/server/craftPlanRouteReview.mjs";
 
 const fishOilDetail = {
   item: { id: "900", name: "Fish Oil", itemType: 0, tag: "Oil" },
@@ -3507,6 +3508,97 @@ test("computeCraftPlan keeps mixed gathering and processing routes selectable", 
   assert.equal(processingRoute?.selectedRecipeId, processingRouteId);
   assert.equal(processingRoute?.routeType, "craft-byproduct");
   assert.equal(processingPlan.materials.find((material) => material.name === stoneChunk.name)?.required, 11);
+});
+
+test("local catalog keeps Fine Trunk routes after selecting Mature Pine Tree", (t) => {
+  const { repository } = createCatalogFixture(t);
+  const fineTrunk = { id: "1003", name: "Fine Trunk", itemType: 1, tag: "Trunk", tier: 4 };
+  const parentTarget = { id: "7000001", name: "T7 Forestry Target", itemType: 0, tag: "Test Target", tier: 7 };
+  const pineResources = [
+    { id: 16, name: "Young Pine Tree", max_health: 2315 },
+    { id: 26, name: "Mature Pine Tree", max_health: 2315 },
+    { id: 32, name: "Ancient Pine Tree", max_health: 2315 },
+  ];
+  upsertCatalogDetails(repository, [
+    { cargo: fineTrunk },
+    {
+      item: parentTarget,
+      craftingRecipes: [{
+        id: "build-t7-forestry-target",
+        name: "Build T7 Forestry Target",
+        craftedItemStacks: [{ item_id: parentTarget.id, item_type: "Item", quantity: 1 }],
+        consumedItemStacks: [{ item_id: fineTrunk.id, item_type: "Cargo", quantity: 1 }],
+      }],
+    },
+    ...pineResources.map((resource) => ({
+      item: {
+        id: String(3200000 + resource.id),
+        name: `${resource.name} Gather Output`,
+        itemType: 0,
+        itemListId: String(4200000 + resource.id),
+        tag: "Tree Output",
+        tier: 4,
+      },
+      extractionRecipes: [{
+        id: 400000 + resource.id,
+        resourceId: resource.id,
+        extractedItemStacks: [{
+          item_stack: { item_id: String(3200000 + resource.id), item_type: "Item", quantity: 1 },
+          probability: 1,
+        }],
+        levelRequirements: [{ skill: { name: "Forestry" }, level: 40 }],
+      }],
+    })),
+  ]);
+  repository.replaceProbabilitySnapshot({
+    itemLists: normalizeGameDataItemLists(pineResources.map((resource) => ({
+      id: 4200000 + resource.id,
+      possibilities: [{
+        probability: 1,
+        items: [{ item_id: fineTrunk.id, item_type: "Cargo", quantity: 1 }],
+      }],
+    }))),
+    resources: normalizeGameDataResources(pineResources.map((resource) => ({
+      ...resource,
+      on_destroy_yield: [{ item_id: fineTrunk.id, item_type: "Cargo", quantity: 1 }],
+    }))),
+    sourceUrl: "https://example.test/static",
+  });
+  const target = { ...parentTarget, kind: "items", quantity: 10 };
+  const defaultConfig = normalizeCraftPlanConfig({ enabled: true, targets: [target] });
+  const defaultCatalog = collectLocalCatalogCraftPlanDetails(repository, defaultConfig.targets, defaultConfig.routeOverrides);
+  const defaultPlan = computeCraftPlan({ config: defaultConfig, detailsByKey: defaultCatalog.detailsByKey, catalogWarnings: defaultCatalog.warnings });
+  const defaultRoute = defaultPlan.materials.find((material) => material.id === fineTrunk.id)?.sourceRoutes?.[0];
+  const maturePineRouteId = defaultRoute?.alternatives.find((alternative) => (
+    alternative.gatheringSource?.label === "Mature Pine Tree"
+    && alternative.id.startsWith("possibility:")
+  ))?.id;
+  assert.equal(typeof maturePineRouteId, "string", "Mature Pine Tree must be selectable in the initial stable route graph");
+
+  const config = normalizeCraftPlanConfig({
+    enabled: true,
+    targets: [target],
+    routeOverrides: { [recipeKey("cargo", fineTrunk.id)]: maturePineRouteId },
+  });
+  const catalog = collectLocalCatalogCraftPlanDetails(repository, config.targets, config.routeOverrides);
+  const plan = computeCraftPlan({ config, detailsByKey: catalog.detailsByKey, catalogWarnings: catalog.warnings });
+  const route = plan.materials.find((material) => material.id === fineTrunk.id)?.sourceRoutes?.[0];
+
+  assert.equal(route?.selectedRecipeId, maturePineRouteId);
+  assert.equal(route?.gatheringSource?.label, "Mature Pine Tree");
+  assert.deepEqual(route?.alternatives.map((alternative) => alternative.gatheringSource?.label).sort(), [
+    "Ancient Pine Tree",
+    "Ancient Pine Tree",
+    "Mature Pine Tree",
+    "Mature Pine Tree",
+    "Young Pine Tree",
+    "Young Pine Tree",
+  ]);
+  const routeInventory = buildCraftPlanRouteInventory(plan);
+  assert.equal(routeInventory.some((review) => review.outputKey === recipeKey("cargo", fineTrunk.id)), true);
+  assert.equal(buildCraftPlanPreview({ plan, routeInventory }).routeReviews.some((review) => (
+    review.outputKey === recipeKey("cargo", fineTrunk.id)
+  )), true);
 });
 
 test("collectLocalCatalogCraftPlanDetails builds a full recursive plan from normalized local catalog rows", (t) => {
