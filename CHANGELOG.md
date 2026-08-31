@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.20] - 2026-08-31
+
+### Fixed
+
+- Kept Recipe Review route selections and the complete route list available when a compatible alternative recipe route is selected but live preview evidence is incomplete.
+
 ## [0.66.2-beta.19] - 2026-08-30
 
 ### Changed
