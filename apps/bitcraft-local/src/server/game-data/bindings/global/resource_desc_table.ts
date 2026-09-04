@@ -13,6 +13,7 @@ import {
   FootprintTile,
   Rarity,
   ItemStack,
+  ResourceDestroyBuildingOutcome,
 } from "./types";
 
 
@@ -55,4 +56,7 @@ export default __t.row({
   waterDepthMin: __t.i32().name("water_depth_min"),
   waterDepthMax: __t.i32().name("water_depth_max"),
   maxElevationDelta: __t.i32().name("max_elevation_delta"),
+  get onDestroyBuildingOutcomes() {
+    return __t.option(__t.array(ResourceDestroyBuildingOutcome)).name("on_destroy_building_outcomes");
+  },
 });
