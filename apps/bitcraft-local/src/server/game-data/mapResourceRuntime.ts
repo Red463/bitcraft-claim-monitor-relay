@@ -29,6 +29,8 @@ type ResourceEntry = {
   snapshot: MapResourceSnapshot | null;
   nextGeneration: number;
   idleTimer: unknown | null;
+  retryTimer: unknown | null;
+  retryAttempts: number;
   waiters: Set<SnapshotWaiter>;
   failure: string | null;
   compactBytes: number;
@@ -238,6 +240,7 @@ export class RelayMapResourceRuntime {
       region.idleTimer = null;
     }
     let resource = region.resources.get(resourceId);
+    let created = false;
     if (!resource) {
       if (region.resources.size >= this.#maxResourceTypesPerRegion) {
         this.#capacityRejectionCount += 1;
@@ -254,6 +257,8 @@ export class RelayMapResourceRuntime {
         snapshot: null,
         nextGeneration: Number.isSafeInteger(cachedGeneration) ? cachedGeneration + 1 : 1,
         idleTimer: null,
+        retryTimer: null,
+        retryAttempts: 0,
         waiters: new Set(),
         failure: region.failure,
         compactBytes: cached?.encodedBytes ?? 0,
@@ -261,16 +266,19 @@ export class RelayMapResourceRuntime {
         cacheReleases: new Set(),
       };
       region.resources.set(resourceId, resource);
+      created = true;
       if (!cached) this.#emitEvent(resource, { type: "partition-loading", key: mapResourceScopeKey(regionId, resourceId) });
-      if (region.session) await this.#subscribe(region, resource);
-      else if (!region.schemaUnavailable) await this.#ensureSession(region);
-      if (!region.session && !region.schemaUnavailable) this.#scheduleRestart(region);
     }
     if (resource.idleTimer != null) {
       this.#clearTimer(resource.idleTimer);
       resource.idleTimer = null;
     }
     resource.leases += 1;
+    if (created) {
+      if (region.session) await this.#subscribe(region, resource);
+      else if (!region.schemaUnavailable) await this.#ensureSession(region);
+      if (!region.session && !region.schemaUnavailable) this.#scheduleRestart(region);
+    }
     return this.#lease(region, resource);
   }
 
@@ -369,6 +377,7 @@ export class RelayMapResourceRuntime {
         onProvisional: (notice) => this.#acceptProvisional(entry, session!, notice),
         onDelta: (notice) => this.#acceptDelta(entry, session!, notice),
         onFailure: (error) => this.#failRegion(entry, session!, error),
+        onResourceFailure: (resourceId, error) => this.#failResource(entry, session!, resourceId, error),
       });
       entry.session = session;
       for (const resource of entry.resources.values()) {
@@ -430,7 +439,7 @@ export class RelayMapResourceRuntime {
     } catch (error) {
       resource.subscribed = false;
       resource.failure = errorMessage(error);
-      this.#failRegion(entry, entry.session, resource.failure);
+      this.#failResource(entry, entry.session, resource.resourceId, resource.failure);
     } finally {
       resource.subscribing = false;
     }
@@ -487,6 +496,9 @@ export class RelayMapResourceRuntime {
     resource.compactBytes = compactBytes;
     resource.nextGeneration = Math.max(resource.nextGeneration, snapshot.generation + 1);
     resource.failure = null;
+    resource.retryAttempts = 0;
+    if (resource.retryTimer != null) this.#clearTimer(resource.retryTimer);
+    resource.retryTimer = null;
     entry.failure = null;
     entry.schemaUnavailable = false;
     entry.reconnectAttempts = 0;
@@ -599,6 +611,8 @@ export class RelayMapResourceRuntime {
     if (this.#stopped || entry.session !== session) return;
     entry.failure = error;
     for (const resource of entry.resources.values()) {
+      if (resource.retryTimer != null) this.#clearTimer(resource.retryTimer);
+      resource.retryTimer = null;
       resource.subscribed = false;
       resource.subscribing = false;
       resource.failure = error;
@@ -625,6 +639,30 @@ export class RelayMapResourceRuntime {
     this.#scheduleRestart(entry);
   }
 
+  #failResource(entry: RegionEntry, session: RegionSession, resourceId: string, error: string) {
+    if (this.#stopped || entry.session !== session) return;
+    const resource = entry.resources.get(resourceId);
+    if (!resource) return;
+    resource.subscribed = false;
+    resource.subscribing = false;
+    resource.failure = error;
+    const key = mapResourceScopeKey(entry.regionId, resource.resourceId);
+    const current = this.#cache.latest(key);
+    if (current) {
+      this.#cache.put({ ...current, freshness: "stale", warning: error });
+      this.#emitEvent(resource, { type: "partition-stale", key, generation: current.generation, warning: error });
+    } else {
+      this.#emitEvent(resource, { type: "partition-unavailable", key, warning: error });
+    }
+    if (resource.retryTimer != null || resource.leases === 0) return;
+    resource.retryAttempts += 1;
+    resource.retryTimer = this.#setTimer(() => {
+      resource.retryTimer = null;
+      if (this.#stopped || this.#regions.get(entry.regionId) !== entry || entry.session !== session || resource.leases === 0) return;
+      void this.#subscribe(entry, resource);
+    }, this.#reconnectDelayMs(resource.retryAttempts));
+  }
+
   #scheduleRestart(entry: RegionEntry) {
     if (entry.reconnectTimer != null || this.#stopped || (!entry.pinned && entry.resources.size === 0)) return;
     entry.reconnectAttempts += 1;
@@ -645,6 +683,8 @@ export class RelayMapResourceRuntime {
   async #expireResource(entry: RegionEntry, resource: ResourceEntry) {
     if (entry.resources.get(resource.resourceId) !== resource || resource.leases > 0) return;
     resource.idleTimer = null;
+    if (resource.retryTimer != null) this.#clearTimer(resource.retryTimer);
+    resource.retryTimer = null;
     entry.session?.unsubscribe(resource.resourceId);
     for (const waiter of resource.waiters) {
       this.#clearTimer(waiter.timer);
@@ -675,6 +715,10 @@ export class RelayMapResourceRuntime {
     if (entry.reconnectTimer != null) this.#clearTimer(entry.reconnectTimer);
     entry.idleTimer = null;
     entry.reconnectTimer = null;
+    for (const resource of entry.resources.values()) {
+      if (resource.retryTimer != null) this.#clearTimer(resource.retryTimer);
+      resource.retryTimer = null;
+    }
     this.#regions.delete(entry.regionId);
     await entry.session?.stop();
   }
@@ -799,6 +843,7 @@ export class RelayMapResourceRuntime {
       if (entry.reconnectTimer != null) this.#clearTimer(entry.reconnectTimer);
       for (const resource of entry.resources.values()) {
         if (resource.idleTimer != null) this.#clearTimer(resource.idleTimer);
+        if (resource.retryTimer != null) this.#clearTimer(resource.retryTimer);
         for (const waiter of resource.waiters) {
           this.#clearTimer(waiter.timer);
           waiter.resolve(null);

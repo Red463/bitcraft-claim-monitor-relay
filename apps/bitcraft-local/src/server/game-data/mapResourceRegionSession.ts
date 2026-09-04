@@ -39,6 +39,7 @@ type ConnectionBuilder = {
 export type RegionalBindingModule = { DbConnection: { builder(): ConnectionBuilder } };
 
 const MAX_RESOURCE_IDS = 16;
+const MAX_CONCURRENT_HYDRATIONS = 1;
 const DEFAULT_REBUILD_DELAY_MS = 300;
 const DEFAULT_SUBSCRIPTION_APPLY_TIMEOUT_MS = 60_000;
 
@@ -130,6 +131,7 @@ export class RelayMapResourceRegionSession {
   readonly #onProvisional: (notice: MapResourceProvisionalNotice) => void | Promise<void>;
   readonly #onDelta: (notice: MapResourceDeltaNotice) => void | Promise<void>;
   readonly #onFailure: (error: string) => void;
+  readonly #onResourceFailure: (resourceId: string, error: string) => void;
   readonly #now: () => Date;
   readonly #setTimer: (callback: () => void, delayMs: number) => unknown;
   readonly #clearTimer: (timer: unknown) => void;
@@ -174,6 +176,7 @@ export class RelayMapResourceRegionSession {
     onProvisional = () => {},
     onDelta = () => {},
     onFailure = () => {},
+    onResourceFailure = () => {},
     now = () => new Date(),
     setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
@@ -186,6 +189,7 @@ export class RelayMapResourceRegionSession {
     onProvisional?: (notice: MapResourceProvisionalNotice) => void | Promise<void>;
     onDelta?: (notice: MapResourceDeltaNotice) => void | Promise<void>;
     onFailure?: (error: string) => void;
+    onResourceFailure?: (resourceId: string, error: string) => void;
     now?: () => Date;
     setTimer?: (callback: () => void, delayMs: number) => unknown;
     clearTimer?: (timer: unknown) => void;
@@ -198,6 +202,7 @@ export class RelayMapResourceRegionSession {
     this.#onProvisional = onProvisional;
     this.#onDelta = onDelta;
     this.#onFailure = onFailure;
+    this.#onResourceFailure = onResourceFailure;
     this.#now = now;
     this.#setTimer = setTimer;
     this.#clearTimer = clearTimer;
@@ -306,6 +311,22 @@ export class RelayMapResourceRegionSession {
     };
     this.#subscriptions.set(resourceId, subscription);
     this.#index?.select(resourceId);
+    this.#startQueuedSubscriptions(connection);
+    this.#health.stage = "subscribed";
+  }
+
+  #startQueuedSubscriptions(connection: BindingConnection): void {
+    let hydrating = [...this.#subscriptions.values()].filter((subscription) => subscription.handle && !subscription.applied).length;
+    for (const subscription of this.#subscriptions.values()) {
+      if (hydrating >= MAX_CONCURRENT_HYDRATIONS) return;
+      if (subscription.handle || subscription.applied) continue;
+      this.#startSubscription(connection, subscription);
+      hydrating += 1;
+    }
+  }
+
+  #startSubscription(connection: BindingConnection, subscription: ResourceSubscription): void {
+    const { resourceId } = subscription;
     subscription.applyTimer = this.#setTimer(() => {
       if (this.#subscriptions.get(resourceId) !== subscription || subscription.applied) return;
       subscription.applyTimer = null;
@@ -316,9 +337,10 @@ export class RelayMapResourceRegionSession {
       this.#dirtyResourceIds.delete(resourceId);
       delete this.#health.rowsPerType[resourceId];
       this.#refreshAppliedResourceIds();
-      this.#recordError(new Error(
+      this.#recordResourceError(resourceId, new Error(
         `Relay map resource ${resourceId} subscription did not apply within ${this.#subscriptionApplyTimeoutMs}ms`,
       ));
+      this.#startQueuedSubscriptions(connection);
     }, this.#subscriptionApplyTimeoutMs);
     try {
       subscription.handle = connection.subscriptionBuilder()
@@ -330,11 +352,21 @@ export class RelayMapResourceRegionSession {
         this.#refreshAppliedResourceIds();
         this.#needsReseed = true;
         this.#queueRebuild([resourceId]);
+        this.#startQueuedSubscriptions(connection);
       })
       .onError((_context, error) => {
+        if (this.#subscriptions.get(resourceId) !== subscription) return;
         if (subscription.applyTimer !== null) this.#clearTimer(subscription.applyTimer);
         subscription.applyTimer = null;
-        this.#recordError(error);
+        subscription.handle?.unsubscribe();
+        subscription.handle = null;
+        this.#subscriptions.delete(resourceId);
+        this.#index?.unselect(resourceId);
+        this.#dirtyResourceIds.delete(resourceId);
+        delete this.#health.rowsPerType[resourceId];
+        this.#refreshAppliedResourceIds();
+        this.#recordResourceError(resourceId, error);
+        this.#startQueuedSubscriptions(connection);
       })
       .subscribe(mapResourceQueries(resourceId));
     } catch (error) {
@@ -343,7 +375,6 @@ export class RelayMapResourceRegionSession {
       this.#index?.unselect(resourceId);
       throw error;
     }
-    this.#health.stage = "subscribed";
   }
 
   unsubscribe(rawResourceId: string): void {
@@ -362,6 +393,7 @@ export class RelayMapResourceRegionSession {
       0,
     );
     this.#refreshAppliedResourceIds();
+    if (this.#connection) this.#startQueuedSubscriptions(this.#connection);
   }
 
   #attachListeners(connection: BindingConnection): void {
@@ -611,6 +643,12 @@ export class RelayMapResourceRegionSession {
     this.#health.stage = "error";
     this.#health.lastError = error instanceof Error ? error.message : String(error);
     this.#onFailure(this.#health.lastError);
+  }
+
+  #recordResourceError(resourceId: string, error: unknown): void {
+    this.#health.stage = this.#health.appliedResourceIds.length ? "partial" : "error";
+    this.#health.lastError = error instanceof Error ? error.message : String(error);
+    this.#onResourceFailure(resourceId, this.#health.lastError);
   }
 
   #requiredConfig() {

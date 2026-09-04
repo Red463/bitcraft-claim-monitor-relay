@@ -33,6 +33,7 @@ function fakeTimers() {
       }
     },
     size() { return pending.size; },
+    count(delayMs) { return [...pending.values()].filter((timer) => timer.delayMs === delayMs).length; },
   };
 }
 
@@ -230,33 +231,28 @@ test("resource session maintains independent applied subscriptions on one region
   await session.subscribe("28", 7);
   await session.subscribe("54", 8);
 
-  assert.deepEqual(relay.subscriptions.map(({ queries }) => queries), [
-    [
-      "SELECT resource_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 28 AND location_state.dimension = 1",
-      "SELECT location_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 28 AND location_state.dimension = 1",
-    ],
-    [
-      "SELECT resource_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 54 AND location_state.dimension = 1",
-      "SELECT location_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 54 AND location_state.dimension = 1",
-    ],
-  ]);
+  assert.deepEqual(relay.subscriptions.map(({ queries }) => queries), [[
+    "SELECT resource_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 28 AND location_state.dimension = 1",
+    "SELECT location_state.* FROM resource_state JOIN location_state ON resource_state.entity_id = location_state.entity_id WHERE resource_state.resource_id = 28 AND location_state.dimension = 1",
+  ]]);
   assert.equal(relay.handles[0].unsubscribeCount, 0, "adding a resource must retain its existing handle");
   assert.equal(snapshots.length, 0, "no resource publishes before its own subscription applies");
+
+  relay.subscriptions[0].apply();
+  assert.equal(relay.subscriptions.length, 2);
+  timers.run(300);
+  await Promise.resolve();
+  assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["28"]);
+  assert.deepEqual(snapshots[0].data.resources, []);
+  assert.equal(snapshots[0].generation, 7);
+  assert.equal(session.health().appliedResourceIds.includes("28"), true);
+  assert.equal(session.health().appliedResourceIds.includes("54"), false);
 
   relay.subscriptions[1].apply();
   timers.run(300);
   await Promise.resolve();
-  assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["54"]);
-  assert.deepEqual(snapshots[0].data.resources, []);
-  assert.equal(snapshots[0].generation, 8);
-  assert.equal(session.health().appliedResourceIds.includes("54"), true);
-  assert.equal(session.health().appliedResourceIds.includes("28"), false);
-
-  relay.subscriptions[0].apply();
-  timers.run(300);
-  await Promise.resolve();
-  assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["54", "28"]);
-  assert.equal(snapshots[1].generation, 7);
+  assert.deepEqual(snapshots.map((snapshot) => snapshot.resourceId), ["28", "54"]);
+  assert.equal(snapshots[1].generation, 8);
   assert.equal(session.health().rowCount, 0);
   assert.equal(Number.isFinite(session.health().normalizationDurationMs), true);
   assert.equal(session.health().normalizationDurationMs >= 0, true);
@@ -268,6 +264,52 @@ test("resource session maintains independent applied subscriptions on one region
   await session.stop();
 });
 
+test("resource session hydrates one selected resource at a time", async () => {
+  const relay = fixture();
+  const timers = fakeTimers();
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot() {},
+    onFailure() {},
+    ...timers,
+  });
+  await session.start(config());
+
+  await session.subscribe("20", 1);
+  await session.subscribe("28", 1);
+
+  assert.equal(relay.subscriptions.length, 1, "a second cold hydration must wait for the first resource");
+  relay.subscriptions[0].apply();
+  assert.equal(relay.subscriptions.length, 2, "the next resource must start as soon as the first applies");
+  await session.stop();
+});
+
+test("a resource apply timeout advances the queue without failing the region", async () => {
+  const relay = fixture();
+  const timers = fakeTimers();
+  const regionFailures = [];
+  const resourceFailures = [];
+  const session = new RelayMapResourceRegionSession({
+    loadBindings: relay.loadBindings,
+    onSnapshot() {},
+    onFailure: (warning) => regionFailures.push(warning),
+    onResourceFailure: (resourceId, warning) => resourceFailures.push([resourceId, warning]),
+    subscriptionApplyTimeoutMs: 1_000,
+    ...timers,
+  });
+  await session.start(config());
+  await session.subscribe("20", 1);
+  await session.subscribe("28", 1);
+
+  timers.run(1_000);
+
+  assert.deepEqual(regionFailures, []);
+  assert.deepEqual(resourceFailures, [["20", "Relay map resource 20 subscription did not apply within 1000ms"]]);
+  assert.equal(relay.handles[0].unsubscribeCount, 1);
+  assert.equal(relay.subscriptions.length, 2, "the queued resource must hydrate after the timed-out resource is removed");
+  await session.stop();
+});
+
 test("resource session fails and removes a subscription that never applies", async () => {
   const relay = fixture();
   const timers = fakeTimers();
@@ -275,7 +317,7 @@ test("resource session fails and removes a subscription that never applies", asy
   const session = new RelayMapResourceRegionSession({
     loadBindings: relay.loadBindings,
     onSnapshot() {},
-    onFailure: (warning) => failures.push(warning),
+    onResourceFailure: (_resourceId, warning) => failures.push(warning),
     subscriptionApplyTimeoutMs: 1_000,
     ...timers,
   });
@@ -305,9 +347,10 @@ test("resource session clears the apply watchdog after application or unsubscrib
   await session.start(config());
   await session.subscribe("28", 7);
   await session.subscribe("54", 8);
-  assert.equal(timers.size(), 2, "each unapplied subscription must own an apply watchdog");
+  assert.equal(timers.size(), 1, "only the actively hydrating subscription owns an apply watchdog");
 
   relay.subscriptions[0].apply();
+  assert.equal(timers.count(1_000), 1, "the queued subscription starts after the first applies");
   session.unsubscribe("54");
   timers.run(1_000);
 
@@ -323,14 +366,14 @@ test("resource session clears apply watchdogs after subscription error and shutd
   const session = new RelayMapResourceRegionSession({
     loadBindings: relay.loadBindings,
     onSnapshot() {},
-    onFailure: (warning) => failures.push(warning),
+    onResourceFailure: (_resourceId, warning) => failures.push(warning),
     subscriptionApplyTimeoutMs: 1_000,
     ...timers,
   });
   await session.start(config());
   await session.subscribe("28", 7);
   await session.subscribe("54", 8);
-  assert.equal(timers.size(), 2);
+  assert.equal(timers.size(), 1);
 
   relay.subscriptions[0].fail(undefined, new Error("Relay subscription rejected"));
   assert.equal(timers.size(), 1);
@@ -639,6 +682,7 @@ test("resource session reports disconnects and stops each regional resource hand
   await session.start(config());
   await session.subscribe("28", 7);
   await session.subscribe("54", 8);
+  relay.subscriptions[0].apply();
   relay.disconnect(new Error("relay dropped"));
   assert.deepEqual(failures, ["relay dropped"]);
   await session.stop();

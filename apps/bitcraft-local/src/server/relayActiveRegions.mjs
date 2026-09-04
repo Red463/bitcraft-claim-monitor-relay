@@ -1,3 +1,5 @@
+import { withoutClosedEventRegions } from "./relayRegionPolicy.mjs";
+
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -13,12 +15,12 @@ function decimalRegionIds(value) {
 export function relayActiveRegions(options = {}) {
   const claimRegionId = decimalRegionIds([options.claimRegionId])[0] ?? "";
   const defaultRegionId = decimalRegionIds([options.defaultRegionId])[0] ?? "";
-  const overrideRegionIds = decimalRegionIds(options.additionalRegionIds);
-  const configuredRegionIds = decimalRegionIds([
+  const overrideRegionIds = withoutClosedEventRegions(decimalRegionIds(options.additionalRegionIds));
+  const configuredRegionIds = withoutClosedEventRegions(decimalRegionIds([
     claimRegionId,
     defaultRegionId,
     ...overrideRegionIds,
-  ]);
+  ]));
   const snapshot = record(options.regionSnapshot);
   const snapshotData = record(snapshot.data);
   const rowsById = new Map(

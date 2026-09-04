@@ -1,5 +1,6 @@
 import { discoverRelayTopology, type RelayTopology } from "./topology.ts";
 import { assertSchemaFingerprint } from "./schemaManifest.ts";
+import { isClosedEventRegion } from "#server/relayRegionPolicy.mjs";
 
 type BindingManifest = Parameters<typeof assertSchemaFingerprint>[0];
 
@@ -124,7 +125,7 @@ export class RelayMapResourceReadiness {
       const topology = await this.#discoverTopology(input.relayBaseUrl);
       const warnings: string[] = [];
       const regionIds = decimalList([...topology.regions.entries()].flatMap(([regionId, source]) => {
-        if (!source.ready) return [];
+        if (!source.ready || isClosedEventRegion(regionId)) return [];
         try {
           assertSchemaFingerprint(this.#manifest, "regional", String(source.schemaFingerprint ?? ""));
           return [regionId];

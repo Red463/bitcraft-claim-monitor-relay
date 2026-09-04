@@ -13,7 +13,7 @@ try {
   // RED: full-world job entrypoints are introduced by this task.
 }
 
-test("terrain job includes every ready region at zoom -5 through 0", async () => {
+test("terrain job excludes closed event regions at the generation boundary", async () => {
   assert.ok(terrainJob, "terrain world generation module must exist");
   const built = [];
   const installed = [];
@@ -39,8 +39,8 @@ test("terrain job includes every ready region at zoom -5 through 0", async () =>
     generatedAt: "2026-08-13T01:00:00.000Z",
   });
 
-  assert.deepEqual(built, [["3"], ["19"]]);
-  assert.deepEqual(result.manifest.regionIds, ["3", "19"]);
+  assert.deepEqual(built, [["19"]]);
+  assert.deepEqual(result.manifest.regionIds, ["19"]);
   assert.deepEqual(result.manifest.zoomRange, { min: -5, max: 0 });
   assert.equal(installed.length, 1);
   assert.equal(pruneCalls, 1);
@@ -83,6 +83,42 @@ test("road region selection surfaces schema drift instead of reporting an empty 
     requestedSet: null,
     assertFingerprint: () => { throw mismatch; },
   }), (error) => error === mismatch);
+});
+
+test("road job excludes closed event regions at the generation boundary", async () => {
+  const built = [];
+  const result = await roadJob.runRoadWorldGeneration({
+    readyRegionIds: ["23", "19", "15", "11", "3"],
+    buildBatch: async ({ regionIds }) => {
+      built.push(regionIds);
+      return { batchRoot: `batch-${regionIds[0]}`, manifest: { regionIds, featureCount: 1 } };
+    },
+    compose: async ({ expectedRegionIds, manifestBase }) => ({
+      manifest: { ...manifestBase, regionIds: expectedRegionIds },
+    }),
+    install: async (candidate) => candidate.manifest,
+  });
+
+  assert.deepEqual(built, [["19"]]);
+  assert.deepEqual(result.manifest.regionIds, ["19"]);
+});
+
+test("road region selection ignores closed event regions still reported by Relay", () => {
+  const checked = [];
+  const regionIds = roadJob.schemaReadyRoadRegionIds({
+    topology: {
+      regions: new Map(["3", "7", "11", "15", "19", "23"].map((regionId) => [regionId, {
+        ready: true,
+        schemaFingerprint: "regional-v1",
+      }])),
+    },
+    manifest: { schemas: { regional: { fingerprint: "regional-v1" } } },
+    requestedSet: null,
+    assertFingerprint: (_manifest, _kind, fingerprint) => checked.push(fingerprint),
+  });
+
+  assert.deepEqual(regionIds, ["7", "19"]);
+  assert.equal(checked.length, 2);
 });
 
 test("road projection rejects incomplete joins instead of silently dropping paving rows", () => {

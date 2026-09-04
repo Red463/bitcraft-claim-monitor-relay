@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
+import { isClosedEventRegion } from "../src/server/relayRegionPolicy.mjs";
 
 function canonicalRegions(values) {
   const regions = canonicalMapRegionIds(values);
@@ -34,7 +35,7 @@ export async function runTerrainWorldGeneration({
   generation = String(Date.now()),
   generatedAt = new Date().toISOString(),
 }) {
-  const regionIds = canonicalRegions(readyRegionIds);
+  const regionIds = canonicalRegions(readyRegionIds).filter((regionId) => !isClosedEventRegion(regionId));
   const built = [];
   let index = 0;
   for (const batch of chunks(regionIds, boundedBatchSize(batchSize))) {
@@ -99,7 +100,7 @@ export async function runTerrainWorldCli() {
   const requestedSet = process.env.BITCRAFT_MAP_REGION_IDS ? new Set(requested) : null;
   const topology = await discoverRelayTopology(relayBaseUrl);
   const readyRegionIds = canonicalRegions([...topology.regions.entries()]
-    .filter(([regionId, source]) => source.ready && source.schemaFingerprint && (!requestedSet || requestedSet.has(String(regionId))))
+    .filter(([regionId, source]) => source.ready && source.schemaFingerprint && !isClosedEventRegion(regionId) && (!requestedSet || requestedSet.has(String(regionId))))
     .map(([regionId]) => String(regionId)));
   if (requestedSet) for (const regionId of requestedSet) if (!readyRegionIds.includes(regionId)) throw new Error(`Requested terrain region ${regionId} is not schema-ready`);
 

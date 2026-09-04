@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.21] - 2026-09-04
+
+### Fixed
+
+- Improved map resource loading by hydrating one selected resource at a time per region and retrying individual failures without interrupting healthy resources.
+- Removed the closed temporary event regions 3, 11, 15, and 23 from active map data and generated road and terrain artifacts.
+
 ## [0.66.2-beta.20] - 2026-08-31
 
 ### Fixed

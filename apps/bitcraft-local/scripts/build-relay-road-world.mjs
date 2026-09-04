@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
+import { isClosedEventRegion } from "../src/server/relayRegionPolicy.mjs";
 
 const ROAD_GENERATION_STAGES = new Set([
   "topology", "relay-connect", "relay-subscription", "coordinate-projection",
@@ -63,7 +64,7 @@ function canonicalRegions(values) {
 
 export function schemaReadyRoadRegionIds({ topology, manifest, requestedSet, assertFingerprint }) {
   return canonicalRegions([...topology.regions.entries()].flatMap(([regionId, source]) => {
-    if (!source.ready || (requestedSet && !requestedSet.has(String(regionId)))) return [];
+    if (!source.ready || isClosedEventRegion(regionId) || (requestedSet && !requestedSet.has(String(regionId)))) return [];
     assertFingerprint(manifest, "regional", String(source.schemaFingerprint ?? ""));
     return [String(regionId)];
   }));
@@ -123,7 +124,7 @@ export async function runRoadWorldGeneration({
   generatedAt = new Date().toISOString(),
 }) {
   const startedAt = Date.now();
-  const regionIds = canonicalRegions(readyRegionIds);
+  const regionIds = canonicalRegions(readyRegionIds).filter((regionId) => !isClosedEventRegion(regionId));
   const built = [];
   let index = 0;
   for (const batch of chunks(regionIds, boundedBatchSize(batchSize))) {

@@ -6,6 +6,7 @@ import { discoverRelayTopology, RelayTerrainRuntime } from "../dist-server/game-
 import { createTerrainTileStore } from "../src/server/terrainTileStore.mjs";
 import { renderTerrainTile } from "../src/server/terrainTileRenderer.mjs";
 import { createTerrainOverviewStore } from "../src/server/terrainOverviewStore.mjs";
+import { isClosedEventRegion } from "../src/server/relayRegionPolicy.mjs";
 
 const relayBaseUrl = String(process.env.BITCRAFT_RELAY_ORIGIN ?? "https://relay.bitcraftsync.app").replace(/\/+$/, "");
 const dataDir = String(process.env.BITCRAFT_LOCAL_DATA_DIR ?? fileURLToPath(new URL("../data", import.meta.url)));
@@ -18,7 +19,7 @@ const evidence = JSON.parse(await readFile(new URL("../test/fixtures/terrain-liv
 const topology = await discoverRelayTopology(relayBaseUrl);
 const requested = String(process.env.BITCRAFT_OVERVIEW_REGION_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 const readyRegionIds = [...topology.regions.entries()]
-  .filter(([regionId, source]) => source.ready && source.schemaFingerprint && (!requested.length || requested.includes(regionId)))
+  .filter(([regionId, source]) => source.ready && source.schemaFingerprint && !isClosedEventRegion(regionId) && (!requested.length || requested.includes(regionId)))
   .map(([regionId]) => regionId)
   .sort((left, right) => Number(left) - Number(right));
 if (!readyRegionIds.length) throw new Error("Relay exposes no ready overworld regions for the terrain overview");
