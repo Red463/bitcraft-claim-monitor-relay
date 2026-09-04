@@ -13,7 +13,7 @@ const input = {
   configuredRegionIds: ["24", "3", "19"],
 };
 
-function topology(regionIds = ["3", "19"]) {
+function topology(regionIds = ["7", "19"]) {
   return {
     discoveredAt: "2026-08-13T10:00:00.000Z",
     cacheReady: true,
@@ -39,12 +39,12 @@ test("web readiness configures every schema-ready resource region without worker
 
   const catalog = await readiness.ensure(input);
 
-  assert.deepEqual(catalog.regionIds, ["3", "19"]);
+  assert.deepEqual(catalog.regionIds, ["7", "19"]);
   assert.equal(catalog.freshness, "live");
   assert.deepEqual(reconciliations, [{
     relayBaseUrl: "https://relay.example",
     primaryRegionId: "19",
-    activeRegionIds: ["3", "19"],
+    activeRegionIds: ["7", "19"],
   }]);
 });
 
@@ -111,8 +111,8 @@ test("initial discovery failure advertises no unverified regions", async () => {
 });
 
 test("schema-mismatched regions are not advertised or reconciled", async () => {
-  const discovered = topology(["3", "19"]);
-  discovered.regions.get("3").schemaFingerprint = "unexpected";
+  const discovered = topology(["7", "19"]);
+  discovered.regions.get("7").schemaFingerprint = "unexpected";
   const reconciliations = [];
   const readiness = new RelayMapResourceReadiness({
     manifest,
@@ -125,5 +125,20 @@ test("schema-mismatched regions are not advertised or reconciled", async () => {
 
   assert.deepEqual(catalog.regionIds, ["19"]);
   assert.deepEqual(reconciliations[0].activeRegionIds, ["19"]);
-  assert.match(catalog.warnings.join(" "), /region 3.*fingerprint mismatch/i);
+  assert.match(catalog.warnings.join(" "), /region 7.*fingerprint mismatch/i);
+});
+
+test("closed event regions are not advertised or reconciled even when Relay still reports them", async () => {
+  const reconciliations = [];
+  const readiness = new RelayMapResourceReadiness({
+    manifest,
+    discoverTopology: async () => topology(["3", "7", "11", "15", "19", "23"]),
+    runtime: { reconcile: async (value) => reconciliations.push(value) },
+    now: () => 1_000,
+  });
+
+  const catalog = await readiness.ensure(input);
+
+  assert.deepEqual(catalog.regionIds, ["7", "19"]);
+  assert.deepEqual(reconciliations[0].activeRegionIds, ["7", "19"]);
 });

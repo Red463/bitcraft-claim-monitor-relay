@@ -89,6 +89,20 @@ test("active-region view returns configured scope immediately before population 
   assert.equal(result.freshness, "unavailable");
 });
 
+test("active-region view excludes closed event regions from configured scope", () => {
+  const result = activeRegionsModule.relayActiveRegions({
+    claimRegionId: "19",
+    defaultRegionId: "3",
+    additionalRegionIds: ["7", "11", "15", "23"],
+    regionSnapshot: null,
+    providerHealth: null,
+  });
+
+  assert.deepEqual(result.configuredRegionIds, ["7", "19"]);
+  assert.deepEqual(result.overrideRegionIds, ["7"]);
+  assert.deepEqual(result.regions.map((region) => region.regionId), ["7", "19"]);
+});
+
 test("connected global subscription keeps unchanged region rows live", () => {
   const result = activeRegionsModule.relayActiveRegions({
     defaultRegionId: "19",

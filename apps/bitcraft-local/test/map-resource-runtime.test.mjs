@@ -52,7 +52,7 @@ function snapshot(regionId, resourceId, generation, resources = []) {
   };
 }
 
-function runtimeFixture({ regions = ["19", "20"], clock = manualClock(), start = async () => {}, onGeneration } = {}) {
+function runtimeFixture({ regions = ["19", "20"], clock = manualClock(), start = async () => {}, subscribe = async () => {}, onGeneration } = {}) {
   const sessions = [];
   const topology = {
     regions: new Map(regions.map((regionId) => [regionId, {
@@ -70,7 +70,10 @@ function runtimeFixture({ regions = ["19", "20"], clock = manualClock(), start =
       const session = {
         options, starts: [], subscriptions: [], unsubscribed: [], stopped: false,
         async start(config) { this.starts.push(config); await start(config, this); },
-        async subscribe(resourceId, generation) { this.subscriptions.push({ resourceId, generation }); },
+        async subscribe(resourceId, generation) {
+          this.subscriptions.push({ resourceId, generation });
+          await subscribe(resourceId, generation, this);
+        },
         unsubscribe(resourceId) { this.unsubscribed.push(resourceId); },
         health() { return { connected: !this.stopped, applied: !this.stopped, lastError: null }; },
         async stop() { this.stopped = true; },
@@ -562,6 +565,53 @@ test("failed regions reconnect with bounded backoff, restore warm entries, and p
   assert.equal(lease.state().snapshot, prior, "a detached mismatched session cannot publish a late snapshot");
   assert.deepEqual(generations, [prior], "late snapshots cannot emit a generation notification");
   await pending.release();
+  await runtime.stop();
+});
+
+test("a failed resource retries without restarting or staling healthy siblings", async () => {
+  const { runtime, sessions, clock } = runtimeFixture({ regions: ["19"] });
+  await runtime.reconcile({ relayBaseUrl: "https://relay.example", primaryRegionId: "19", activeRegionIds: ["19"] });
+  const birch = await runtime.acquire({ regionId: "19", resourceId: "20" });
+  const bush = await runtime.acquire({ regionId: "19", resourceId: "28" });
+  await sessions[0].options.onSnapshot(snapshot("19", "28", 1, [{ entityId: "bush" }]));
+
+  sessions[0].options.onResourceFailure("20", "Relay map resource 20 subscription did not apply within 60000ms");
+
+  assert.equal(birch.state().status, "unavailable");
+  assert.equal(bush.state().status, "live");
+  await clock.advance(1_000);
+  assert.equal(sessions.length, 1, "a resource-specific failure must retain the regional connection");
+  assert.deepEqual(sessions[0].subscriptions, [
+    { resourceId: "20", generation: 1 },
+    { resourceId: "28", generation: 1 },
+    { resourceId: "20", generation: 1 },
+  ]);
+  await birch.release();
+  await bush.release();
+  await runtime.stop();
+});
+
+test("an immediate resource subscription failure retries after acquisition creates its lease", async () => {
+  let attempts = 0;
+  const { runtime, sessions, clock } = runtimeFixture({
+    regions: ["19"],
+    subscribe: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("subscription builder failed");
+    },
+  });
+  await runtime.reconcile({ relayBaseUrl: "https://relay.example", primaryRegionId: "19", activeRegionIds: ["19"] });
+
+  const lease = await runtime.acquire({ regionId: "19", resourceId: "20" });
+  assert.equal(lease.state().status, "unavailable");
+  await clock.advance(1_000);
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(sessions[0].subscriptions, [
+    { resourceId: "20", generation: 1 },
+    { resourceId: "20", generation: 1 },
+  ]);
+  await lease.release();
   await runtime.stop();
 });
 

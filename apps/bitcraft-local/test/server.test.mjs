@@ -742,7 +742,7 @@ test("server collection paginates listings and protects production mutations", a
   const mapRegionsResponse = await fetch(`${origin}/api/local/map/regions`);
   assert.equal(mapRegionsResponse.status, 200);
   const mapRegions = await mapRegionsResponse.json();
-  assert.deepEqual(mapRegions.regionIds, mapResourceRegionIds);
+  assert.deepEqual(mapRegions.regionIds, mapResourceRegionIds.filter((regionId) => !["3", "11", "15", "23"].includes(regionId)));
   const mapRegion19 = mapRegions.regions.find((region) => region.regionId === "19");
   assert.equal(mapRegion19.regionName, "Region 19");
   assert.equal(mapRegion19.freshness, "live");
