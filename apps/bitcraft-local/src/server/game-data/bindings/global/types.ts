@@ -3170,6 +3170,8 @@ export const InteriorNetworkDesc = __t.object("InteriorNetworkDesc", {
   triggerCollapseTime: __t.u32(),
   respawnTime: __t.u32(),
   childInteriorInstances: __t.array(__t.i32()),
+  startCollapsing: __t.bool(),
+  destroyBuildingOnCollapse: __t.bool(),
 });
 export type InteriorNetworkDesc = __Infer<typeof InteriorNetworkDesc>;
 
@@ -5802,8 +5804,19 @@ export const ResourceDesc = __t.object("ResourceDesc", {
   waterDepthMin: __t.i32(),
   waterDepthMax: __t.i32(),
   maxElevationDelta: __t.i32(),
+  get onDestroyBuildingOutcomes() {
+    return __t.option(__t.array(ResourceDestroyBuildingOutcome));
+  },
 });
 export type ResourceDesc = __Infer<typeof ResourceDesc>;
+
+export const ResourceDestroyBuildingOutcome = __t.object("ResourceDestroyBuildingOutcome", {
+  probability: __t.f32(),
+  buildingId: __t.i32(),
+  radiusMin: __t.i32(),
+  radiusMax: __t.i32(),
+});
+export type ResourceDestroyBuildingOutcome = __Infer<typeof ResourceDestroyBuildingOutcome>;
 
 export const ResourceGrowthRecipeDesc = __t.object("ResourceGrowthRecipeDesc", {
   id: __t.i32(),

@@ -22,4 +22,6 @@ export default __t.row({
   triggerCollapseTime: __t.u32().name("trigger_collapse_time"),
   respawnTime: __t.u32().name("respawn_time"),
   childInteriorInstances: __t.array(__t.i32()).name("child_interior_instances"),
+  startCollapsing: __t.bool().name("start_collapsing"),
+  destroyBuildingOnCollapse: __t.bool().name("destroy_building_on_collapse"),
 });
