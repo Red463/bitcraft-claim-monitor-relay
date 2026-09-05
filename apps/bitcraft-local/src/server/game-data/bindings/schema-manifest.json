@@ -1,11 +1,11 @@
 {
-  "capturedAt": "2026-09-04T08:39:02.429Z",
+  "capturedAt": "2026-09-05T16:44:38.946Z",
   "relayOrigin": "https://relay.bitcraftsync.app",
   "schemas": {
     "global": {
       "databaseObserved": "bitcraft-live-global",
-      "fingerprint": "6530960458781ee06deb547b432ff6bc0506aefe0f7a79a34475a147e4c06627",
-      "schemaSha256": "6530960458781ee06deb547b432ff6bc0506aefe0f7a79a34475a147e4c06627",
+      "fingerprint": "7b414175642c9b80f352ed9374c83ce1cbffd0df7fdcbe925bddcc4cb76310f9",
+      "schemaSha256": "7b414175642c9b80f352ed9374c83ce1cbffd0df7fdcbe925bddcc4cb76310f9",
       "bindingsGenerated": true,
       "bindingDirectory": "global",
       "generatedFileCount": 699
