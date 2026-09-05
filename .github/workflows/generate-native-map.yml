@@ -82,13 +82,30 @@ jobs:
         run: corepack pnpm install --frozen-lockfile
       - name: Build Relay bindings
         run: corepack pnpm --filter @workspace/bitcraft-local run build:server
-      - name: Generate terrain
-        if: matrix.product == 'terrain'
-        run: node apps/bitcraft-local/scripts/build-relay-terrain-world.mjs
-      - name: Generate roads
-        if: matrix.product == 'roads'
-        run: node apps/bitcraft-local/scripts/build-relay-road-world.mjs
+      - name: Generate product
+        id: generate
+        env:
+          PRODUCT: ${{ matrix.product }}
+        run: |
+          case "$PRODUCT" in
+            terrain)
+              node apps/bitcraft-local/scripts/build-relay-terrain-world.mjs
+              product_root="$BITCRAFT_LOCAL_DATA_DIR/map-tiles"
+              ;;
+            roads)
+              node apps/bitcraft-local/scripts/build-relay-road-world.mjs
+              product_root="$BITCRAFT_LOCAL_DATA_DIR/map-road-tiles"
+              ;;
+            *) exit 2 ;;
+          esac
+          if test -f "$product_root/current.json"; then
+            echo 'generated=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'generated=false' >> "$GITHUB_OUTPUT"
+            echo "::notice::Retaining the installed $PRODUCT map pack during the regional schema rollout."
+          fi
       - name: Package verified product
+        if: steps.generate.outputs.generated == 'true'
         id: package
         env:
           PRODUCT: ${{ matrix.product }}
@@ -104,6 +121,7 @@ jobs:
           printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Configure pinned SSH identity
+        if: steps.generate.outputs.generated == 'true'
         env:
           RELAY_VPS_SSH_PRIVATE_KEY: ${{ secrets.RELAY_VPS_SSH_PRIVATE_KEY }}
           RELAY_VPS_KNOWN_HOSTS: ${{ secrets.RELAY_VPS_KNOWN_HOSTS }}
@@ -114,6 +132,7 @@ jobs:
           printf '%s\n' "$RELAY_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
       - name: Upload and atomically install product
+        if: steps.generate.outputs.generated == 'true'
         env:
           ARTIFACT_PATH: ${{ steps.package.outputs.archive }}
           DIGEST: ${{ steps.package.outputs.digest }}

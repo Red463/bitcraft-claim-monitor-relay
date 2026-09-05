@@ -13,6 +13,15 @@ function normalizedFingerprint(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+export class SchemaFingerprintMismatchError extends Error {
+  readonly code = "RELAY_SCHEMA_FINGERPRINT_MISMATCH";
+
+  constructor(kind: BindingSchemaKind, expected: string, observed: string) {
+    super(`Relay ${kind} schema fingerprint mismatch: expected ${expected || "unconfigured"}, observed ${observed || "missing"}`);
+    this.name = "SchemaFingerprintMismatchError";
+  }
+}
+
 export function assertSchemaFingerprint(
   manifest: BindingSchemaManifest,
   kind: BindingSchemaKind,
@@ -21,7 +30,7 @@ export function assertSchemaFingerprint(
   const expected = normalizedFingerprint(manifest.schemas?.[kind]?.fingerprint);
   const observed = normalizedFingerprint(observedFingerprint);
   if (!expected || !observed || expected !== observed) {
-    throw new Error(`Relay ${kind} schema fingerprint mismatch: expected ${expected || "unconfigured"}, observed ${observed || "missing"}`);
+    throw new SchemaFingerprintMismatchError(kind, expected, observed);
   }
   return observed;
 }

@@ -72,6 +72,7 @@ test("one failed road region retains the previous pack", async () => {
 
 test("road region selection surfaces schema drift instead of reporting an empty region list", () => {
   const mismatch = new Error("Relay regional schema fingerprint mismatch");
+  mismatch.code = "RELAY_SCHEMA_FINGERPRINT_MISMATCH";
   assert.throws(() => roadJob.schemaReadyRoadRegionIds({
     topology: {
       regions: new Map([["19", {
@@ -82,6 +83,54 @@ test("road region selection surfaces schema drift instead of reporting an empty 
     manifest: { schemas: { regional: { fingerprint: "generated-regional-fingerprint" } } },
     requestedSet: null,
     assertFingerprint: () => { throw mismatch; },
+  }), (error) => error === mismatch);
+});
+
+test("map generation retains the last-good pack during a mixed regional schema rollout", () => {
+  const topology = {
+    regions: new Map([
+      ["13", { ready: true, schemaFingerprint: "regional-old" }],
+      ["19", { ready: true, schemaFingerprint: "regional-current" }],
+    ]),
+  };
+  const manifest = { schemas: { regional: { fingerprint: "regional-current" } } };
+  const assertFingerprint = (_manifest, _kind, fingerprint) => {
+    if (fingerprint !== "regional-current") {
+      const error = new Error("Relay regional schema fingerprint mismatch");
+      error.code = "RELAY_SCHEMA_FINGERPRINT_MISMATCH";
+      throw error;
+    }
+  };
+
+  assert.equal(roadJob.schemaReadyRoadRegionIds({
+    topology,
+    manifest,
+    requestedSet: null,
+    assertFingerprint,
+  }), null);
+  assert.equal(terrainJob.schemaReadyTerrainRegionIds({
+    topology,
+    manifest,
+    requestedSet: null,
+    assertFingerprint,
+  }), null);
+});
+
+test("an explicitly requested mismatched region still fails during a mixed rollout", () => {
+  const mismatch = new Error("Relay regional schema fingerprint mismatch");
+  mismatch.code = "RELAY_SCHEMA_FINGERPRINT_MISMATCH";
+  assert.throws(() => roadJob.schemaReadyRoadRegionIds({
+    topology: {
+      regions: new Map([
+        ["13", { ready: true, schemaFingerprint: "regional-old" }],
+        ["19", { ready: true, schemaFingerprint: "regional-current" }],
+      ]),
+    },
+    manifest: { schemas: { regional: { fingerprint: "regional-current" } } },
+    requestedSet: new Set(["13", "19"]),
+    assertFingerprint: (_manifest, _kind, fingerprint) => {
+      if (fingerprint === "regional-old") throw mismatch;
+    },
   }), (error) => error === mismatch);
 });
 
