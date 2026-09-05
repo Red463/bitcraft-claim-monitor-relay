@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.22] - 2026-09-05
+
+### Fixed
+
+- Retained the last-good native road and terrain maps while Relay rolls out a regional schema change, then resumed generation automatically when every active region became compatible.
+
 ## [0.66.2-beta.21] - 2026-09-04
 
 ### Fixed

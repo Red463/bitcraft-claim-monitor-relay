@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assertSchemaFingerprint,
+  SchemaFingerprintMismatchError,
   schemaBindingsReady,
 } from "../src/server/game-data/schemaManifest.ts";
 
@@ -34,6 +35,8 @@ test("Relay schema manifest records independent global and regional fingerprints
 test("schema drift stops ingestion before a mixed generation can apply", () => {
   assert.throws(
     () => assertSchemaFingerprint(manifest, "regional", "different"),
-    /schema fingerprint mismatch/,
+    (error) => error instanceof SchemaFingerprintMismatchError
+      && error.code === "RELAY_SCHEMA_FINGERPRINT_MISMATCH"
+      && /schema fingerprint mismatch/.test(error.message),
   );
 });

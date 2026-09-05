@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
-import { isClosedEventRegion } from "../src/server/relayRegionPolicy.mjs";
+import { isClosedEventRegion, relayMapSchemaMismatchDiagnostic, schemaCompleteRelayMapRegionIds } from "../src/server/relayRegionPolicy.mjs";
 
 const ROAD_GENERATION_STAGES = new Set([
   "topology", "relay-connect", "relay-subscription", "coordinate-projection",
@@ -62,12 +62,9 @@ function canonicalRegions(values) {
   return regions;
 }
 
-export function schemaReadyRoadRegionIds({ topology, manifest, requestedSet, assertFingerprint }) {
-  return canonicalRegions([...topology.regions.entries()].flatMap(([regionId, source]) => {
-    if (!source.ready || isClosedEventRegion(regionId) || (requestedSet && !requestedSet.has(String(regionId)))) return [];
-    assertFingerprint(manifest, "regional", String(source.schemaFingerprint ?? ""));
-    return [String(regionId)];
-  }));
+export function schemaReadyRoadRegionIds(options) {
+  const regionIds = schemaCompleteRelayMapRegionIds(options);
+  return regionIds == null ? null : canonicalRegions(regionIds);
 }
 
 export function projectRoadPoints({ pavedRows, locationRows }) {
@@ -232,7 +229,12 @@ export async function runRoadWorldCli() {
     manifest,
     requestedSet,
     assertFingerprint: assertSchemaFingerprint,
+    onSchemaMismatch: (detail) => console.warn(JSON.stringify(relayMapSchemaMismatchDiagnostic(detail))),
   });
+  if (readyRegionIds == null) {
+    console.log(JSON.stringify({ ok: true, skipped: true, reason: "regional-schema-rollout", product: "roads" }, null, 2));
+    return null;
+  }
   if (requestedSet) for (const regionId of requestedSet) if (!readyRegionIds.includes(regionId)) throw new Error(`Requested road region ${regionId} is not schema-ready`);
 
   const outputRoot = path.join(dataDir, "map-road-tiles");

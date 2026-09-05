@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { canonicalMapRegionIds } from "../src/server/mapRegionIds.mjs";
 import { isExecutedMainModule } from "../src/server/executedMainModule.mjs";
 import { configureMapGenerationConcurrency } from "../src/server/mapGenerationConcurrency.mjs";
-import { isClosedEventRegion } from "../src/server/relayRegionPolicy.mjs";
+import { isClosedEventRegion, relayMapSchemaMismatchDiagnostic, schemaCompleteRelayMapRegionIds } from "../src/server/relayRegionPolicy.mjs";
 
 function canonicalRegions(values) {
   const regions = canonicalMapRegionIds(values);
@@ -23,6 +23,11 @@ function chunks(values, size) {
   const result = [];
   for (let offset = 0; offset < values.length; offset += size) result.push(values.slice(offset, offset + size));
   return result;
+}
+
+export function schemaReadyTerrainRegionIds(options) {
+  const regionIds = schemaCompleteRelayMapRegionIds(options);
+  return regionIds == null ? null : canonicalRegions(regionIds);
 }
 
 export async function runTerrainWorldGeneration({
@@ -81,7 +86,7 @@ async function waitForTerrain(runtime, regionId, timeoutMs) {
 
 export async function runTerrainWorldCli() {
   configureMapGenerationConcurrency(sharp);
-  const [{ discoverRelayTopology, RelayTerrainRuntime }, { createTerrainTileStore }, { renderTerrainTileChannels }, { composeMapTilePack }, { createMapTilePackStore }] = await Promise.all([
+  const [{ assertSchemaFingerprint, discoverRelayTopology, RelayTerrainRuntime }, { createTerrainTileStore }, { renderTerrainTileChannels }, { composeMapTilePack }, { createMapTilePackStore }] = await Promise.all([
     import("../dist-server/game-data/index.js"),
     import("../src/server/terrainTileStore.mjs"),
     import("../src/server/terrainTileRenderer.mjs"),
@@ -98,10 +103,19 @@ export async function runTerrainWorldCli() {
     ? String(process.env.BITCRAFT_MAP_REGION_IDS).split(",")
     : ["0"]);
   const requestedSet = process.env.BITCRAFT_MAP_REGION_IDS ? new Set(requested) : null;
+  const manifest = JSON.parse(await readFile(new URL("../src/server/game-data/bindings/schema-manifest.json", import.meta.url), "utf8"));
   const topology = await discoverRelayTopology(relayBaseUrl);
-  const readyRegionIds = canonicalRegions([...topology.regions.entries()]
-    .filter(([regionId, source]) => source.ready && source.schemaFingerprint && !isClosedEventRegion(regionId) && (!requestedSet || requestedSet.has(String(regionId))))
-    .map(([regionId]) => String(regionId)));
+  const readyRegionIds = schemaReadyTerrainRegionIds({
+    topology,
+    manifest,
+    requestedSet,
+    assertFingerprint: assertSchemaFingerprint,
+    onSchemaMismatch: (detail) => console.warn(JSON.stringify(relayMapSchemaMismatchDiagnostic(detail))),
+  });
+  if (readyRegionIds == null) {
+    console.log(JSON.stringify({ ok: true, skipped: true, reason: "regional-schema-rollout", product: "terrain" }, null, 2));
+    return null;
+  }
   if (requestedSet) for (const regionId of requestedSet) if (!readyRegionIds.includes(regionId)) throw new Error(`Requested terrain region ${regionId} is not schema-ready`);
 
   const allowedStyles = ["terrain", "water", ...Array.from({ length: 256 }, (_, biomeType) => `biome-${biomeType}`)];
@@ -115,7 +129,6 @@ export async function runTerrainWorldCli() {
     return existing;
   }
 
-  const manifest = JSON.parse(await readFile(new URL("../src/server/game-data/bindings/schema-manifest.json", import.meta.url), "utf8"));
   const evidence = JSON.parse(await readFile(new URL("../test/fixtures/terrain-live-layout.json", import.meta.url), "utf8"));
   await mkdir(dataDir, { recursive: true });
   const jobRoot = await mkdtemp(path.join(dataDir, ".terrain-world-"));

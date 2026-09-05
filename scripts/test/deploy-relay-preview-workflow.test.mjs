@@ -136,6 +136,17 @@ test("workflow preserves slow-changing native map packs for independent validate
   assert.doesNotMatch(workflow, /build-relay-terrain-overview\.mjs|BITCRAFT_INSTALL_ROAD_TILES=true/);
 });
 
+test("native map generation retains the installed pack during a regional schema rollout", () => {
+  assert.match(generationWorkflow, /id: generate/);
+  assert.match(generationWorkflow, /test -f "\$product_root\/current\.json"/);
+  assert.match(generationWorkflow, /generated=false/);
+  assert.match(generationWorkflow, /Retaining the installed \$PRODUCT map pack during the regional schema rollout/);
+  assert.equal(
+    generationWorkflow.match(/if: steps\.generate\.outputs\.generated == 'true'/g)?.length,
+    3,
+  );
+});
+
 test("deployment diagnostics classify only secret-safe failure categories", () => {
   const classify = (input) => spawnSync(
     process.execPath,
