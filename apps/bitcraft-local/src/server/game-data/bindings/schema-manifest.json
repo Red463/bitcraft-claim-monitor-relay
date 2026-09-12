@@ -1,19 +1,19 @@
 {
-  "capturedAt": "2026-09-05T22:50:28.818Z",
+  "capturedAt": "2026-09-12T14:20:01.289Z",
   "relayOrigin": "https://relay.bitcraftsync.app",
   "schemas": {
     "global": {
       "databaseObserved": "bitcraft-live-global",
-      "fingerprint": "7b414175642c9b80f352ed9374c83ce1cbffd0df7fdcbe925bddcc4cb76310f9",
-      "schemaSha256": "7b414175642c9b80f352ed9374c83ce1cbffd0df7fdcbe925bddcc4cb76310f9",
+      "fingerprint": "b77cd9f8a78457b9781bac3fbe68e5a332a9b1296b5cb412524790c286a5543a",
+      "schemaSha256": "b77cd9f8a78457b9781bac3fbe68e5a332a9b1296b5cb412524790c286a5543a",
       "bindingsGenerated": true,
       "bindingDirectory": "global",
       "generatedFileCount": 699
     },
     "regional": {
       "databaseObserved": "bitcraft-live-19",
-      "fingerprint": "92c8f600f850c90e54aceb4b66391f37c0896557a199713dae07d4189f67a84e",
-      "schemaSha256": "92c8f600f850c90e54aceb4b66391f37c0896557a199713dae07d4189f67a84e",
+      "fingerprint": "057aacc77383e61a82adc28a0a1b049ca1e0b5ea492fd6e62ade116d5c14fb55",
+      "schemaSha256": "057aacc77383e61a82adc28a0a1b049ca1e0b5ea492fd6e62ade116d5c14fb55",
       "bindingsGenerated": true,
       "bindingDirectory": "regional",
       "generatedFileCount": 1045
