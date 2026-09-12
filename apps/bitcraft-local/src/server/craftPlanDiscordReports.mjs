@@ -199,6 +199,7 @@ export function buildCraftPlanDiscordReport(plan = {}, requestedProfession = "")
       lastSuccessfulAt: String(effortStatus.lastSuccessfulAt ?? ""),
       unavailableSources,
     } : {}),
+    ...(effortStatus.sourceCoverageIncomplete ? { sourceCoverageIncomplete: true, unavailableSources } : {}),
     ...(effortStatus.baselineChange ? {
       baselineChange: {
         changedAt: String(effortStatus.baselineChange.changedAt ?? ""),
@@ -359,10 +360,19 @@ export function buildCraftPlanDiscordEmbed(report = {}, { dashboardUrl = "https:
   const staleNote = report.stale
     ? `⚠️ Showing the last complete calculation${report.lastSuccessfulAt ? ` from <t:${Math.floor(new Date(report.lastSuccessfulAt).getTime() / 1000)}:R>` : ""}${report.unavailableSources?.length ? `; waiting for ${report.unavailableSources.join(", ")}` : ""}.`
     : "";
+  const missingSourceCounts = new Map();
+  for (const label of report.unavailableSources ?? []) {
+    missingSourceCounts.set(label, (missingSourceCounts.get(label) ?? 0) + 1);
+  }
+  const missingSourceSummary = [...missingSourceCounts]
+    .map(([label, count]) => `${label}${count > 1 ? ` (${count})` : ""}`).join(", ");
+  const partialNote = report.sourceCoverageIncomplete
+    ? `⚠️ Current progress has partial coverage; missing containers are excluded${missingSourceSummary ? `: ${missingSourceSummary}` : ""}. Review the plan's source selections.`
+    : "";
   const baselineNote = report.baselineChange?.reasons?.length
     ? `ℹ️ Plan baseline changed: ${report.baselineChange.reasons.join("; ")}.`
     : "";
-  const description = [summary, projectedNote, coverage, requirements, routeNote, estimateNote, staleNote, baselineNote, `\n[Open Craft Planner](${dashboardUrl})`].filter(Boolean).join("\n").slice(0, 4000);
+  const description = [summary, projectedNote, coverage, requirements, routeNote, estimateNote, staleNote, partialNote, baselineNote, `\n[Open Craft Planner](${dashboardUrl})`].filter(Boolean).join("\n").slice(0, 4000);
   return {
     embeds: [{
       title: safeDiscordText(report.title || "Crafting Progress", 256),

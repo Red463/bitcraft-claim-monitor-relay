@@ -9,6 +9,14 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.24] - 2026-09-12
+
+### Fixed
+
+- Fixed Craft Planner progress freezing on an old calculation when selected player containers no longer appear in successfully refreshed inventories. Current progress now clearly identifies partial coverage and excludes missing containers from stock totals.
+- Replaced raw missing-container identifiers with player names and source types in planner warnings, with grouped counts in Discord reports.
+- Preserved complete progress snapshots during inventory outages and calculation failures. Missing source selections remain saved so they can recover or be reviewed without automatically changing which stock the plan tracks.
+
 ## [0.66.2-beta.23] - 2026-09-12
 
 ### Fixed

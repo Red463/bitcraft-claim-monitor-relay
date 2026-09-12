@@ -735,6 +735,15 @@ export function CraftPlanningPage({ claimId, refreshToken, auth, locationSearch,
                   ) : null}
                   <div className="craft-plan-progress-track"><i style={{ width: `${confirmedCompletion ?? 0}%` }} /></div>
                   <em className="craft-plan-effort-note">Confirmed stock and guaranteed active crafts.</em>
+                  {effortView.sourceCoverageIncomplete ? (
+                    <div className="craft-plan-progress-stale" role="status">
+                      <AlertTriangle size={14} />
+                      <span>
+                        <strong>Current progress · partial coverage</strong>
+                        <small>Missing containers are excluded: {[...new Set(effortView.unavailableSources.map((source) => source.label))].join(", ")}. Review the plan's source selections.</small>
+                      </span>
+                    </div>
+                  ) : null}
                   {effortView.stale ? (
                     <div className="craft-plan-progress-stale" role="status">
                       <AlertTriangle size={14} />

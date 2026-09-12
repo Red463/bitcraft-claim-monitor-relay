@@ -3,6 +3,18 @@ import test from "node:test";
 
 import { selectCraftPlanningEffortView } from "../src/pages/craftPlanningEffortView.ts";
 
+test("effort view discloses partial source coverage across Fishing routes without hiding current progress", () => {
+  const selected = selectCraftPlanningEffortView({
+    state: "ready", sourceCoverageIncomplete: true,
+    overall: { state: "ready", baselineEffort: 100, remainingEffort: 65, completion: 35 },
+    unavailableSources: [{ label: "Mosswick bank" }],
+  }, "ocean");
+  assert.equal(selected.sourceCoverageIncomplete, true);
+  assert.equal(selected.overall.completion, 35);
+  assert.equal(selected.stale, false);
+  assert.equal(selected.unavailableSources[0].label, "Mosswick bank");
+});
+
 test("effort view selects matching Fishing and overall aggregates", () => {
   const selected = selectCraftPlanningEffortView({
     state: "ready",

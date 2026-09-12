@@ -5,6 +5,12 @@ import { gunzipSync, gzipSync } from "node:zlib";
 const pristinePlansByStalePlan = new WeakMap();
 const SENSITIVE_PLAN_KEY = /(authorization|cookie|password|secret|session|token)/i;
 
+export function loadRetainedCraftPlanPublication(cachedPlan, repository, claimId, planId) {
+  return cachedPlan && cachedPlan.effortProgress?.sourceCoverageIncomplete !== true
+    ? { plan: cachedPlan, limitation: null }
+    : repository.load(claimId, planId);
+}
+
 function sanitizedPublicationValue(value) {
   if (Array.isArray(value)) return value.map(sanitizedPublicationValue);
   if (!value || typeof value !== "object") return value;
@@ -156,6 +162,30 @@ export function resolveFailedCraftPlanPublication({
     retainedPlan.effortProgress.baselineChange = baselineChange({ claimId, planId, capturedAt });
     pristinePlansByStalePlan.set(retainedPlan, lastGoodPlan);
     return { plan: retainedPlan, publicationFailures, auditError };
+  }
+
+  // A successfully loaded inventory can stop containing a saved container indefinitely.
+  // Publish current known coverage explicitly, without recording a complete-source success
+  // or changing the user's selections. Transport failures still use the last-good path.
+  if (!validationFailure && sourceFailures.every((source) => source.missingFromInventory === true)) {
+    return {
+      plan: {
+        ...candidatePlan,
+        effortProgress: {
+          ...candidatePlan.effortProgress,
+          stale: false,
+          sourceCoverageIncomplete: true,
+          unavailableSources: publicationFailures,
+          baselineChange: baselineChange({ claimId, planId, capturedAt }),
+        },
+        unavailableSources: [
+          ...(Array.isArray(candidatePlan.unavailableSources) ? candidatePlan.unavailableSources : []),
+          ...publicationFailures,
+        ],
+      },
+      publicationFailures,
+      auditError,
+    };
   }
 
   let lastSuccess = null;
