@@ -162,7 +162,7 @@ import { applySchemaBootstrap } from "./src/server/schemaBootstrap.mjs";
 import { APPROVED_OPERATIONAL_HISTORY_RETENTION_TABLES, latestOperationalHistoryBackupVerification, normalizeOperationalHistoryRetentionSettings, operationalHistoryRetentionPreview, readOperationalMarketTradeDailyReport, recordOperationalHistoryBackupVerification, runOperationalHistoryRetention, validateOperationalHistoryRetentionEnableGate } from "./src/server/operationalHistoryRetention.mjs";
 import { installRetiredTableAuthorizer } from "./src/server/retiredTableAuthorizer.mjs";
 import { applyDatabaseConnectionPragmas } from "./src/server/databasePragmas.mjs";
-import { applicationMetricInitialDelayMs, buildServerHealthResponse, createCachedServerHealthReader, filterServerHealthLogs, publicRoutePerformanceHealth, readServerHealthFiles, redactServerHealthText, runApplicationMetricPersistence, serverHealthIncidentFields, serverHealthIncidentIdentity, serverHealthIncidentOwnedByEvaluator, serverHealthState, SERVER_HEALTH_THRESHOLDS } from "./src/server/serverHealth.mjs";
+import { applicationMetricInitialDelayMs, buildServerHealthResponse, createCachedServerHealthReader, filterServerHealthLogs, publicRoutePerformanceHealth, readServerHealthFiles, redactServerHealthText, runApplicationMetricPersistence, serverHealthIncidentFields, serverHealthIncidentIdentity, serverHealthIncidentOwnedByEvaluator, serverHealthIncidentRecoveryNotice, serverHealthState, SERVER_HEALTH_THRESHOLDS } from "./src/server/serverHealth.mjs";
 import { createPreparedStatements } from "./src/server/preparedStatements.mjs";
 import {
   createCurrentStateRepository,
@@ -399,7 +399,7 @@ async function evaluateServerHealthIncidents() {
   const application = applicationHealthTelemetry();
   const includeHost = processRoleConfig.runBackgroundJobs;
   const result = serverHealthState(files.snapshot, application, { includeHost });
-  const bad = new Map(result.state === "critical" ? result.reasons.map((reason) => [serverHealthIncidentIdentity(reason, { processRole }), reason]) : []);
+  const bad = new Map(result.criticalReasons.map((reason) => [serverHealthIncidentIdentity(reason, { processRole }), reason]));
   const existing = new Map(db.prepare("SELECT * FROM server_health_incidents").all().map((row) => [row.incident_key, row]));
   const now = new Date().toISOString();
   for (const [key, reason] of bad) {
@@ -417,11 +417,16 @@ async function evaluateServerHealthIncidents() {
     if (!serverHealthIncidentOwnedByEvaluator(key, { processRole, includeHost, eventLoopMonitoringReady: application.eventLoopMonitoringReady })) continue;
     if (bad.has(key)) continue;
     if (row.state !== "open") { db.prepare("DELETE FROM server_health_incidents WHERE incident_key=?").run(key); continue; }
+    const recoveryNotice = serverHealthIncidentRecoveryNotice(key, application);
+    if (!recoveryNotice) {
+      db.prepare("UPDATE server_health_incidents SET consecutive_good=0, consecutive_bad=0, last_observed_at=? WHERE incident_key=?").run(now, key);
+      continue;
+    }
     const good = Number(row.consecutive_good ?? 0) + 1;
     const recovered = good >= 3;
     db.prepare("UPDATE server_health_incidents SET consecutive_good=?, consecutive_bad=0, last_observed_at=?, state=?, recovered_at=? WHERE incident_key=?").run(good, now, recovered ? "recovered" : "open", recovered ? now : null, key);
     if (recovered && !row.recovered_notified_at) {
-      try { await notifyServerHealthOwner("Claim Monitor server recovered", String(key).replaceAll("_", " "), 0x4ee28a, application); db.prepare("UPDATE server_health_incidents SET recovered_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
+      try { await notifyServerHealthOwner(recoveryNotice.title, recoveryNotice.description, recoveryNotice.color, application); db.prepare("UPDATE server_health_incidents SET recovered_notified_at=?, last_delivery_error=NULL WHERE incident_key=?").run(now, key); }
       catch (error) { db.prepare("UPDATE server_health_incidents SET last_delivery_error=? WHERE incident_key=?").run(redactServerHealthText(error.message), key); }
     }
   }
