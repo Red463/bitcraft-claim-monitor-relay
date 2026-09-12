@@ -40,12 +40,22 @@ test("server health catches a long interval stall even when the interval mean is
   const result = serverHealthState(snapshot(), {
     eventLoopDelayMs: 24,
     eventLoopDelayP99Ms: 31,
-    eventLoopDelayMaxMs: 1_800,
+    eventLoopDelayMaxMs: 3_000,
     eventLoopMonitoringReady: true,
   });
 
   assert.equal(result.state, "critical");
   assert.deepEqual(result.reasons, ["Node event-loop delay is critical"]);
+});
+
+test("one-second spikes stay warnings while sustained delay stays critical", () => {
+  for (const maximum of [991, 1_037, 1_100, 2_999]) {
+    const result = serverHealthState(snapshot(), { eventLoopDelayMs: 24, eventLoopDelayP99Ms: 23, eventLoopDelayMaxMs: maximum });
+    assert.equal(result.state, "warning");
+  }
+  for (const application of [{ eventLoopDelayMs: 250 }, { eventLoopDelayP99Ms: 250 }]) {
+    assert.equal(serverHealthState(snapshot(), application).state, "critical");
+  }
 });
 
 test("web-role health evaluation excludes shared host incidents", () => {

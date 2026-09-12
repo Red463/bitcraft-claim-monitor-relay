@@ -9,6 +9,15 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.66.2-beta.23] - 2026-09-12
+
+### Fixed
+
+- Restored Relay schema compatibility so settlement data can refresh after the latest game update.
+- Reduced noisy critical alerts for brief worker pauses while retaining alerts for sustained delays and repeated pauses of three seconds or more.
+- Required a clear improvement before resolving event-loop incidents and distinguished warning-level improvement from healthy recovery.
+- Prevented warning-level health conditions from generating critical alerts when another server condition is critical.
+
 ## [0.66.2-beta.22] - 2026-09-05
 
 ### Fixed

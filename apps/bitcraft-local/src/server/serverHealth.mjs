@@ -3,7 +3,7 @@ import path from "node:path";
 import { normalizeRoutePerformancePath } from "./routePerformance.mjs";
 
 export const SERVER_HEALTH_SCHEMA_VERSION = 1;
-export const SERVER_HEALTH_THRESHOLDS = Object.freeze({ staleMs: 180_000, diskWarning: 80, diskCritical: 90, memoryWarning: 80, memoryCritical: 90, eventLoopWarningMs: 100, eventLoopCriticalMs: 250, eventLoopMaxWarningMs: 500, eventLoopMaxCriticalMs: 1_000, http5xxWarningRate: 0.02, http5xxCriticalRate: 0.1 });
+export const SERVER_HEALTH_THRESHOLDS = Object.freeze({ staleMs: 180_000, diskWarning: 80, diskCritical: 90, memoryWarning: 80, memoryCritical: 90, eventLoopWarningMs: 100, eventLoopCriticalMs: 250, eventLoopMaxWarningMs: 500, eventLoopMaxCriticalMs: 3_000, eventLoopRecoveryMs: 200, eventLoopMaxRecoveryMs: 2_000, http5xxWarningRate: 0.02, http5xxCriticalRate: 0.1 });
 
 const SECRET_VALUE = /((?:token|secret|password|passwd|api[_-]?key|authorization|cookie|session|dsn)\s*[=:]\s*)([^\s,;]+)/gi;
 const BEARER = /\b(Bearer|Bot)\s+[A-Za-z0-9._~+\/-]+/gi;
@@ -47,8 +47,9 @@ export function normalizeServerHealthSnapshot(raw, { now = Date.now() } = {}) {
 
 export function serverHealthState(snapshot, application = {}, { includeHost = true } = {}) {
   const reasons = [];
+  const criticalReasons = [];
   let state = "healthy";
-  const raise = (next, reason) => { if (next === "critical" || state === "healthy") state = next; reasons.push(reason); };
+  const raise = (next, reason) => { if (next === "critical" || state === "healthy") state = next; reasons.push(reason); if (next === "critical") criticalReasons.push(reason); };
   if (includeHost) {
     if (!snapshot) raise("warning", "Host collector unavailable");
     else {
@@ -64,7 +65,7 @@ export function serverHealthState(snapshot, application = {}, { includeHost = tr
     if (intervalDelay >= SERVER_HEALTH_THRESHOLDS.eventLoopCriticalMs || intervalMax >= SERVER_HEALTH_THRESHOLDS.eventLoopMaxCriticalMs) raise("critical", "Node event-loop delay is critical");
     else if (intervalDelay >= SERVER_HEALTH_THRESHOLDS.eventLoopWarningMs || intervalMax >= SERVER_HEALTH_THRESHOLDS.eventLoopMaxWarningMs) raise("warning", "Node event-loop delay is elevated");
   }
-  return { state, reasons: [...new Set(reasons)] };
+  return { state, reasons: [...new Set(reasons)], criticalReasons: [...new Set(criticalReasons)] };
 }
 
 function normalizedIncidentKey(reason) {
@@ -82,6 +83,21 @@ export function serverHealthIncidentOwnedByEvaluator(key, { processRole = "unkno
   const eventLoopMatch = normalizedKey.match(/^([^_]+)_node_event_loop_delay_/);
   if (eventLoopMatch) return eventLoopMonitoringReady !== false && eventLoopMatch[1] === normalizedIncidentKey(processRole);
   return includeHost;
+}
+
+export function serverHealthIncidentRecoveryNotice(key, application = {}) {
+  if (/(?:^|_)node_event_loop_delay_/.test(String(key))) {
+    // Require a clear improvement before counting a sample toward recovery.
+    const delay = Math.max(number(application.eventLoopDelayMs), number(application.eventLoopDelayP99Ms));
+    if (application.eventLoopMonitoringReady === false
+      || delay >= SERVER_HEALTH_THRESHOLDS.eventLoopRecoveryMs
+      || number(application.eventLoopDelayMaxMs) >= SERVER_HEALTH_THRESHOLDS.eventLoopMaxRecoveryMs) return null;
+    const { state } = serverHealthState(null, application, { includeHost: false });
+    return state === "warning"
+      ? { title: "Claim Monitor server improved", description: "Node event-loop delay is below critical levels but remains at warning level.", color: 0xe9b44c }
+      : { title: "Claim Monitor server recovered", description: "Node event-loop delay has returned to healthy levels.", color: 0x4ee28a };
+  }
+  return { title: "Claim Monitor server recovered", description: `Resolved: ${String(key).replaceAll("_", " ")}`, color: 0x4ee28a };
 }
 
 export function serverHealthIncidentFields({ hostname = "Claim Monitor VPS", processRole = "unknown", at = new Date().toISOString(), application = {} } = {}) {
