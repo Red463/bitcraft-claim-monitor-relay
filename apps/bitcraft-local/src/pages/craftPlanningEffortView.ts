@@ -36,6 +36,7 @@ export type CraftPlanningEffortView = {
   sections: Record<string, EffortAggregate>;
   warnings: string[];
   stale: boolean;
+  sourceCoverageIncomplete: boolean;
   staleSince: string | null;
   lastSuccessfulAt: string | null;
   unavailableSources: Array<{ sourceId?: string; label: string; type?: string; error?: string }>;
@@ -145,6 +146,7 @@ export function selectCraftPlanningEffortView(summary: unknown, route: FishingRo
     sections: confirmed.sections,
     warnings: warnings.slice(0, 25),
     stale: root.stale === true,
+    sourceCoverageIncomplete: root.sourceCoverageIncomplete === true,
     staleSince: root.staleSince == null ? null : String(root.staleSince),
     lastSuccessfulAt: root.lastSuccessfulAt == null ? null : String(root.lastSuccessfulAt),
     unavailableSources,

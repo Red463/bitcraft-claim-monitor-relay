@@ -3,6 +3,8 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import { createCraftPlanLastGoodPublicationRepository, resolveFailedCraftPlanPublication } from "../src/server/craftPlanPublication.mjs";
+import { reconcileCraftPlanRequiredSourceStatus } from "../src/server/craftPlanning.mjs";
+import * as publication from "../src/server/craftPlanPublication.mjs";
 
 function invalidValidation() {
   return {
@@ -32,6 +34,56 @@ function harness() {
     },
   };
 }
+
+test("absent containers publish current partial progress instead of a weeks-old snapshot", () => {
+  const state = harness();
+  state.progressAudit.latestSuccess = () => ({ effortProgress: { overall: { completion: 14.1 }, lastSuccessfulAt: "2026-08-29T10:28:46.473Z" } });
+  const candidatePlan = {
+    materials: [{ key: "items:7", available: 35 }], unavailableSources: [],
+    effortProgress: { state: "ready", overall: { state: "ready", completion: 35 }, confirmed: { state: "ready", overall: { state: "ready", completion: 35 } } },
+  };
+  const sourceFailures = [{ sourceId: "player-1:old-bank", label: "Mosswick bank", type: "Player bank", missingFromInventory: true, error: "Missing" }];
+  const input = {
+    claimId: "claim-1", planId: "plan-1", candidatePlan,
+    publication: { plan: candidatePlan, retainedLastGood: false }, validation: { valid: true, errors: [] },
+    sourceFailures, progressAudit: state.progressAudit, capturedAt: "2026-09-12T19:33:04.000Z",
+  };
+  const result = resolveFailedCraftPlanPublication(input);
+  assert.equal(result.plan.effortProgress.overall.completion, 35);
+  assert.equal(result.plan.effortProgress.confirmed.overall.completion, 35);
+  assert.equal(result.plan.effortProgress.sourceCoverageIncomplete, true);
+  assert.equal(result.plan.effortProgress.stale, false);
+  assert.equal(result.plan.effortProgress.lastSuccessfulAt, undefined);
+  assert.deepEqual(result.plan.effortProgress.unavailableSources, sourceFailures);
+  assert.equal(result.plan.materials[0].available, 35);
+  assert.equal(candidatePlan.effortProgress.sourceCoverageIncomplete, undefined);
+  const recovered = resolveFailedCraftPlanPublication({ ...input, sourceFailures: [] });
+  assert.equal(recovered.plan.effortProgress.sourceCoverageIncomplete, undefined);
+  assert.equal(recovered.plan.effortProgress.overall.completion, 35);
+  const outage = resolveFailedCraftPlanPublication({ ...input, sourceFailures: [...sourceFailures, { sourceId: "player-2", error: "HTTP 503" }] });
+  assert.equal(outage.plan.effortProgress.overall.completion, 14.1);
+  assert.equal(outage.plan.effortProgress.stale, true);
+});
+
+test("a stale inventory envelope cannot become current partial coverage alongside another player's absent container", () => {
+  const sourceFailures = reconcileCraftPlanRequiredSourceStatus({ sourceRules: {
+    bankContainerIds: ["player-1:absent", "player-2:present"],
+  } }, [{ sourceId: "player-2:present", playerId: "player-2", type: "Player bank", available: true }], {
+    playerInventories: new Map([
+      ["player-1", { label: "Modular", freshness: "fresh", confidence: "authoritative", containerIds: [] }],
+      ["player-2", { label: "Mosswick", freshness: "stale", confidence: "authoritative" }],
+    ]),
+  }).filter(source => !source.available);
+  const candidatePlan = { effortProgress: { overall: { completion: 35 } } };
+  const result = resolveFailedCraftPlanPublication({
+    candidatePlan, publication: { plan: candidatePlan, retainedLastGood: false },
+    validation: { valid: true }, sourceFailures,
+    progressAudit: { recordFailure() {}, latestSuccess() { return { effortProgress: { overall: { completion: 14.1 } } }; } },
+  });
+  assert.equal(result.plan.effortProgress.stale, true);
+  assert.equal(result.plan.effortProgress.overall.completion, 14.1);
+  assert.equal(result.plan.unavailableSources.some(source => source.sourceId === "player-2:present"), true);
+});
 
 test("server publication failure records diagnostics and returns cached last-good as stale", () => {
   const state = harness();
@@ -177,6 +229,12 @@ test("valid publication survives cache loss and repository reconstruction for th
   createCraftPlanLastGoodPublicationRepository(db).store("claim-1", "plan-1", published, "2026-08-28T10:00:00.000Z");
 
   const reconstructed = createCraftPlanLastGoodPublicationRepository(db);
+  assert.equal(typeof publication.loadRetainedCraftPlanPublication, "function");
+  const partialCached = { ...published, effortProgress: { ...published.effortProgress, sourceCoverageIncomplete: true } };
+  const completeFallback = publication.loadRetainedCraftPlanPublication(partialCached, reconstructed, "claim-1", "plan-1");
+  assert.equal(completeFallback.plan.effortProgress.sourceCoverageIncomplete, undefined);
+  assert.equal(completeFallback.plan.effortProgress.confirmed.overall.completion, 70);
+  assert.equal(publication.loadRetainedCraftPlanPublication(partialCached, reconstructed, "claim-1", "never-published").plan, null);
   const loaded = reconstructed.load("claim-1", "plan-1");
   const { token: _sensitive, ...expected } = published;
   assert.deepEqual(loaded.plan, expected);

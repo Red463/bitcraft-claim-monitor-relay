@@ -69,6 +69,24 @@ test("Discord overview uses server effort progress", () => {
   assert.equal(report.fishingRoute, "ocean");
 });
 
+test("Discord identifies current partial coverage and groups missing sources without implying a stale calculation", () => {
+  const report = buildCraftPlanDiscordReport({
+    enabled: true, targets: [{}], materials,
+    effortProgress: {
+      ...makeEffortProgress({ overall: 35, Forestry: 35, Carpentry: 35, Tailoring: 35 }),
+      sourceCoverageIncomplete: true,
+      unavailableSources: [{ label: "Mosswick bank" }, { label: "Mosswick bank" }, { label: "Modular deployable" }],
+    },
+  });
+  const description = buildCraftPlanDiscordEmbed(report).embeds[0].description;
+  assert.equal(report.overall.completion, 35);
+  assert.equal(report.sourceCoverageIncomplete, true);
+  assert.match(description, /partial coverage/i);
+  assert.match(description, /Mosswick bank \(2\)/);
+  assert.match(description, /review.*source/i);
+  assert.doesNotMatch(description, /waiting for|last complete calculation/i);
+});
+
 test("Discord reports lead with confirmed progress and explain projected, stale, and baseline states", () => {
   const confirmed = makeEffortProgress({ overall: 72.5, Forestry: 70, Carpentry: 60, Tailoring: 50 });
   const projected = makeEffortProgress({ overall: 78.5, Forestry: 76, Carpentry: 64, Tailoring: 55 });

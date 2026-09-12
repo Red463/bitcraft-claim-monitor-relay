@@ -472,6 +472,35 @@ test("configured deployable canonical and legacy aliases are both recognized as 
   }]);
 });
 
+test("missing player containers are actionable only after an authoritative inventory refresh", () => {
+  const config = normalizeCraftPlanConfig({ sourceRules: {
+    bankContainerIds: ["player-1:old-bank"], deployableContainerIds: ["player-1:old-cache"],
+  } });
+  const playerInventories = new Map([["player-1", { label: "Mosswick", freshness: "fresh", confidence: "authoritative", containerIds: [] }]]);
+  const missing = craftPlanning.reconcileCraftPlanRequiredSourceStatus(config, [], { playerInventories });
+  assert.deepEqual(missing.map(source => source.missingFromInventory), [true, true]);
+  assert.deepEqual(missing.map(source => source.label), ["Mosswick bank", "Mosswick deployable"]);
+  assert.deepEqual(missing.map(source => source.sourceId), ["player-1:old-bank", "player-1:old-cache"]);
+  for (const status of [undefined, { label: "Mosswick", freshness: "stale", confidence: "authoritative" }, { label: "Mosswick", freshness: "fresh", confidence: "partial" }]) {
+    const uncertain = craftPlanning.reconcileCraftPlanRequiredSourceStatus(config, [], { playerInventories: new Map([["player-1", status]]) });
+    assert.equal(uncertain.some(source => source.missingFromInventory), false);
+  }
+  const returned = craftPlanning.reconcileCraftPlanRequiredSourceStatus(config, [
+    { sourceId: "player-1:old-bank", type: "Player bank", available: true },
+    { sourceId: "player-1:old-cache", type: "Player deployable", available: true },
+  ], { playerInventories });
+  assert.equal(returned.every(source => source.available), true);
+  assert.deepEqual(config.sourceRules.bankContainerIds, ["player-1:old-bank"]);
+});
+
+test("a returned inventory excluded by classification is not treated as a missing container", () => {
+  const statuses = craftPlanning.reconcileCraftPlanRequiredSourceStatus({ sourceRules: { bankContainerIds: ["player-1:9"] } }, [], {
+    playerInventories: new Map([["player-1", { label: "Mosswick", freshness: "fresh", confidence: "authoritative", containerIds: ["9"] }]]),
+  });
+  assert.equal(statuses[0].available, false);
+  assert.notEqual(statuses[0].missingFromInventory, true);
+});
+
 test("required-source reconciliation ignores unselected categories and retains selected personal scopes", () => {
   const shared = craftPlanning.reconcileCraftPlanRequiredSourceStatus(normalizeCraftPlanConfig({
     sourceRules: { storageContainerIds: ["selected-store"] },

@@ -139,7 +139,7 @@ import {
   normalizeCraftPlanAuditRange,
   normalizeCraftPlanAuditWindow,
 } from "./src/server/craftPlanProgressAudit.mjs";
-import { createCraftPlanLastGoodPublicationRepository, resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
+import { createCraftPlanLastGoodPublicationRepository, loadRetainedCraftPlanPublication, resolveFailedCraftPlanPublication } from "./src/server/craftPlanPublication.mjs";
 import { craftPlanSaveErrorBody, orchestrateCraftPlanSave } from "./src/server/craftPlanSaveOrchestration.mjs";
 import { buildCraftPlanDiscordEmbed, buildCraftPlanDiscordReport, buildUnavailableCraftPlanDiscordReport, craftPlanReportProfessions, dueCraftPlanReportOccurrence, nextCraftPlanReportOccurrenceIso, normalizeCraftPlanReportProfession, validateCraftPlanReportSettings } from "./src/server/craftPlanDiscordReports.mjs";
 import { craftPlanInteractionDiagnostic, deferredDiscordInteractionResult, editDiscordInteractionOriginal, preflightCraftPlanInteraction, runDiscordTaskAfterResponse } from "./src/server/discordCraftPlanInteractions.mjs";
@@ -2351,9 +2351,7 @@ async function computedCraftPlanWorkspace(claimId = getSettings().claimId, optio
   const cached = craftPlanResponseCache.get(cacheKey);
   const forceRefresh = options.forceRefresh === true;
   const refreshId = String(options.refreshId ?? "");
-  const retained = cached?.workspace?.plan
-    ? { plan: cached.workspace.plan, limitation: null }
-    : craftPlanLastGoodPublications.load(normalizedClaimId, planId);
+  const retained = loadRetainedCraftPlanPublication(cached?.workspace?.plan, craftPlanLastGoodPublications, normalizedClaimId, planId);
   if (retained.limitation) craftPlanLastGoodLimitations.set(planId, retained.limitation);
   else craftPlanLastGoodLimitations.delete(planId);
   let sourceRevision = craftPlanCurrentSourceRevision(normalizedClaimId);
@@ -2497,6 +2495,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
   const deployableSources = [];
   const inventoryPlayerIds = new Set(config.sourceRules.playerIds.map(String));
   const bankPlayerIds = new Set(config.sourceRules.bankPlayerIds.map(String));
+  const playerInventories = new Map();
   for (const playerId of selectedPlayerInventoryIds(config.sourceRules)) {
     const label = memberNames.get(playerId) ?? playerId;
     try {
@@ -2505,6 +2504,12 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
         claimId: String(claimId),
         playerId,
         forceRefresh,
+      });
+      playerInventories.set(playerId, {
+        label: memberNames.get(playerId) ?? envelope.data?.player?.username ?? "Player",
+        freshness: envelope.freshness,
+        confidence: envelope.confidence,
+        containerIds: envelope.data.inventories.map((inventory) => String(inventory.entityId)),
       });
       catalogWarnings.push(...envelope.warnings.map((warning) => `${label} inventories: ${warning}`));
       const sources = playerInventoryContainerSources(playerId, label, envelope.data, config.sourceRules.deployableContainerIds);
@@ -2619,7 +2624,7 @@ async function computedCraftPlanResponseFresh(claimId = getSettings().claimId, o
       error: craftsResult.error,
     }]),
   );
-  const sourceStatus = reconcileCraftPlanRequiredSourceStatus(config, discoveredSourceStatus);
+  const sourceStatus = reconcileCraftPlanRequiredSourceStatus(config, discoveredSourceStatus, { playerInventories });
   const sourceFailures = sourceStatus
     .filter((source) => source?.available !== true)
     .map((source) => ({ ...source, error: String(source?.error ?? "Unavailable") }));

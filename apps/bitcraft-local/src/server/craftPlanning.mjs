@@ -1910,10 +1910,17 @@ function sourceMatchesSelectedRules(source, config) {
   return false;
 }
 
-export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = []) {
+export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus = [], { playerInventories = new Map() } = {}) {
   const statuses = (Array.isArray(sourceStatus) ? sourceStatus : [])
     .filter((source) => sourceMatchesSelectedRules(source, config))
-    .map((source) => ({ ...source }));
+    .map((source) => {
+      const playerInventory = ["Player inventory", "Player bank", "Player deployable"].includes(source?.type)
+        ? playerInventories.get(String(source.playerId ?? source.sourceId ?? "").split(":")[0]) : null;
+      if (playerInventory && (playerInventory.freshness !== "fresh" || playerInventory.confidence !== "authoritative")) {
+        return { ...source, available: false, error: "Player inventory refresh is unavailable; the returned inventory is stale or incomplete." };
+      }
+      return { ...source };
+    });
   const returnedIds = new Set(statuses.flatMap((source) => [
     source?.sourceId,
     ...(Array.isArray(source?.legacySourceIds) ? source.legacySourceIds : []),
@@ -1922,11 +1929,15 @@ export function reconcileCraftPlanRequiredSourceStatus(config = {}, sourceStatus
     for (const sourceId of config?.sourceRules?.[rule] ?? []) {
       const id = String(sourceId ?? "").trim();
       if (!id || returnedIds.has(id) || statuses.some((source) => sourceMatchesSelectedRules(source, { sourceRules: { [rule]: [id] } }))) continue;
+      const playerInventory = rule === "storageContainerIds" ? null : playerInventories.get(id.split(":")[0]);
+      const missingFromInventory = playerInventory?.freshness === "fresh" && playerInventory?.confidence === "authoritative"
+        && Array.isArray(playerInventory.containerIds) && !playerInventory.containerIds.includes(id.slice(id.indexOf(":") + 1));
       statuses.push({
         sourceId: id,
-        label: id,
+        label: playerInventory?.label ? `${playerInventory.label} ${type === "Player bank" ? "bank" : "deployable"}` : id,
         type,
         available: false,
+        ...(missingFromInventory ? { missingFromInventory: true } : {}),
         error: "Configured source was not present in the completed source projection.",
       });
       returnedIds.add(id);
