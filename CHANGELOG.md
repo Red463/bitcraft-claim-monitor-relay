@@ -9,6 +9,22 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.67.0-beta.1] - 2026-09-16
+
+### Added
+
+- Added opt-in automatic recovery from Relay schema fingerprint changes, with verified releases and checks that live settlement and map data have resumed.
+- Added a single recovery incident that reports meaningful progress and stays open until production data is fresh.
+
+### Changed
+
+- Check Relay schemas every ten minutes across all advertised regions and keep generated-code changes behind manual review.
+- Require a repository-scoped GitHub App, protected-branch checks and monitored-region configuration before enabling automatic releases. See the automatic schema recovery setup guide.
+
+### Fixed
+
+- Restored compatibility with the current global and regional Relay schemas so live settlement and map updates can resume.
+
 ## [0.66.2-beta.24] - 2026-09-12
 
 ### Fixed
