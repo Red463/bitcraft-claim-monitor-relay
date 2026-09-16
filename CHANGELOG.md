@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.67.0-beta.2] - 2026-09-16
+
+### Fixed
+
+- Confirm schema recovery using the live resource layer so unrelated map warnings do not block automatic recovery; stale or incomplete resources still fail verification.
+
 ## [0.67.0-beta.1] - 2026-09-16
 
 ### Added
