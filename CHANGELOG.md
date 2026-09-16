@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.67.0-beta.3] - 2026-09-16
+
+### Fixed
+
+- Fixed automatic schema recovery stopping during map verification by checking live resource and location data through the current resource subscription.
+- Refreshed Relay schema bindings to restore live data after the latest schema fingerprint change.
+
 ## [0.67.0-beta.2] - 2026-09-16
 
 ### Fixed
