@@ -8,9 +8,28 @@ on:
         required: false
         type: boolean
         default: false
+      expected_revision:
+        description: Exact merged revision for an automatic schema release (empty for manual deployment)
+        required: false
+        type: string
+      schema_base_revision:
+        description: Previously deployed parent of the fingerprint-only release
+        required: false
+        type: string
+      schema_issue:
+        description: Schema incident number to resolve after verified recovery
+        required: false
+        type: string
 
 permissions:
   contents: read
+
+env:
+  SCHEMA_APP_ORIGIN: ${{ vars.RELAY_SCHEMA_APP_ORIGIN }}
+  SCHEMA_REGION_IDS: ${{ vars.RELAY_SCHEMA_REGION_IDS }}
+  SCHEMA_CLAIM_ID: ${{ vars.RELAY_SCHEMA_CLAIM_ID }}
+  SCHEMA_REGION_ID: ${{ vars.RELAY_SCHEMA_REGION_ID }}
+  SCHEMA_RESOURCE_ID: ${{ vars.RELAY_SCHEMA_RESOURCE_ID || '54' }}
 
 concurrency:
   group: relay-preview
@@ -25,16 +44,38 @@ jobs:
         run: test "$GITHUB_REF" = "refs/heads/main"
       - name: Check out verified revision
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Validate automatic release revision and file scope
+        if: inputs.expected_revision != '' || inputs.schema_base_revision != '' || inputs.schema_issue != ''
+        env:
+          AUTO_RELEASE: ${{ vars.RELAY_SCHEMA_AUTO_RELEASE }}
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
+          BASE_REVISION: ${{ inputs.schema_base_revision }}
+          ISSUE_NUMBER: ${{ inputs.schema_issue }}
+        run: |
+          test "$AUTO_RELEASE" = 'true'
+          test "$EXPECTED_REVISION" = "$GITHUB_SHA"
+          [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]
+          test "$(git rev-parse HEAD^)" = "$BASE_REVISION"
+          node scripts/relay-schema-release.mjs validate "$BASE_REVISION" "$GITHUB_SHA"
       - name: Enable Corepack
         run: corepack enable
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
       - name: Refuse stale Relay schema bindings
-        run: node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs
+        env:
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
+        run: |
+          if [[ -n "$EXPECTED_REVISION" ]]; then
+            node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs --all-regions
+          else
+            node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs
+          fi
       - name: Test application
         run: corepack pnpm --filter @workspace/bitcraft-local test
       - name: Build application
@@ -93,12 +134,27 @@ jobs:
     steps:
       - name: Check out deployment diagnostics
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Use Node.js 24 for post-approval checks
         uses: actions/setup-node@v4
         with:
           node-version: 24
       - name: Recheck Relay schema after approval
-        run: node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs
+        env:
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
+          BASE_REVISION: ${{ inputs.schema_base_revision }}
+          AUTO_RELEASE: ${{ vars.RELAY_SCHEMA_AUTO_RELEASE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -n "$EXPECTED_REVISION" ]]; then
+            test "$AUTO_RELEASE" = 'true'
+            test "$EXPECTED_REVISION" = "$GITHUB_SHA"
+            node scripts/relay-schema-release.mjs validate-deploy "$BASE_REVISION" "$GITHUB_SHA"
+            node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs --all-regions
+          else
+            node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs
+          fi
       - name: Download verified build outputs
         uses: actions/download-artifact@v4
         with:
@@ -128,12 +184,14 @@ jobs:
             "sudo /usr/local/bin/update-bitcraft-claim-monitor-relay --capabilities")"
           grep -Fxq 'relay-build-artifact-v1' <<<"$CAPABILITIES"
       - name: Deploy verified Relay revision
+        id: install
         env:
           BUILD_ARTIFACT_DIR: ${{ runner.temp }}/relay-build-download
           RELAY_VPS_HOST: ${{ secrets.RELAY_VPS_HOST }}
           RELAY_VPS_DEPLOY_USER: ${{ secrets.RELAY_VPS_DEPLOY_USER }}
           FORCE_DATABASE_BACKUP: ${{ inputs.force_database_backup }}
         run: |
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           BACKUP_OPTION=""
           if [[ "$FORCE_DATABASE_BACKUP" == "true" ]]; then
             BACKUP_OPTION=" --force-backup"
@@ -204,3 +262,36 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           exit "$DEPLOY_STATUS"
+      - name: Confirm fresh production generations and map subscription
+        if: inputs.expected_revision != ''
+        env:
+          SCHEMA_EXPECTED_REVISION: ${{ inputs.expected_revision }}
+          SCHEMA_DEPLOY_STARTED_AT: ${{ steps.install.outputs.started_at }}
+        run: |
+          node scripts/verify-relay-schema-recovery.mjs
+          node apps/bitcraft-local/scripts/check-relay-schema-drift.mjs --all-regions
+
+  schema-outcome:
+    if: always() && inputs.expected_revision != ''
+    needs: [verify, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Report production recovery or required action
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          SCHEMA_ISSUE_NUMBER: ${{ inputs.schema_issue }}
+        run: |
+          if [[ "$VERIFY_RESULT" == 'success' && "$DEPLOY_RESULT" == 'success' ]]; then
+            node scripts/relay-schema-incident.mjs recovered
+          else
+            node scripts/relay-schema-incident.mjs failed
+          fi

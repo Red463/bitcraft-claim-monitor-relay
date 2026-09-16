@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out candidate
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -31,5 +33,15 @@ jobs:
         run: corepack pnpm --filter @workspace/bitcraft-local run build
       - name: Run application tests
         run: corepack pnpm --filter @workspace/bitcraft-local test
+      - name: Test schema release and deployment guards
+        run: node --test scripts/test/relay-schema-*.test.mjs scripts/test/deploy-relay-preview-workflow.test.mjs
+      - name: Validate automatic release candidate
+        if: >-
+          github.event_name == 'pull_request' && github.head_ref == 'automation/relay-schema-bindings'
+          && contains(github.event.pull_request.body, 'automatic release eligible: true')
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/relay-schema-release.mjs validate "$BASE_SHA" "$HEAD_SHA"
       - name: Benchmark binary map resources
         run: node --max-old-space-size=512 apps/bitcraft-local/scripts/benchmark-map-resource-binary.mjs

@@ -1,5 +1,9 @@
 # Relay preview deployment
 
+For opt-in fingerprint-only schema refreshes after canonical deployment, see
+[Automatic Relay schema recovery](docs/relay-schema-auto-release.md), including
+the GitHub App setup, required checks, recovery probes and kill switch.
+
 This runbook installs the standalone
 `Red463/bitcraft-claim-monitor-relay` repository as a parallel preview at
 `https://relay.timbersteeltrade.com`. It creates an isolated application,

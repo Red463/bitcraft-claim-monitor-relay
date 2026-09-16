@@ -25,7 +25,7 @@ const maintainedTargets = [
   /(^|[^-])bitcraft-claim-monitor-backup\.(?:service|timer)/m,
 ];
 
-test("Relay preview deployment is manual, main-only, and serialized", () => {
+test("Relay deployment supports explicit dispatch, stays main-only, and is serialized", () => {
   assert.match(workflow, /^name: Deploy Relay preview$/m);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /GITHUB_REF.*refs\/heads\/main/);
@@ -59,8 +59,23 @@ test("Relay schema drift is scheduled, regenerates with the pinned CLI, and prep
   assert.match(schemaWorkflow, /verify-relay-global-catalog-live\.mjs/);
   assert.match(schemaWorkflow, /verify-relay-primary-region-live\.mjs/);
   assert.match(schemaWorkflow, /gh pr create/);
-  assert.doesNotMatch(schemaWorkflow, /gh pr merge|workflow_run:/);
+  assert.match(schemaWorkflow, /relay-schema-release\.mjs merge-and-deploy/);
+  assert.match(schemaWorkflow, /RELAY_SCHEMA_AUTO_RELEASE == 'true'/);
+  assert.match(schemaWorkflow, /steps\.policy\.outputs\.eligible == 'true'/);
   assert.doesNotMatch(schemaWorkflow, /^(?:Automated guarded refresh|- (?:Generated|Application|Production|Live)|This PR is intentionally)/m);
+});
+
+test("automatic releases use App identity, exact revision deployment and recovery checks", () => {
+  assert.match(schemaWorkflow, /7,17,27,37,47,57/);
+  assert.match(schemaWorkflow, /actions\/create-github-app-token@v2/);
+  assert.match(schemaWorkflow, /--all-regions/);
+  assert.match(schemaWorkflow, /SCHEMA_HEAD_SHA/);
+  assert.doesNotMatch(schemaWorkflow, /Closes #/);
+  assert.match(workflow, /expected_revision:/);
+  assert.match(workflow, /schema_base_revision:/);
+  assert.match(workflow, /relay-schema-release\.mjs validate/);
+  assert.match(workflow, /verify-relay-schema-recovery\.mjs/);
+  assert.match(workflow, /relay-schema-incident\.mjs recovered/);
 });
 
 test("verification validates only Relay units and the coexistence Caddy example", () => {
