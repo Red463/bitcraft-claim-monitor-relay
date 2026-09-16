@@ -10,10 +10,18 @@ const good = { health: { ok: true, buildSha: revision.slice(0,12) }, generations
 test("recovery requires fresh individual generations and live map, not just HTTP health", () => {
   const options = { revision, since, now, domains: ["claim", "players"] };
   assert.equal(checkRecovery(good, options).ok, true);
-  for (const mutate of [s => s.health.buildSha = "b".repeat(12), s => s.generations.claim.generatedAt = "2026-09-15T00:00:00Z", s => delete s.generations.players, s => s.generations.players.changedDomains = [], s => s.map.freshness = "partial", s => s.map.layerAvailability.resources.available = false, s => s.map.generation = 0, s => s.map.generatedAt = "2026-09-15T00:00:00Z", s => s.generations.claim.generatedAt = "2027-01-01T00:00:00Z"]) {
+  for (const mutate of [s => s.health.buildSha = "b".repeat(12), s => s.generations.claim.generatedAt = "2026-09-15T00:00:00Z", s => delete s.generations.players, s => s.generations.players.changedDomains = [], s => s.map.freshness = "stale", s => s.map.layerAvailability.resources.available = false, s => s.map.layerAvailability.resources.status = "partial", s => s.map.layerAvailability.resources.status = "stale", s => delete s.map.layerAvailability.resources.status, s => s.map.generation = 0, s => s.map.generatedAt = "2026-09-15T00:00:00Z", s => s.generations.claim.generatedAt = "2027-01-01T00:00:00Z"]) {
     const sample = structuredClone(good); mutate(sample);
     assert.equal(checkRecovery(sample, options).ok, false);
   }
+});
+test("live resource recovery tolerates unrelated map warnings", () => {
+  const sample = structuredClone(good);
+  sample.map.freshness = "partial";
+  sample.map.warnings = ["Global Siege: Siege outcomes are partial: terminal notification groups have no exact counterpart."];
+  assert.equal(checkRecovery(sample, { revision, since, now, domains: ["claim", "players"] }).ok, true);
+  sample.map.layerAvailability.resources.status = "partial";
+  assert.equal(checkRecovery(sample, { revision, since, now, domains: ["claim", "players"] }).ok, false);
 });
 test("recovery is bounded and waits for two consecutive healthy samples", async () => {
   let attempts = 0, clock = now;

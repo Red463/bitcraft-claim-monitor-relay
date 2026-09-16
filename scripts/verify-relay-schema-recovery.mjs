@@ -14,8 +14,11 @@ export function checkRecovery(sample, { revision, since, now = Date.now(), domai
     const row = sample.generations?.[domain];
     if (!(row?.generation > 0) || !row.changedDomains?.includes(domain) || !fresh(row.generatedAt)) reasons.push(`${domain} generation`);
   }
-  if (!(sample.map?.generation > 0) || sample.map?.freshness !== "live" || !fresh(sample.map.generatedAt)
-    || sample.map.layerAvailability?.resources?.available !== true) reasons.push("live map resources");
+  // Overall map warnings can describe unrequested domains such as siege outcomes.
+  // Require the requested resource layer itself to be live, with fresh source data.
+  if (!(sample.map?.generation > 0) || !["live", "partial"].includes(sample.map?.freshness) || !fresh(sample.map.generatedAt)
+    || sample.map.layerAvailability?.resources?.available !== true
+    || sample.map.layerAvailability.resources.status !== "live") reasons.push("live map resources");
   return { ok: reasons.length === 0, reasons };
 }
 
