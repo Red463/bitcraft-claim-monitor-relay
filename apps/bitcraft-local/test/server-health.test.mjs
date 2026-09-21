@@ -1,12 +1,50 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { filterServerHealthLogs, normalizeServerHealthSnapshot, redactServerHealthText, serverHealthState } from "../src/server/serverHealth.mjs";
 import * as serverHealth from "../src/server/serverHealth.mjs";
 import { readCraftContributionDiagnostics } from "../src/server/craftContributionVisibility.mjs";
 import { createEventLoopHealthSampler } from "../src/server/eventLoopHealth.mjs";
 
 const snapshot = (overrides = {}) => normalizeServerHealthSnapshot({ schemaVersion: 1, capturedAt: new Date().toISOString(), host: { diskPercent: 40, memoryPercent: 50, cores: 2 }, services: [{ name: "web", active: true }], processes: [], logs: [], ...overrides });
+
+test("server health Discord delivery suppresses event-loop incidents and recoveries only", async () => {
+  const source = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const senderSource = source.slice(source.indexOf("async function notifyServerHealthOwner("), source.indexOf("async function evaluateServerHealthIncidents()"));
+  const deliveries = [];
+  const notify = vm.runInNewContext(`${senderSource}\nnotifyServerHealthOwner`, {
+    process: { env: {} },
+    processRole: 'worker',
+    serverHealthIncidentFields: serverHealth.serverHealthIncidentFields,
+    os: { hostname: () => "test-host" },
+    defaultOwnerDiscordIdFromEnv: () => "123456789",
+    discordCommandEmbed: (title, description) => ({ title, description }),
+    sendDiscordDirectMessage: async (owner, payload) => deliveries.push({ owner, payload }),
+  });
+
+  for (const description of ["Node event-loop delay is critical", "Node event-loop delay is elevated"]) {
+    await notify("Claim Monitor server incident", description, 0xef6461);
+  }
+  for (const description of ["node event loop delay is critical", "node event loop delay is elevated"]) {
+    await notify("Claim Monitor server recovered", description, 0x4ee28a);
+  }
+  for (const role of ["web", "worker"]) {
+    for (const eventLoopDelayMs of [0, 150]) {
+      const notice = serverHealth.serverHealthIncidentRecoveryNotice(`${role}_node_event_loop_delay_is_critical`, { eventLoopDelayMs });
+      assert.ok(notice);
+      await notify(notice.title, notice.description, notice.color);
+    }
+  }
+  assert.equal(deliveries.length, 0);
+
+  await notify("Claim Monitor server incident", "Disk usage is critical", 0xef6461);
+  await notify("Claim Monitor server recovered", "disk usage is critical", 0x4ee28a);
+  assert.equal(deliveries.length, 2);
+  assert.equal(deliveries[0].payload.embeds[0].description, "Disk usage is critical");
+  assert.equal(deliveries[1].payload.embeds[0].title, "Claim Monitor server recovered");
+});
 
 test("server health redaction removes credentials and Discord ids", () => {
   const output = redactServerHealthText("--token=secret Bearer abc.def https://tom:pass@example.com user 145544610234630144");
