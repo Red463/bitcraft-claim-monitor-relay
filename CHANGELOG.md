@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.67.0-beta.5] - 2026-09-21
+
+### Changed
+
+- Disabled Discord alerts and recovery messages for Node event-loop delay while retaining Server Health monitoring.
+
 ## [0.67.0-beta.4] - 2026-09-17
 
 ### Fixed

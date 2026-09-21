@@ -388,6 +388,8 @@ function persistApplicationHealthBucket() {
 }
 
 async function notifyServerHealthOwner(title, description, color, application = {}) {
+  // Keep event-loop incidents in Server Health, but silence Discord alerts and recoveries.
+  if (/^Node event[- ]loop delay\b/i.test(description)) return;
   const ownerId = defaultOwnerDiscordIdFromEnv(process.env);
   if (!/^\d+$/.test(ownerId)) throw new Error("Configured owner Discord id is unavailable");
   const fields = serverHealthIncidentFields({ hostname: os.hostname?.(), processRole, application });
