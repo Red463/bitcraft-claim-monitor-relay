@@ -3956,15 +3956,15 @@ const tablesSchema = __schema({
   skillLevelKnowledgeDesc: __table({
     name: 'skill_level_knowledge_desc',
     indexes: [
-      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'skill_id', name: 'skill_level_knowledge_desc_skill_id_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'skill_id', name: 'skill_id', algorithm: 'btree', columns: [
         'skillId',
       ] },
-      { accessor: 'skill_level', name: 'skill_level_knowledge_desc_skill_id_level_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'skill_level', name: 'skill_level', algorithm: 'btree', columns: [
         'skillId',
         'level',
+      ] },
+      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
       ] },
     ],
     constraints: [
