@@ -14,6 +14,6 @@ export default __t.row({
   entityId: __t.u64().primaryKey().name("entity_id"),
   iconId: __t.i32().name("icon_id"),
   shapeId: __t.i32().name("shape_id"),
-  color1Id: __t.i32().name("color1_id"),
-  color2Id: __t.i32().name("color2_id"),
+  color1Id: __t.i32().name("color_1_id"),
+  color2Id: __t.i32().name("color_2_id"),
 });

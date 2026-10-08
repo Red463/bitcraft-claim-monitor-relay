@@ -9,6 +9,13 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.68.0-beta.2] - 2026-10-08
+
+### Fixed
+
+- Refreshed Relay bindings to restore compatible live data for the monitored settlement and allow the shutdown notice to be deployed.
+- Fixed schema refreshes rejecting the game's updated lowercase vote-option names.
+
 ## [0.68.0-beta.1] - 2026-10-08
 
 ### Added

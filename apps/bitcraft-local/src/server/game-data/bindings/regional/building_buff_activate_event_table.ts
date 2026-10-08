@@ -11,7 +11,8 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  actorEntityId: __t.u64().name("actor_entity_id"),
+  buildingEntityId: __t.u64().name("building_entity_id"),
+  empireEntityId: __t.u64().name("empire_entity_id"),
+  amount: __t.u32(),
 });

@@ -35,7 +35,7 @@ export default __t.row({
   },
   clientCancel: __t.bool().name("client_cancel"),
   wasConsumed: __t.bool().name("was_consumed"),
-  pad1: __t.u8().name("_pad1"),
-  pad2: __t.u8().name("_pad2"),
-  pad3: __t.u8().name("_pad3"),
+  pad1: __t.u8().name("pad_1"),
+  pad2: __t.u8().name("pad_2"),
+  pad3: __t.u8().name("pad_3"),
 });

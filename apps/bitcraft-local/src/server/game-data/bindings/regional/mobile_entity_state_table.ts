@@ -20,7 +20,7 @@ export default __t.row({
   destinationZ: __t.i32().name("destination_z"),
   dimension: __t.u32(),
   isWalking: __t.bool().name("is_walking"),
-  pad1: __t.u8().name("_pad1"),
-  pad2: __t.u8().name("_pad2"),
-  pad3: __t.u8().name("_pad3"),
+  pad1: __t.u8().name("pad_1"),
+  pad2: __t.u8().name("pad_2"),
+  pad3: __t.u8().name("pad_3"),
 });

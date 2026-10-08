@@ -10,20 +10,22 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 import {
-  PlaceableGrowthOutcome,
-  PlaceableGrowthOutcomeV2,
+  OffsetCoordinatesFloat,
+  EnemyType,
 } from "./types";
 
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  placeableId: __t.i32().name("placeable_id"),
-  time: __t.array(__t.f32()),
-  get outcomes() {
-    return __t.array(PlaceableGrowthOutcome);
+  entityId: __t.u64().name("entity_id"),
+  get enemyType() {
+    return EnemyType.name("enemy_type");
   },
-  showTimeLeft: __t.bool().name("show_time_left"),
-  get outcomesV2() {
-    return __t.option(__t.array(PlaceableGrowthOutcomeV2)).name("outcomes_v_2");
+  despawnTimestamp: __t.u64().name("despawn_timestamp"),
+  get location() {
+    return OffsetCoordinatesFloat;
   },
+  get destination() {
+    return OffsetCoordinatesFloat;
+  },
+  movementTimestamp: __t.u64().name("movement_timestamp"),
 });

@@ -9,9 +9,14 @@ import {
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
 } from "spacetimedb";
+import {
+  PlayerSignedOutReason,
+} from "./types";
+
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  identity: __t.identity(),
+  get reason() {
+    return PlayerSignedOutReason;
+  },
 });

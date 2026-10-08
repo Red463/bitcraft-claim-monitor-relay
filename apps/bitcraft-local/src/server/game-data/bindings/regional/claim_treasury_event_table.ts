@@ -9,9 +9,18 @@ import {
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
 } from "spacetimedb";
+import {
+  ClaimTreasuryChangeReason,
+} from "./types";
+
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  claimEntityId: __t.u64().name("claim_entity_id"),
+  actorEntityId: __t.u64().name("actor_entity_id"),
+  get reason() {
+    return ClaimTreasuryChangeReason;
+  },
+  amount: __t.u32(),
+  treasuryAfter: __t.u32().name("treasury_after"),
+  timestamp: __t.timestamp(),
 });

@@ -24,6 +24,6 @@ export default __t.row({
   },
   showTimeLeft: __t.bool().name("show_time_left"),
   get outcomesV2() {
-    return __t.option(__t.array(PlaceableGrowthOutcomeV2)).name("outcomes_v2");
+    return __t.option(__t.array(PlaceableGrowthOutcomeV2)).name("outcomes_v_2");
   },
 });
