@@ -812,21 +812,27 @@ import AdminBroadcastRow from "./admin_broadcast_table";
 import AlertDescRow from "./alert_desc_table";
 import AlertStateRow from "./alert_state_table";
 import AttachedHerdsStateRow from "./attached_herds_state_table";
+import AttackEventRow from "./attack_event_table";
+import AttackImpactEventRow from "./attack_impact_event_table";
 import AttackImpactTimerMigratedRow from "./attack_impact_timer_migrated_table";
 import AttackOutcomeStateRow from "./attack_outcome_state_table";
 import AttackTimerRow from "./attack_timer_table";
 import BankStateRow from "./bank_state_table";
+import BarterStallInventoryEventRow from "./barter_stall_inventory_event_table";
 import BarterStallStateRow from "./barter_stall_state_table";
 import BiomeDescRow from "./biome_desc_table";
 import BuffDescRow from "./buff_desc_table";
 import BuffTypeDescRow from "./buff_type_desc_table";
+import BuildingBuffActivateEventRow from "./building_buff_activate_event_table";
 import BuildingBuffDescRow from "./building_buff_desc_table";
 import BuildingClaimDescRow from "./building_claim_desc_table";
+import BuildingDeconstructStartEventRow from "./building_deconstruct_start_event_table";
 import BuildingDescRow from "./building_desc_table";
 import BuildingFunctionTypeMappingDescRow from "./building_function_type_mapping_desc_table";
 import BuildingMapIconDescRow from "./building_map_icon_desc_table";
 import BuildingNicknameStateRow from "./building_nickname_state_table";
 import BuildingPortalDescRow from "./building_portal_desc_table";
+import BuildingRepairStartEventRow from "./building_repair_start_event_table";
 import BuildingRepairsDescRow from "./building_repairs_desc_table";
 import BuildingSpawnDescRow from "./building_spawn_desc_table";
 import BuildingStateRow from "./building_state_table";
@@ -842,11 +848,13 @@ import ClaimLocalSupplySecurityThresholdStateRow from "./claim_local_supply_secu
 import ClaimLowercaseNameStateRow from "./claim_lowercase_name_state_table";
 import ClaimMemberStateRow from "./claim_member_state_table";
 import ClaimRecruitmentStateRow from "./claim_recruitment_state_table";
+import ClaimResupplyStartEventRow from "./claim_resupply_start_event_table";
 import ClaimStateRow from "./claim_state_table";
 import ClaimTechDescRow from "./claim_tech_desc_table";
 import ClaimTechStateRow from "./claim_tech_state_table";
 import ClaimTileCostRow from "./claim_tile_cost_table";
 import ClaimTileStateRow from "./claim_tile_state_table";
+import ClaimTreasuryEventRow from "./claim_treasury_event_table";
 import ClimbRequirementDescRow from "./climb_requirement_desc_table";
 import ClosedListingStateRow from "./closed_listing_state_table";
 import ClothingDescRow from "./clothing_desc_table";
@@ -859,6 +867,10 @@ import CombatStateRow from "./combat_state_table";
 import ConstructionRecipeDescRow from "./construction_recipe_desc_table";
 import ContributionLootDescRow from "./contribution_loot_desc_table";
 import ContributionStateRow from "./contribution_state_table";
+import CraftCompletedEventRow from "./craft_completed_event_table";
+import CraftContinueStartEventRow from "./craft_continue_start_event_table";
+import CraftEventRow from "./craft_event_table";
+import CraftInitiateStartEventRow from "./craft_initiate_start_event_table";
 import CraftingRecipeDescRow from "./crafting_recipe_desc_table";
 import CrumbTrailContributionLockStateRow from "./crumb_trail_contribution_lock_state_table";
 import CrumbTrailContributionSpentStateRow from "./crumb_trail_contribution_spent_state_table";
@@ -866,9 +878,14 @@ import CrumbTrailExposedStateRow from "./crumb_trail_exposed_state_table";
 import DeconstructionRecipeDescRow from "./deconstruction_recipe_desc_table";
 import DeployableAppearanceOverrideDescRow from "./deployable_appearance_override_desc_table";
 import DeployableCollectibleStateRow from "./deployable_collectible_state_table";
+import DeployableDeployStartEventRow from "./deployable_deploy_start_event_table";
 import DeployableDescRow from "./deployable_desc_table";
+import DeployableDisembarkEventRow from "./deployable_disembark_event_table";
+import DeployableMountEventRow from "./deployable_mount_event_table";
+import DeployableMoveEventRow from "./deployable_move_event_table";
 import DeployableStateRow from "./deployable_state_table";
 import DeployableStateV2Row from "./deployable_state_v_2_table";
+import DeployableStoreStartEventRow from "./deployable_store_start_event_table";
 import DimensionDescriptionStateRow from "./dimension_description_state_table";
 import DimensionNetworkStateRow from "./dimension_network_state_table";
 import DistantVisibleEntityRow from "./distant_visible_entity_table";
@@ -880,6 +897,7 @@ import DuelStateRow from "./duel_state_table";
 import DungeonStateRow from "./dungeon_state_table";
 import ElevatorDescRow from "./elevator_desc_table";
 import EmoteDescRow from "./emote_desc_table";
+import EmoteStartEventRow from "./emote_start_event_table";
 import EmpireChunkStateRow from "./empire_chunk_state_table";
 import EmpireColorDescRow from "./empire_color_desc_table";
 import EmpireIconDescRow from "./empire_icon_desc_table";
@@ -890,15 +908,19 @@ import EmpireNotificationDescRow from "./empire_notification_desc_table";
 import EmpirePlayerDataStateRow from "./empire_player_data_state_table";
 import EmpireRankDescRow from "./empire_rank_desc_table";
 import EmpireRankStateRow from "./empire_rank_state_table";
+import EmpireResupplyNodeStartEventRow from "./empire_resupply_node_start_event_table";
 import EmpireSettlementStateRow from "./empire_settlement_state_table";
 import EmpireStateRow from "./empire_state_table";
 import EmpireSuppliesDescRow from "./empire_supplies_desc_table";
 import EmpireTerritoryDescRow from "./empire_territory_desc_table";
 import EnemyAiParamsDescRow from "./enemy_ai_params_desc_table";
 import EnemyDescRow from "./enemy_desc_table";
+import EnemyDespawnEventRow from "./enemy_despawn_event_table";
 import EnemyMobMonitorStateRow from "./enemy_mob_monitor_state_table";
+import EnemyMoveEventRow from "./enemy_move_event_table";
 import EnemyScalingDescRow from "./enemy_scaling_desc_table";
 import EnemyStateRow from "./enemy_state_table";
+import EntityAttackStartEventRow from "./entity_attack_start_event_table";
 import EnvironmentDebuffDescRow from "./environment_debuff_desc_table";
 import EquipmentDescRow from "./equipment_desc_table";
 import EquipmentPresetKnowledgeDescRow from "./equipment_preset_knowledge_desc_table";
@@ -908,8 +930,10 @@ import ExperienceStateRow from "./experience_state_table";
 import ExplorationChunksStateRow from "./exploration_chunks_state_table";
 import ExplorationChunksStateV2Row from "./exploration_chunks_state_v_2_table";
 import ExposedBreadcrumbsRow from "./exposed_breadcrumbs_table";
+import ExtractEventRow from "./extract_event_table";
 import ExtractOutcomeStateRow from "./extract_outcome_state_table";
 import ExtractOutcomeStateV1Row from "./extract_outcome_state_v_1_table";
+import ExtractStartEventRow from "./extract_start_event_table";
 import ExtractionRecipeDescRow from "./extraction_recipe_desc_table";
 import FoodDescRow from "./food_desc_table";
 import FootprintTileStateRow from "./footprint_tile_state_table";
@@ -936,6 +960,7 @@ import InteriorShapeDescRow from "./interior_shape_desc_table";
 import InteriorSpawnDescRow from "./interior_spawn_desc_table";
 import InventoryStateRow from "./inventory_state_table";
 import ItemConversionRecipeDescRow from "./item_conversion_recipe_desc_table";
+import ItemConvertStartEventRow from "./item_convert_start_event_table";
 import ItemDescRow from "./item_desc_table";
 import ItemListDescRow from "./item_list_desc_table";
 import KnowledgeAchievementStateRow from "./knowledge_achievement_state_table";
@@ -968,6 +993,7 @@ import LootChestStateRow from "./loot_chest_state_table";
 import LootRarityDescRow from "./loot_rarity_desc_table";
 import LootTableDescRow from "./loot_table_desc_table";
 import LostItemsStateRow from "./lost_items_state_table";
+import MarketTradeEventRow from "./market_trade_event_table";
 import MarketplaceStateRow from "./marketplace_state_table";
 import MobileEntityStateRow from "./mobile_entity_state_table";
 import MountingStateRow from "./mounting_state_table";
@@ -980,25 +1006,35 @@ import ParametersDescRow from "./parameters_desc_table";
 import PassiveCraftStateRow from "./passive_craft_state_table";
 import PathfindingDescRow from "./pathfinding_desc_table";
 import PavedTileStateRow from "./paved_tile_state_table";
+import PavingDestroyTileStartEventRow from "./paving_destroy_tile_start_event_table";
+import PavingPlaceTileStartEventRow from "./paving_place_tile_start_event_table";
 import PavingTileDescRow from "./paving_tile_desc_table";
 import PermissionStateRow from "./permission_state_table";
 import PillarShapingDescRow from "./pillar_shaping_desc_table";
+import PillarShapingDestroyStartEventRow from "./pillar_shaping_destroy_start_event_table";
+import PillarShapingPlacePillarStartEventRow from "./pillar_shaping_place_pillar_start_event_table";
 import PillarShapingStateRow from "./pillar_shaping_state_table";
 import PlaceableDescRow from "./placeable_desc_table";
 import PlaceableGroupDescRow from "./placeable_group_desc_table";
 import PlaceableGrowthDescRow from "./placeable_growth_desc_table";
 import PlaceableGrowthTimerRow from "./placeable_growth_timer_table";
+import PlaceableInteractStartEventRow from "./placeable_interact_start_event_table";
 import PlaceableInteractionDescRow from "./placeable_interaction_desc_table";
+import PlaceablePlaceStartEventRow from "./placeable_place_start_event_table";
 import PlaceablePlacementDescRow from "./placeable_placement_desc_table";
 import PlaceableStateRow from "./placeable_state_table";
 import PlayerActionDescRow from "./player_action_desc_table";
 import PlayerActionStateRow from "./player_action_state_table";
+import PlayerClimbStartEventRow from "./player_climb_start_event_table";
+import PlayerDeathEventRow from "./player_death_event_table";
+import PlayerDeathStartEventRow from "./player_death_start_event_table";
 import PlayerHousingCustomizationStateRow from "./player_housing_customization_state_table";
 import PlayerHousingDescRow from "./player_housing_desc_table";
 import PlayerHousingEvictPlayerTimerRow from "./player_housing_evict_player_timer_table";
 import PlayerHousingMovingCostStateRow from "./player_housing_moving_cost_state_table";
 import PlayerHousingStateRow from "./player_housing_state_table";
 import PlayerLowercaseUsernameStateRow from "./player_lowercase_username_state_table";
+import PlayerMoveEventRow from "./player_move_event_table";
 import PlayerNoteStateRow from "./player_note_state_table";
 import PlayerNotificationEventRow from "./player_notification_event_table";
 import PlayerPrefsStateRow from "./player_prefs_state_table";
@@ -1006,7 +1042,11 @@ import PlayerQueueStateRow from "./player_queue_state_table";
 import PlayerRegionTransferEventRow from "./player_region_transfer_event_table";
 import PlayerSetNameOutcomeEventRow from "./player_set_name_outcome_event_table";
 import PlayerSettingsStateRow from "./player_settings_state_table";
+import PlayerSignedOutEventRow from "./player_signed_out_event_table";
 import PlayerStateRow from "./player_state_table";
+import PlayerTeleportEventRow from "./player_teleport_event_table";
+import PlayerTeleportHomeStartEventRow from "./player_teleport_home_start_event_table";
+import PlayerTeleportWaystoneStartEventRow from "./player_teleport_waystone_start_event_table";
 import PlayerUseElevatorTimerRow from "./player_use_elevator_timer_table";
 import PlayerUsernameStateRow from "./player_username_state_table";
 import PlayerVoteStateRow from "./player_vote_state_table";
@@ -1014,7 +1054,9 @@ import PortalStateRow from "./portal_state_table";
 import PremiumItemDescRow from "./premium_item_desc_table";
 import PremiumServiceDescRow from "./premium_service_desc_table";
 import ProgressiveActionStateRow from "./progressive_action_state_table";
+import ProjectSiteAdvanceProjectStartEventRow from "./project_site_advance_project_start_event_table";
 import ProjectSiteStateRow from "./project_site_state_table";
+import ProspectStartEventRow from "./prospect_start_event_table";
 import ProspectingDescRow from "./prospecting_desc_table";
 import ProspectingParticipantsRow from "./prospecting_participants_table";
 import ProspectingStateRow from "./prospecting_state_table";
@@ -1031,6 +1073,7 @@ import RegionSignInParametersRow from "./region_sign_in_parameters_table";
 import RentStateRow from "./rent_state_table";
 import ReservedNameDescRow from "./reserved_name_desc_table";
 import ResourceClumpDescRow from "./resource_clump_desc_table";
+import ResourceDepletedEventRow from "./resource_depleted_event_table";
 import ResourceDescRow from "./resource_desc_table";
 import ResourceGrowthRecipeDescRow from "./resource_growth_recipe_desc_table";
 import ResourceGrowthTimerRow from "./resource_growth_timer_table";
@@ -1040,9 +1083,12 @@ import ResourceStateRow from "./resource_state_table";
 import SatiationStateRow from "./satiation_state_table";
 import SecondaryKnowledgeDescRow from "./secondary_knowledge_desc_table";
 import SellOrderStateRow from "./sell_order_state_table";
+import ServerTeleportEventRow from "./server_teleport_event_table";
+import SetHomeEventRow from "./set_home_event_table";
 import SignedInPlayerStateRow from "./signed_in_player_state_table";
 import SkillDescRow from "./skill_desc_table";
 import SkillLevelKnowledgeDescRow from "./skill_level_knowledge_desc_table";
+import SleepEventRow from "./sleep_event_table";
 import StageRewardsDescRow from "./stage_rewards_desc_table";
 import StaminaStateRow from "./stamina_state_table";
 import StorageLogStateRow from "./storage_log_state_table";
@@ -1053,6 +1099,7 @@ import TeleportItemDescRow from "./teleport_item_desc_table";
 import TeleportationEnergyStateRow from "./teleportation_energy_state_table";
 import TerraformProgressStateRow from "./terraform_progress_state_table";
 import TerraformRecipeDescRow from "./terraform_recipe_desc_table";
+import TerraformStartEventRow from "./terraform_start_event_table";
 import TerrainChunkStateRow from "./terrain_chunk_state_table";
 import TheGreatPlaceholderTableRow from "./the_great_placeholder_table_table";
 import ThreatStateRow from "./threat_state_table";
@@ -1237,6 +1284,20 @@ const tablesSchema = __schema({
       { name: 'attached_herds_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, AttachedHerdsStateRow),
+  attackEvent: __table({
+    name: 'attack_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, AttackEventRow),
+  attackImpactEvent: __table({
+    name: 'attack_impact_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, AttackImpactEventRow),
   attackImpactTimerMigrated: __table({
     name: 'attack_impact_timer_migrated',
     indexes: [
@@ -1287,6 +1348,13 @@ const tablesSchema = __schema({
       { name: 'bank_state_building_entity_id_key', constraint: 'unique', columns: ['buildingEntityId'] },
     ],
   }, BankStateRow),
+  barterStallInventoryEvent: __table({
+    name: 'barter_stall_inventory_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, BarterStallInventoryEventRow),
   barterStallState: __table({
     name: 'barter_stall_state',
     indexes: [
@@ -1340,6 +1408,13 @@ const tablesSchema = __schema({
       { name: 'buff_type_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, BuffTypeDescRow),
+  buildingBuffActivateEvent: __table({
+    name: 'building_buff_activate_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, BuildingBuffActivateEventRow),
   buildingBuffDesc: __table({
     name: 'building_buff_desc',
     indexes: [
@@ -1365,6 +1440,13 @@ const tablesSchema = __schema({
       { name: 'building_claim_desc_building_id_key', constraint: 'unique', columns: ['buildingId'] },
     ],
   }, BuildingClaimDescRow),
+  buildingDeconstructStartEvent: __table({
+    name: 'building_deconstruct_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, BuildingDeconstructStartEventRow),
   buildingDesc: __table({
     name: 'building_desc',
     indexes: [
@@ -1423,6 +1505,13 @@ const tablesSchema = __schema({
       { name: 'building_portal_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, BuildingPortalDescRow),
+  buildingRepairStartEvent: __table({
+    name: 'building_repair_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, BuildingRepairStartEventRow),
   buildingRepairsDesc: __table({
     name: 'building_repairs_desc',
     indexes: [
@@ -1642,6 +1731,13 @@ const tablesSchema = __schema({
       { name: 'claim_recruitment_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ClaimRecruitmentStateRow),
+  claimResupplyStartEvent: __table({
+    name: 'claim_resupply_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ClaimResupplyStartEventRow),
   claimState: __table({
     name: 'claim_state',
     indexes: [
@@ -1717,6 +1813,13 @@ const tablesSchema = __schema({
       { name: 'claim_tile_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ClaimTileStateRow),
+  claimTreasuryEvent: __table({
+    name: 'claim_treasury_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ClaimTreasuryEventRow),
   climbRequirementDesc: __table({
     name: 'climb_requirement_desc',
     indexes: [
@@ -1875,6 +1978,34 @@ const tablesSchema = __schema({
       { name: 'contribution_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ContributionStateRow),
+  craftCompletedEvent: __table({
+    name: 'craft_completed_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CraftCompletedEventRow),
+  craftContinueStartEvent: __table({
+    name: 'craft_continue_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CraftContinueStartEventRow),
+  craftEvent: __table({
+    name: 'craft_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CraftEventRow),
+  craftInitiateStartEvent: __table({
+    name: 'craft_initiate_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, CraftInitiateStartEventRow),
   craftingRecipeDesc: __table({
     name: 'crafting_recipe_desc',
     indexes: [
@@ -1978,6 +2109,13 @@ const tablesSchema = __schema({
       { name: 'deployable_collectible_state_deployable_entity_id_key', constraint: 'unique', columns: ['deployableEntityId'] },
     ],
   }, DeployableCollectibleStateRow),
+  deployableDeployStartEvent: __table({
+    name: 'deployable_deploy_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, DeployableDeployStartEventRow),
   deployableDesc: __table({
     name: 'deployable_desc',
     indexes: [
@@ -1993,6 +2131,27 @@ const tablesSchema = __schema({
       { name: 'deployable_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, DeployableDescRow),
+  deployableDisembarkEvent: __table({
+    name: 'deployable_disembark_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, DeployableDisembarkEventRow),
+  deployableMountEvent: __table({
+    name: 'deployable_mount_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, DeployableMountEventRow),
+  deployableMoveEvent: __table({
+    name: 'deployable_move_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, DeployableMoveEventRow),
   deployableState: __table({
     name: 'deployable_state',
     indexes: [
@@ -2027,6 +2186,13 @@ const tablesSchema = __schema({
       { name: 'deployable_state_v2_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, DeployableStateV2Row),
+  deployableStoreStartEvent: __table({
+    name: 'deployable_store_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, DeployableStoreStartEventRow),
   dimensionDescriptionState: __table({
     name: 'dimension_description_state',
     indexes: [
@@ -2182,6 +2348,13 @@ const tablesSchema = __schema({
       { name: 'emote_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, EmoteDescRow),
+  emoteStartEvent: __table({
+    name: 'emote_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, EmoteStartEventRow),
   empireChunkState: __table({
     name: 'empire_chunk_state',
     indexes: [
@@ -2333,6 +2506,13 @@ const tablesSchema = __schema({
       { name: 'empire_rank_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, EmpireRankStateRow),
+  empireResupplyNodeStartEvent: __table({
+    name: 'empire_resupply_node_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, EmpireResupplyNodeStartEventRow),
   empireSettlementState: __table({
     name: 'empire_settlement_state',
     indexes: [
@@ -2417,6 +2597,13 @@ const tablesSchema = __schema({
       { name: 'enemy_desc_enemy_type_key', constraint: 'unique', columns: ['enemyType'] },
     ],
   }, EnemyDescRow),
+  enemyDespawnEvent: __table({
+    name: 'enemy_despawn_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, EnemyDespawnEventRow),
   enemyMobMonitorState: __table({
     name: 'enemy_mob_monitor_state',
     indexes: [
@@ -2428,6 +2615,13 @@ const tablesSchema = __schema({
       { name: 'enemy_mob_monitor_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, EnemyMobMonitorStateRow),
+  enemyMoveEvent: __table({
+    name: 'enemy_move_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, EnemyMoveEventRow),
   enemyScalingDesc: __table({
     name: 'enemy_scaling_desc',
     indexes: [
@@ -2456,6 +2650,13 @@ const tablesSchema = __schema({
       { name: 'enemy_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, EnemyStateRow),
+  entityAttackStartEvent: __table({
+    name: 'entity_attack_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, EntityAttackStartEventRow),
   environmentDebuffDesc: __table({
     name: 'environment_debuff_desc',
     indexes: [
@@ -2554,6 +2755,13 @@ const tablesSchema = __schema({
       { name: 'exploration_chunks_state_v2_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ExplorationChunksStateV2Row),
+  extractEvent: __table({
+    name: 'extract_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ExtractEventRow),
   extractOutcomeState: __table({
     name: 'extract_outcome_state',
     indexes: [
@@ -2576,6 +2784,13 @@ const tablesSchema = __schema({
       { name: 'extract_outcome_state_v1_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ExtractOutcomeStateV1Row),
+  extractStartEvent: __table({
+    name: 'extract_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ExtractStartEventRow),
   extractionRecipeDesc: __table({
     name: 'extraction_recipe_desc',
     indexes: [
@@ -2893,6 +3108,13 @@ const tablesSchema = __schema({
       { name: 'item_conversion_recipe_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ItemConversionRecipeDescRow),
+  itemConvertStartEvent: __table({
+    name: 'item_convert_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ItemConvertStartEventRow),
   itemDesc: __table({
     name: 'item_desc',
     indexes: [
@@ -3262,6 +3484,13 @@ const tablesSchema = __schema({
       { name: 'lost_items_state_inventory_entity_id_key', constraint: 'unique', columns: ['inventoryEntityId'] },
     ],
   }, LostItemsStateRow),
+  marketTradeEvent: __table({
+    name: 'market_trade_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MarketTradeEventRow),
   marketplaceState: __table({
     name: 'marketplace_state',
     indexes: [
@@ -3418,6 +3647,20 @@ const tablesSchema = __schema({
       { name: 'paved_tile_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, PavedTileStateRow),
+  pavingDestroyTileStartEvent: __table({
+    name: 'paving_destroy_tile_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PavingDestroyTileStartEventRow),
+  pavingPlaceTileStartEvent: __table({
+    name: 'paving_place_tile_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PavingPlaceTileStartEventRow),
   pavingTileDesc: __table({
     name: 'paving_tile_desc',
     indexes: [
@@ -3461,6 +3704,20 @@ const tablesSchema = __schema({
       { name: 'pillar_shaping_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, PillarShapingDescRow),
+  pillarShapingDestroyStartEvent: __table({
+    name: 'pillar_shaping_destroy_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PillarShapingDestroyStartEventRow),
+  pillarShapingPlacePillarStartEvent: __table({
+    name: 'pillar_shaping_place_pillar_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PillarShapingPlacePillarStartEventRow),
   pillarShapingState: __table({
     name: 'pillar_shaping_state',
     indexes: [
@@ -3524,6 +3781,13 @@ const tablesSchema = __schema({
       { name: 'placeable_growth_timer_scheduled_id_key', constraint: 'unique', columns: ['scheduledId'] },
     ],
   }, PlaceableGrowthTimerRow),
+  placeableInteractStartEvent: __table({
+    name: 'placeable_interact_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlaceableInteractStartEventRow),
   placeableInteractionDesc: __table({
     name: 'placeable_interaction_desc',
     indexes: [
@@ -3538,6 +3802,13 @@ const tablesSchema = __schema({
       { name: 'placeable_interaction_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, PlaceableInteractionDescRow),
+  placeablePlaceStartEvent: __table({
+    name: 'placeable_place_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlaceablePlaceStartEventRow),
   placeablePlacementDesc: __table({
     name: 'placeable_placement_desc',
     indexes: [
@@ -3594,6 +3865,27 @@ const tablesSchema = __schema({
       { name: 'player_action_state_auto_id_key', constraint: 'unique', columns: ['autoId'] },
     ],
   }, PlayerActionStateRow),
+  playerClimbStartEvent: __table({
+    name: 'player_climb_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerClimbStartEventRow),
+  playerDeathEvent: __table({
+    name: 'player_death_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerDeathEventRow),
+  playerDeathStartEvent: __table({
+    name: 'player_death_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerDeathStartEventRow),
   playerHousingCustomizationState: __table({
     name: 'player_housing_customization_state',
     indexes: [
@@ -3674,6 +3966,13 @@ const tablesSchema = __schema({
       { name: 'player_lowercase_username_state_username_lowercase_key', constraint: 'unique', columns: ['usernameLowercase'] },
     ],
   }, PlayerLowercaseUsernameStateRow),
+  playerMoveEvent: __table({
+    name: 'player_move_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerMoveEventRow),
   playerNoteState: __table({
     name: 'player_note_state',
     indexes: [
@@ -3755,6 +4054,13 @@ const tablesSchema = __schema({
       { name: 'player_settings_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, PlayerSettingsStateRow),
+  playerSignedOutEvent: __table({
+    name: 'player_signed_out_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerSignedOutEventRow),
   playerState: __table({
     name: 'player_state',
     indexes: [
@@ -3766,6 +4072,27 @@ const tablesSchema = __schema({
       { name: 'player_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, PlayerStateRow),
+  playerTeleportEvent: __table({
+    name: 'player_teleport_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerTeleportEventRow),
+  playerTeleportHomeStartEvent: __table({
+    name: 'player_teleport_home_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerTeleportHomeStartEventRow),
+  playerTeleportWaystoneStartEvent: __table({
+    name: 'player_teleport_waystone_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PlayerTeleportWaystoneStartEventRow),
   playerUseElevatorTimer: __table({
     name: 'player_use_elevator_timer',
     indexes: [
@@ -3871,6 +4198,13 @@ const tablesSchema = __schema({
       { name: 'progressive_action_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ProgressiveActionStateRow),
+  projectSiteAdvanceProjectStartEvent: __table({
+    name: 'project_site_advance_project_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ProjectSiteAdvanceProjectStartEventRow),
   projectSiteState: __table({
     name: 'project_site_state',
     indexes: [
@@ -3885,6 +4219,13 @@ const tablesSchema = __schema({
       { name: 'project_site_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, ProjectSiteStateRow),
+  prospectStartEvent: __table({
+    name: 'prospect_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ProspectStartEventRow),
   prospectingDesc: __table({
     name: 'prospecting_desc',
     indexes: [
@@ -4075,6 +4416,13 @@ const tablesSchema = __schema({
       { name: 'resource_clump_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ResourceClumpDescRow),
+  resourceDepletedEvent: __table({
+    name: 'resource_depleted_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ResourceDepletedEventRow),
   resourceDesc: __table({
     name: 'resource_desc',
     indexes: [
@@ -4196,6 +4544,20 @@ const tablesSchema = __schema({
       { name: 'sell_order_state_entity_id_key', constraint: 'unique', columns: ['entityId'] },
     ],
   }, SellOrderStateRow),
+  serverTeleportEvent: __table({
+    name: 'server_teleport_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, ServerTeleportEventRow),
+  setHomeEvent: __table({
+    name: 'set_home_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, SetHomeEventRow),
   signedInPlayerState: __table({
     name: 'signed_in_player_state',
     indexes: [
@@ -4225,21 +4587,28 @@ const tablesSchema = __schema({
   skillLevelKnowledgeDesc: __table({
     name: 'skill_level_knowledge_desc',
     indexes: [
-      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
-        'id',
-      ] },
-      { accessor: 'skill_id', name: 'skill_level_knowledge_desc_skill_id_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'skill_id', name: 'skill_id', algorithm: 'btree', columns: [
         'skillId',
       ] },
-      { accessor: 'skill_level', name: 'skill_level_knowledge_desc_skill_id_level_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'skill_level', name: 'skill_level', algorithm: 'btree', columns: [
         'skillId',
         'level',
+      ] },
+      { accessor: 'id', name: 'skill_level_knowledge_desc_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
       ] },
     ],
     constraints: [
       { name: 'skill_level_knowledge_desc_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, SkillLevelKnowledgeDescRow),
+  sleepEvent: __table({
+    name: 'sleep_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, SleepEventRow),
   stageRewardsDesc: __table({
     name: 'stage_rewards_desc',
     indexes: [
@@ -4359,6 +4728,13 @@ const tablesSchema = __schema({
       { name: 'terraform_recipe_desc_difference_key', constraint: 'unique', columns: ['difference'] },
     ],
   }, TerraformRecipeDescRow),
+  terraformStartEvent: __table({
+    name: 'terraform_start_event',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, TerraformStartEventRow),
   terrainChunkState: __table({
     name: 'terrain_chunk_state',
     indexes: [
@@ -5484,6 +5860,10 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "alert_state": Omit<typeof tablesSchema.schemaType.tables["alertState"], "accessorName"> & { readonly accessorName: "alert_state" };
     /** @deprecated Use `attachedHerdsState` instead. This alias will be removed in the next major version. */
     readonly "attached_herds_state": Omit<typeof tablesSchema.schemaType.tables["attachedHerdsState"], "accessorName"> & { readonly accessorName: "attached_herds_state" };
+    /** @deprecated Use `attackEvent` instead. This alias will be removed in the next major version. */
+    readonly "attack_event": Omit<typeof tablesSchema.schemaType.tables["attackEvent"], "accessorName"> & { readonly accessorName: "attack_event" };
+    /** @deprecated Use `attackImpactEvent` instead. This alias will be removed in the next major version. */
+    readonly "attack_impact_event": Omit<typeof tablesSchema.schemaType.tables["attackImpactEvent"], "accessorName"> & { readonly accessorName: "attack_impact_event" };
     /** @deprecated Use `attackImpactTimerMigrated` instead. This alias will be removed in the next major version. */
     readonly "attack_impact_timer_migrated": Omit<typeof tablesSchema.schemaType.tables["attackImpactTimerMigrated"], "accessorName"> & { readonly accessorName: "attack_impact_timer_migrated" };
     /** @deprecated Use `attackOutcomeState` instead. This alias will be removed in the next major version. */
@@ -5492,6 +5872,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "attack_timer": Omit<typeof tablesSchema.schemaType.tables["attackTimer"], "accessorName"> & { readonly accessorName: "attack_timer" };
     /** @deprecated Use `bankState` instead. This alias will be removed in the next major version. */
     readonly "bank_state": Omit<typeof tablesSchema.schemaType.tables["bankState"], "accessorName"> & { readonly accessorName: "bank_state" };
+    /** @deprecated Use `barterStallInventoryEvent` instead. This alias will be removed in the next major version. */
+    readonly "barter_stall_inventory_event": Omit<typeof tablesSchema.schemaType.tables["barterStallInventoryEvent"], "accessorName"> & { readonly accessorName: "barter_stall_inventory_event" };
     /** @deprecated Use `barterStallState` instead. This alias will be removed in the next major version. */
     readonly "barter_stall_state": Omit<typeof tablesSchema.schemaType.tables["barterStallState"], "accessorName"> & { readonly accessorName: "barter_stall_state" };
     /** @deprecated Use `biomeDesc` instead. This alias will be removed in the next major version. */
@@ -5500,10 +5882,14 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "buff_desc": Omit<typeof tablesSchema.schemaType.tables["buffDesc"], "accessorName"> & { readonly accessorName: "buff_desc" };
     /** @deprecated Use `buffTypeDesc` instead. This alias will be removed in the next major version. */
     readonly "buff_type_desc": Omit<typeof tablesSchema.schemaType.tables["buffTypeDesc"], "accessorName"> & { readonly accessorName: "buff_type_desc" };
+    /** @deprecated Use `buildingBuffActivateEvent` instead. This alias will be removed in the next major version. */
+    readonly "building_buff_activate_event": Omit<typeof tablesSchema.schemaType.tables["buildingBuffActivateEvent"], "accessorName"> & { readonly accessorName: "building_buff_activate_event" };
     /** @deprecated Use `buildingBuffDesc` instead. This alias will be removed in the next major version. */
     readonly "building_buff_desc": Omit<typeof tablesSchema.schemaType.tables["buildingBuffDesc"], "accessorName"> & { readonly accessorName: "building_buff_desc" };
     /** @deprecated Use `buildingClaimDesc` instead. This alias will be removed in the next major version. */
     readonly "building_claim_desc": Omit<typeof tablesSchema.schemaType.tables["buildingClaimDesc"], "accessorName"> & { readonly accessorName: "building_claim_desc" };
+    /** @deprecated Use `buildingDeconstructStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "building_deconstruct_start_event": Omit<typeof tablesSchema.schemaType.tables["buildingDeconstructStartEvent"], "accessorName"> & { readonly accessorName: "building_deconstruct_start_event" };
     /** @deprecated Use `buildingDesc` instead. This alias will be removed in the next major version. */
     readonly "building_desc": Omit<typeof tablesSchema.schemaType.tables["buildingDesc"], "accessorName"> & { readonly accessorName: "building_desc" };
     /** @deprecated Use `buildingFunctionTypeMappingDesc` instead. This alias will be removed in the next major version. */
@@ -5514,6 +5900,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "building_nickname_state": Omit<typeof tablesSchema.schemaType.tables["buildingNicknameState"], "accessorName"> & { readonly accessorName: "building_nickname_state" };
     /** @deprecated Use `buildingPortalDesc` instead. This alias will be removed in the next major version. */
     readonly "building_portal_desc": Omit<typeof tablesSchema.schemaType.tables["buildingPortalDesc"], "accessorName"> & { readonly accessorName: "building_portal_desc" };
+    /** @deprecated Use `buildingRepairStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "building_repair_start_event": Omit<typeof tablesSchema.schemaType.tables["buildingRepairStartEvent"], "accessorName"> & { readonly accessorName: "building_repair_start_event" };
     /** @deprecated Use `buildingRepairsDesc` instead. This alias will be removed in the next major version. */
     readonly "building_repairs_desc": Omit<typeof tablesSchema.schemaType.tables["buildingRepairsDesc"], "accessorName"> & { readonly accessorName: "building_repairs_desc" };
     /** @deprecated Use `buildingSpawnDesc` instead. This alias will be removed in the next major version. */
@@ -5544,6 +5932,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "claim_member_state": Omit<typeof tablesSchema.schemaType.tables["claimMemberState"], "accessorName"> & { readonly accessorName: "claim_member_state" };
     /** @deprecated Use `claimRecruitmentState` instead. This alias will be removed in the next major version. */
     readonly "claim_recruitment_state": Omit<typeof tablesSchema.schemaType.tables["claimRecruitmentState"], "accessorName"> & { readonly accessorName: "claim_recruitment_state" };
+    /** @deprecated Use `claimResupplyStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "claim_resupply_start_event": Omit<typeof tablesSchema.schemaType.tables["claimResupplyStartEvent"], "accessorName"> & { readonly accessorName: "claim_resupply_start_event" };
     /** @deprecated Use `claimState` instead. This alias will be removed in the next major version. */
     readonly "claim_state": Omit<typeof tablesSchema.schemaType.tables["claimState"], "accessorName"> & { readonly accessorName: "claim_state" };
     /** @deprecated Use `claimTechDesc` instead. This alias will be removed in the next major version. */
@@ -5554,6 +5944,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "claim_tile_cost": Omit<typeof tablesSchema.schemaType.tables["claimTileCost"], "accessorName"> & { readonly accessorName: "claim_tile_cost" };
     /** @deprecated Use `claimTileState` instead. This alias will be removed in the next major version. */
     readonly "claim_tile_state": Omit<typeof tablesSchema.schemaType.tables["claimTileState"], "accessorName"> & { readonly accessorName: "claim_tile_state" };
+    /** @deprecated Use `claimTreasuryEvent` instead. This alias will be removed in the next major version. */
+    readonly "claim_treasury_event": Omit<typeof tablesSchema.schemaType.tables["claimTreasuryEvent"], "accessorName"> & { readonly accessorName: "claim_treasury_event" };
     /** @deprecated Use `climbRequirementDesc` instead. This alias will be removed in the next major version. */
     readonly "climb_requirement_desc": Omit<typeof tablesSchema.schemaType.tables["climbRequirementDesc"], "accessorName"> & { readonly accessorName: "climb_requirement_desc" };
     /** @deprecated Use `closedListingState` instead. This alias will be removed in the next major version. */
@@ -5578,6 +5970,14 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "contribution_loot_desc": Omit<typeof tablesSchema.schemaType.tables["contributionLootDesc"], "accessorName"> & { readonly accessorName: "contribution_loot_desc" };
     /** @deprecated Use `contributionState` instead. This alias will be removed in the next major version. */
     readonly "contribution_state": Omit<typeof tablesSchema.schemaType.tables["contributionState"], "accessorName"> & { readonly accessorName: "contribution_state" };
+    /** @deprecated Use `craftCompletedEvent` instead. This alias will be removed in the next major version. */
+    readonly "craft_completed_event": Omit<typeof tablesSchema.schemaType.tables["craftCompletedEvent"], "accessorName"> & { readonly accessorName: "craft_completed_event" };
+    /** @deprecated Use `craftContinueStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "craft_continue_start_event": Omit<typeof tablesSchema.schemaType.tables["craftContinueStartEvent"], "accessorName"> & { readonly accessorName: "craft_continue_start_event" };
+    /** @deprecated Use `craftEvent` instead. This alias will be removed in the next major version. */
+    readonly "craft_event": Omit<typeof tablesSchema.schemaType.tables["craftEvent"], "accessorName"> & { readonly accessorName: "craft_event" };
+    /** @deprecated Use `craftInitiateStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "craft_initiate_start_event": Omit<typeof tablesSchema.schemaType.tables["craftInitiateStartEvent"], "accessorName"> & { readonly accessorName: "craft_initiate_start_event" };
     /** @deprecated Use `craftingRecipeDesc` instead. This alias will be removed in the next major version. */
     readonly "crafting_recipe_desc": Omit<typeof tablesSchema.schemaType.tables["craftingRecipeDesc"], "accessorName"> & { readonly accessorName: "crafting_recipe_desc" };
     /** @deprecated Use `crumbTrailContributionLockState` instead. This alias will be removed in the next major version. */
@@ -5592,12 +5992,22 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "deployable_appearance_override_desc": Omit<typeof tablesSchema.schemaType.tables["deployableAppearanceOverrideDesc"], "accessorName"> & { readonly accessorName: "deployable_appearance_override_desc" };
     /** @deprecated Use `deployableCollectibleState` instead. This alias will be removed in the next major version. */
     readonly "deployable_collectible_state": Omit<typeof tablesSchema.schemaType.tables["deployableCollectibleState"], "accessorName"> & { readonly accessorName: "deployable_collectible_state" };
+    /** @deprecated Use `deployableDeployStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "deployable_deploy_start_event": Omit<typeof tablesSchema.schemaType.tables["deployableDeployStartEvent"], "accessorName"> & { readonly accessorName: "deployable_deploy_start_event" };
     /** @deprecated Use `deployableDesc` instead. This alias will be removed in the next major version. */
     readonly "deployable_desc": Omit<typeof tablesSchema.schemaType.tables["deployableDesc"], "accessorName"> & { readonly accessorName: "deployable_desc" };
+    /** @deprecated Use `deployableDisembarkEvent` instead. This alias will be removed in the next major version. */
+    readonly "deployable_disembark_event": Omit<typeof tablesSchema.schemaType.tables["deployableDisembarkEvent"], "accessorName"> & { readonly accessorName: "deployable_disembark_event" };
+    /** @deprecated Use `deployableMountEvent` instead. This alias will be removed in the next major version. */
+    readonly "deployable_mount_event": Omit<typeof tablesSchema.schemaType.tables["deployableMountEvent"], "accessorName"> & { readonly accessorName: "deployable_mount_event" };
+    /** @deprecated Use `deployableMoveEvent` instead. This alias will be removed in the next major version. */
+    readonly "deployable_move_event": Omit<typeof tablesSchema.schemaType.tables["deployableMoveEvent"], "accessorName"> & { readonly accessorName: "deployable_move_event" };
     /** @deprecated Use `deployableState` instead. This alias will be removed in the next major version. */
     readonly "deployable_state": Omit<typeof tablesSchema.schemaType.tables["deployableState"], "accessorName"> & { readonly accessorName: "deployable_state" };
     /** @deprecated Use `deployableStateV2` instead. This alias will be removed in the next major version. */
     readonly "deployable_state_v2": Omit<typeof tablesSchema.schemaType.tables["deployableStateV2"], "accessorName"> & { readonly accessorName: "deployable_state_v2" };
+    /** @deprecated Use `deployableStoreStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "deployable_store_start_event": Omit<typeof tablesSchema.schemaType.tables["deployableStoreStartEvent"], "accessorName"> & { readonly accessorName: "deployable_store_start_event" };
     /** @deprecated Use `dimensionDescriptionState` instead. This alias will be removed in the next major version. */
     readonly "dimension_description_state": Omit<typeof tablesSchema.schemaType.tables["dimensionDescriptionState"], "accessorName"> & { readonly accessorName: "dimension_description_state" };
     /** @deprecated Use `dimensionNetworkState` instead. This alias will be removed in the next major version. */
@@ -5620,6 +6030,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "elevator_desc": Omit<typeof tablesSchema.schemaType.tables["elevatorDesc"], "accessorName"> & { readonly accessorName: "elevator_desc" };
     /** @deprecated Use `emoteDesc` instead. This alias will be removed in the next major version. */
     readonly "emote_desc": Omit<typeof tablesSchema.schemaType.tables["emoteDesc"], "accessorName"> & { readonly accessorName: "emote_desc" };
+    /** @deprecated Use `emoteStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "emote_start_event": Omit<typeof tablesSchema.schemaType.tables["emoteStartEvent"], "accessorName"> & { readonly accessorName: "emote_start_event" };
     /** @deprecated Use `empireChunkState` instead. This alias will be removed in the next major version. */
     readonly "empire_chunk_state": Omit<typeof tablesSchema.schemaType.tables["empireChunkState"], "accessorName"> & { readonly accessorName: "empire_chunk_state" };
     /** @deprecated Use `empireColorDesc` instead. This alias will be removed in the next major version. */
@@ -5640,6 +6052,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "empire_rank_desc": Omit<typeof tablesSchema.schemaType.tables["empireRankDesc"], "accessorName"> & { readonly accessorName: "empire_rank_desc" };
     /** @deprecated Use `empireRankState` instead. This alias will be removed in the next major version. */
     readonly "empire_rank_state": Omit<typeof tablesSchema.schemaType.tables["empireRankState"], "accessorName"> & { readonly accessorName: "empire_rank_state" };
+    /** @deprecated Use `empireResupplyNodeStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "empire_resupply_node_start_event": Omit<typeof tablesSchema.schemaType.tables["empireResupplyNodeStartEvent"], "accessorName"> & { readonly accessorName: "empire_resupply_node_start_event" };
     /** @deprecated Use `empireSettlementState` instead. This alias will be removed in the next major version. */
     readonly "empire_settlement_state": Omit<typeof tablesSchema.schemaType.tables["empireSettlementState"], "accessorName"> & { readonly accessorName: "empire_settlement_state" };
     /** @deprecated Use `empireState` instead. This alias will be removed in the next major version. */
@@ -5652,12 +6066,18 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "enemy_ai_params_desc": Omit<typeof tablesSchema.schemaType.tables["enemyAiParamsDesc"], "accessorName"> & { readonly accessorName: "enemy_ai_params_desc" };
     /** @deprecated Use `enemyDesc` instead. This alias will be removed in the next major version. */
     readonly "enemy_desc": Omit<typeof tablesSchema.schemaType.tables["enemyDesc"], "accessorName"> & { readonly accessorName: "enemy_desc" };
+    /** @deprecated Use `enemyDespawnEvent` instead. This alias will be removed in the next major version. */
+    readonly "enemy_despawn_event": Omit<typeof tablesSchema.schemaType.tables["enemyDespawnEvent"], "accessorName"> & { readonly accessorName: "enemy_despawn_event" };
     /** @deprecated Use `enemyMobMonitorState` instead. This alias will be removed in the next major version. */
     readonly "enemy_mob_monitor_state": Omit<typeof tablesSchema.schemaType.tables["enemyMobMonitorState"], "accessorName"> & { readonly accessorName: "enemy_mob_monitor_state" };
+    /** @deprecated Use `enemyMoveEvent` instead. This alias will be removed in the next major version. */
+    readonly "enemy_move_event": Omit<typeof tablesSchema.schemaType.tables["enemyMoveEvent"], "accessorName"> & { readonly accessorName: "enemy_move_event" };
     /** @deprecated Use `enemyScalingDesc` instead. This alias will be removed in the next major version. */
     readonly "enemy_scaling_desc": Omit<typeof tablesSchema.schemaType.tables["enemyScalingDesc"], "accessorName"> & { readonly accessorName: "enemy_scaling_desc" };
     /** @deprecated Use `enemyState` instead. This alias will be removed in the next major version. */
     readonly "enemy_state": Omit<typeof tablesSchema.schemaType.tables["enemyState"], "accessorName"> & { readonly accessorName: "enemy_state" };
+    /** @deprecated Use `entityAttackStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "entity_attack_start_event": Omit<typeof tablesSchema.schemaType.tables["entityAttackStartEvent"], "accessorName"> & { readonly accessorName: "entity_attack_start_event" };
     /** @deprecated Use `environmentDebuffDesc` instead. This alias will be removed in the next major version. */
     readonly "environment_debuff_desc": Omit<typeof tablesSchema.schemaType.tables["environmentDebuffDesc"], "accessorName"> & { readonly accessorName: "environment_debuff_desc" };
     /** @deprecated Use `equipmentDesc` instead. This alias will be removed in the next major version. */
@@ -5674,10 +6094,14 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "exploration_chunks_state": Omit<typeof tablesSchema.schemaType.tables["explorationChunksState"], "accessorName"> & { readonly accessorName: "exploration_chunks_state" };
     /** @deprecated Use `explorationChunksStateV2` instead. This alias will be removed in the next major version. */
     readonly "exploration_chunks_state_v2": Omit<typeof tablesSchema.schemaType.tables["explorationChunksStateV2"], "accessorName"> & { readonly accessorName: "exploration_chunks_state_v2" };
+    /** @deprecated Use `extractEvent` instead. This alias will be removed in the next major version. */
+    readonly "extract_event": Omit<typeof tablesSchema.schemaType.tables["extractEvent"], "accessorName"> & { readonly accessorName: "extract_event" };
     /** @deprecated Use `extractOutcomeState` instead. This alias will be removed in the next major version. */
     readonly "extract_outcome_state": Omit<typeof tablesSchema.schemaType.tables["extractOutcomeState"], "accessorName"> & { readonly accessorName: "extract_outcome_state" };
     /** @deprecated Use `extractOutcomeStateV1` instead. This alias will be removed in the next major version. */
     readonly "extract_outcome_state_v1": Omit<typeof tablesSchema.schemaType.tables["extractOutcomeStateV1"], "accessorName"> & { readonly accessorName: "extract_outcome_state_v1" };
+    /** @deprecated Use `extractStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "extract_start_event": Omit<typeof tablesSchema.schemaType.tables["extractStartEvent"], "accessorName"> & { readonly accessorName: "extract_start_event" };
     /** @deprecated Use `extractionRecipeDesc` instead. This alias will be removed in the next major version. */
     readonly "extraction_recipe_desc": Omit<typeof tablesSchema.schemaType.tables["extractionRecipeDesc"], "accessorName"> & { readonly accessorName: "extraction_recipe_desc" };
     /** @deprecated Use `foodDesc` instead. This alias will be removed in the next major version. */
@@ -5728,6 +6152,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "inventory_state": Omit<typeof tablesSchema.schemaType.tables["inventoryState"], "accessorName"> & { readonly accessorName: "inventory_state" };
     /** @deprecated Use `itemConversionRecipeDesc` instead. This alias will be removed in the next major version. */
     readonly "item_conversion_recipe_desc": Omit<typeof tablesSchema.schemaType.tables["itemConversionRecipeDesc"], "accessorName"> & { readonly accessorName: "item_conversion_recipe_desc" };
+    /** @deprecated Use `itemConvertStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "item_convert_start_event": Omit<typeof tablesSchema.schemaType.tables["itemConvertStartEvent"], "accessorName"> & { readonly accessorName: "item_convert_start_event" };
     /** @deprecated Use `itemDesc` instead. This alias will be removed in the next major version. */
     readonly "item_desc": Omit<typeof tablesSchema.schemaType.tables["itemDesc"], "accessorName"> & { readonly accessorName: "item_desc" };
     /** @deprecated Use `itemListDesc` instead. This alias will be removed in the next major version. */
@@ -5792,6 +6218,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "loot_table_desc": Omit<typeof tablesSchema.schemaType.tables["lootTableDesc"], "accessorName"> & { readonly accessorName: "loot_table_desc" };
     /** @deprecated Use `lostItemsState` instead. This alias will be removed in the next major version. */
     readonly "lost_items_state": Omit<typeof tablesSchema.schemaType.tables["lostItemsState"], "accessorName"> & { readonly accessorName: "lost_items_state" };
+    /** @deprecated Use `marketTradeEvent` instead. This alias will be removed in the next major version. */
+    readonly "market_trade_event": Omit<typeof tablesSchema.schemaType.tables["marketTradeEvent"], "accessorName"> & { readonly accessorName: "market_trade_event" };
     /** @deprecated Use `marketplaceState` instead. This alias will be removed in the next major version. */
     readonly "marketplace_state": Omit<typeof tablesSchema.schemaType.tables["marketplaceState"], "accessorName"> & { readonly accessorName: "marketplace_state" };
     /** @deprecated Use `mobileEntityState` instead. This alias will be removed in the next major version. */
@@ -5816,12 +6244,20 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "pathfinding_desc": Omit<typeof tablesSchema.schemaType.tables["pathfindingDesc"], "accessorName"> & { readonly accessorName: "pathfinding_desc" };
     /** @deprecated Use `pavedTileState` instead. This alias will be removed in the next major version. */
     readonly "paved_tile_state": Omit<typeof tablesSchema.schemaType.tables["pavedTileState"], "accessorName"> & { readonly accessorName: "paved_tile_state" };
+    /** @deprecated Use `pavingDestroyTileStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "paving_destroy_tile_start_event": Omit<typeof tablesSchema.schemaType.tables["pavingDestroyTileStartEvent"], "accessorName"> & { readonly accessorName: "paving_destroy_tile_start_event" };
+    /** @deprecated Use `pavingPlaceTileStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "paving_place_tile_start_event": Omit<typeof tablesSchema.schemaType.tables["pavingPlaceTileStartEvent"], "accessorName"> & { readonly accessorName: "paving_place_tile_start_event" };
     /** @deprecated Use `pavingTileDesc` instead. This alias will be removed in the next major version. */
     readonly "paving_tile_desc": Omit<typeof tablesSchema.schemaType.tables["pavingTileDesc"], "accessorName"> & { readonly accessorName: "paving_tile_desc" };
     /** @deprecated Use `permissionState` instead. This alias will be removed in the next major version. */
     readonly "permission_state": Omit<typeof tablesSchema.schemaType.tables["permissionState"], "accessorName"> & { readonly accessorName: "permission_state" };
     /** @deprecated Use `pillarShapingDesc` instead. This alias will be removed in the next major version. */
     readonly "pillar_shaping_desc": Omit<typeof tablesSchema.schemaType.tables["pillarShapingDesc"], "accessorName"> & { readonly accessorName: "pillar_shaping_desc" };
+    /** @deprecated Use `pillarShapingDestroyStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "pillar_shaping_destroy_start_event": Omit<typeof tablesSchema.schemaType.tables["pillarShapingDestroyStartEvent"], "accessorName"> & { readonly accessorName: "pillar_shaping_destroy_start_event" };
+    /** @deprecated Use `pillarShapingPlacePillarStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "pillar_shaping_place_pillar_start_event": Omit<typeof tablesSchema.schemaType.tables["pillarShapingPlacePillarStartEvent"], "accessorName"> & { readonly accessorName: "pillar_shaping_place_pillar_start_event" };
     /** @deprecated Use `pillarShapingState` instead. This alias will be removed in the next major version. */
     readonly "pillar_shaping_state": Omit<typeof tablesSchema.schemaType.tables["pillarShapingState"], "accessorName"> & { readonly accessorName: "pillar_shaping_state" };
     /** @deprecated Use `placeableDesc` instead. This alias will be removed in the next major version. */
@@ -5832,8 +6268,12 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "placeable_growth_desc": Omit<typeof tablesSchema.schemaType.tables["placeableGrowthDesc"], "accessorName"> & { readonly accessorName: "placeable_growth_desc" };
     /** @deprecated Use `placeableGrowthTimer` instead. This alias will be removed in the next major version. */
     readonly "placeable_growth_timer": Omit<typeof tablesSchema.schemaType.tables["placeableGrowthTimer"], "accessorName"> & { readonly accessorName: "placeable_growth_timer" };
+    /** @deprecated Use `placeableInteractStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "placeable_interact_start_event": Omit<typeof tablesSchema.schemaType.tables["placeableInteractStartEvent"], "accessorName"> & { readonly accessorName: "placeable_interact_start_event" };
     /** @deprecated Use `placeableInteractionDesc` instead. This alias will be removed in the next major version. */
     readonly "placeable_interaction_desc": Omit<typeof tablesSchema.schemaType.tables["placeableInteractionDesc"], "accessorName"> & { readonly accessorName: "placeable_interaction_desc" };
+    /** @deprecated Use `placeablePlaceStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "placeable_place_start_event": Omit<typeof tablesSchema.schemaType.tables["placeablePlaceStartEvent"], "accessorName"> & { readonly accessorName: "placeable_place_start_event" };
     /** @deprecated Use `placeablePlacementDesc` instead. This alias will be removed in the next major version. */
     readonly "placeable_placement_desc": Omit<typeof tablesSchema.schemaType.tables["placeablePlacementDesc"], "accessorName"> & { readonly accessorName: "placeable_placement_desc" };
     /** @deprecated Use `placeableState` instead. This alias will be removed in the next major version. */
@@ -5842,6 +6282,12 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "player_action_desc": Omit<typeof tablesSchema.schemaType.tables["playerActionDesc"], "accessorName"> & { readonly accessorName: "player_action_desc" };
     /** @deprecated Use `playerActionState` instead. This alias will be removed in the next major version. */
     readonly "player_action_state": Omit<typeof tablesSchema.schemaType.tables["playerActionState"], "accessorName"> & { readonly accessorName: "player_action_state" };
+    /** @deprecated Use `playerClimbStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_climb_start_event": Omit<typeof tablesSchema.schemaType.tables["playerClimbStartEvent"], "accessorName"> & { readonly accessorName: "player_climb_start_event" };
+    /** @deprecated Use `playerDeathEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_death_event": Omit<typeof tablesSchema.schemaType.tables["playerDeathEvent"], "accessorName"> & { readonly accessorName: "player_death_event" };
+    /** @deprecated Use `playerDeathStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_death_start_event": Omit<typeof tablesSchema.schemaType.tables["playerDeathStartEvent"], "accessorName"> & { readonly accessorName: "player_death_start_event" };
     /** @deprecated Use `playerHousingCustomizationState` instead. This alias will be removed in the next major version. */
     readonly "player_housing_customization_state": Omit<typeof tablesSchema.schemaType.tables["playerHousingCustomizationState"], "accessorName"> & { readonly accessorName: "player_housing_customization_state" };
     /** @deprecated Use `playerHousingDesc` instead. This alias will be removed in the next major version. */
@@ -5854,6 +6300,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "player_housing_state": Omit<typeof tablesSchema.schemaType.tables["playerHousingState"], "accessorName"> & { readonly accessorName: "player_housing_state" };
     /** @deprecated Use `playerLowercaseUsernameState` instead. This alias will be removed in the next major version. */
     readonly "player_lowercase_username_state": Omit<typeof tablesSchema.schemaType.tables["playerLowercaseUsernameState"], "accessorName"> & { readonly accessorName: "player_lowercase_username_state" };
+    /** @deprecated Use `playerMoveEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_move_event": Omit<typeof tablesSchema.schemaType.tables["playerMoveEvent"], "accessorName"> & { readonly accessorName: "player_move_event" };
     /** @deprecated Use `playerNoteState` instead. This alias will be removed in the next major version. */
     readonly "player_note_state": Omit<typeof tablesSchema.schemaType.tables["playerNoteState"], "accessorName"> & { readonly accessorName: "player_note_state" };
     /** @deprecated Use `playerNotificationEvent` instead. This alias will be removed in the next major version. */
@@ -5868,8 +6316,16 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "player_set_name_outcome_event": Omit<typeof tablesSchema.schemaType.tables["playerSetNameOutcomeEvent"], "accessorName"> & { readonly accessorName: "player_set_name_outcome_event" };
     /** @deprecated Use `playerSettingsState` instead. This alias will be removed in the next major version. */
     readonly "player_settings_state": Omit<typeof tablesSchema.schemaType.tables["playerSettingsState"], "accessorName"> & { readonly accessorName: "player_settings_state" };
+    /** @deprecated Use `playerSignedOutEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_signed_out_event": Omit<typeof tablesSchema.schemaType.tables["playerSignedOutEvent"], "accessorName"> & { readonly accessorName: "player_signed_out_event" };
     /** @deprecated Use `playerState` instead. This alias will be removed in the next major version. */
     readonly "player_state": Omit<typeof tablesSchema.schemaType.tables["playerState"], "accessorName"> & { readonly accessorName: "player_state" };
+    /** @deprecated Use `playerTeleportEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_teleport_event": Omit<typeof tablesSchema.schemaType.tables["playerTeleportEvent"], "accessorName"> & { readonly accessorName: "player_teleport_event" };
+    /** @deprecated Use `playerTeleportHomeStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_teleport_home_start_event": Omit<typeof tablesSchema.schemaType.tables["playerTeleportHomeStartEvent"], "accessorName"> & { readonly accessorName: "player_teleport_home_start_event" };
+    /** @deprecated Use `playerTeleportWaystoneStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "player_teleport_waystone_start_event": Omit<typeof tablesSchema.schemaType.tables["playerTeleportWaystoneStartEvent"], "accessorName"> & { readonly accessorName: "player_teleport_waystone_start_event" };
     /** @deprecated Use `playerUseElevatorTimer` instead. This alias will be removed in the next major version. */
     readonly "player_use_elevator_timer": Omit<typeof tablesSchema.schemaType.tables["playerUseElevatorTimer"], "accessorName"> & { readonly accessorName: "player_use_elevator_timer" };
     /** @deprecated Use `playerUsernameState` instead. This alias will be removed in the next major version. */
@@ -5884,8 +6340,12 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "premium_service_desc": Omit<typeof tablesSchema.schemaType.tables["premiumServiceDesc"], "accessorName"> & { readonly accessorName: "premium_service_desc" };
     /** @deprecated Use `progressiveActionState` instead. This alias will be removed in the next major version. */
     readonly "progressive_action_state": Omit<typeof tablesSchema.schemaType.tables["progressiveActionState"], "accessorName"> & { readonly accessorName: "progressive_action_state" };
+    /** @deprecated Use `projectSiteAdvanceProjectStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "project_site_advance_project_start_event": Omit<typeof tablesSchema.schemaType.tables["projectSiteAdvanceProjectStartEvent"], "accessorName"> & { readonly accessorName: "project_site_advance_project_start_event" };
     /** @deprecated Use `projectSiteState` instead. This alias will be removed in the next major version. */
     readonly "project_site_state": Omit<typeof tablesSchema.schemaType.tables["projectSiteState"], "accessorName"> & { readonly accessorName: "project_site_state" };
+    /** @deprecated Use `prospectStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "prospect_start_event": Omit<typeof tablesSchema.schemaType.tables["prospectStartEvent"], "accessorName"> & { readonly accessorName: "prospect_start_event" };
     /** @deprecated Use `prospectingDesc` instead. This alias will be removed in the next major version. */
     readonly "prospecting_desc": Omit<typeof tablesSchema.schemaType.tables["prospectingDesc"], "accessorName"> & { readonly accessorName: "prospecting_desc" };
     /** @deprecated Use `prospectingState` instead. This alias will be removed in the next major version. */
@@ -5916,6 +6376,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "reserved_name_desc": Omit<typeof tablesSchema.schemaType.tables["reservedNameDesc"], "accessorName"> & { readonly accessorName: "reserved_name_desc" };
     /** @deprecated Use `resourceClumpDesc` instead. This alias will be removed in the next major version. */
     readonly "resource_clump_desc": Omit<typeof tablesSchema.schemaType.tables["resourceClumpDesc"], "accessorName"> & { readonly accessorName: "resource_clump_desc" };
+    /** @deprecated Use `resourceDepletedEvent` instead. This alias will be removed in the next major version. */
+    readonly "resource_depleted_event": Omit<typeof tablesSchema.schemaType.tables["resourceDepletedEvent"], "accessorName"> & { readonly accessorName: "resource_depleted_event" };
     /** @deprecated Use `resourceDesc` instead. This alias will be removed in the next major version. */
     readonly "resource_desc": Omit<typeof tablesSchema.schemaType.tables["resourceDesc"], "accessorName"> & { readonly accessorName: "resource_desc" };
     /** @deprecated Use `resourceGrowthRecipeDesc` instead. This alias will be removed in the next major version. */
@@ -5934,12 +6396,18 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "secondary_knowledge_desc": Omit<typeof tablesSchema.schemaType.tables["secondaryKnowledgeDesc"], "accessorName"> & { readonly accessorName: "secondary_knowledge_desc" };
     /** @deprecated Use `sellOrderState` instead. This alias will be removed in the next major version. */
     readonly "sell_order_state": Omit<typeof tablesSchema.schemaType.tables["sellOrderState"], "accessorName"> & { readonly accessorName: "sell_order_state" };
+    /** @deprecated Use `serverTeleportEvent` instead. This alias will be removed in the next major version. */
+    readonly "server_teleport_event": Omit<typeof tablesSchema.schemaType.tables["serverTeleportEvent"], "accessorName"> & { readonly accessorName: "server_teleport_event" };
+    /** @deprecated Use `setHomeEvent` instead. This alias will be removed in the next major version. */
+    readonly "set_home_event": Omit<typeof tablesSchema.schemaType.tables["setHomeEvent"], "accessorName"> & { readonly accessorName: "set_home_event" };
     /** @deprecated Use `signedInPlayerState` instead. This alias will be removed in the next major version. */
     readonly "signed_in_player_state": Omit<typeof tablesSchema.schemaType.tables["signedInPlayerState"], "accessorName"> & { readonly accessorName: "signed_in_player_state" };
     /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
     readonly "skill_desc": Omit<typeof tablesSchema.schemaType.tables["skillDesc"], "accessorName"> & { readonly accessorName: "skill_desc" };
     /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
     readonly "skill_level_knowledge_desc": Omit<typeof tablesSchema.schemaType.tables["skillLevelKnowledgeDesc"], "accessorName"> & { readonly accessorName: "skill_level_knowledge_desc" };
+    /** @deprecated Use `sleepEvent` instead. This alias will be removed in the next major version. */
+    readonly "sleep_event": Omit<typeof tablesSchema.schemaType.tables["sleepEvent"], "accessorName"> & { readonly accessorName: "sleep_event" };
     /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
     readonly "stage_rewards_desc": Omit<typeof tablesSchema.schemaType.tables["stageRewardsDesc"], "accessorName"> & { readonly accessorName: "stage_rewards_desc" };
     /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -5960,6 +6428,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "terraform_progress_state": Omit<typeof tablesSchema.schemaType.tables["terraformProgressState"], "accessorName"> & { readonly accessorName: "terraform_progress_state" };
     /** @deprecated Use `terraformRecipeDesc` instead. This alias will be removed in the next major version. */
     readonly "terraform_recipe_desc": Omit<typeof tablesSchema.schemaType.tables["terraformRecipeDesc"], "accessorName"> & { readonly accessorName: "terraform_recipe_desc" };
+    /** @deprecated Use `terraformStartEvent` instead. This alias will be removed in the next major version. */
+    readonly "terraform_start_event": Omit<typeof tablesSchema.schemaType.tables["terraformStartEvent"], "accessorName"> & { readonly accessorName: "terraform_start_event" };
     /** @deprecated Use `terrainChunkState` instead. This alias will be removed in the next major version. */
     readonly "terrain_chunk_state": Omit<typeof tablesSchema.schemaType.tables["terrainChunkState"], "accessorName"> & { readonly accessorName: "terrain_chunk_state" };
     /** @deprecated Use `theGreatPlaceholderTable` instead. This alias will be removed in the next major version. */
@@ -6042,21 +6512,27 @@ const tableAccessorAliases = {
   "alert_desc": "alertDesc",
   "alert_state": "alertState",
   "attached_herds_state": "attachedHerdsState",
+  "attack_event": "attackEvent",
+  "attack_impact_event": "attackImpactEvent",
   "attack_impact_timer_migrated": "attackImpactTimerMigrated",
   "attack_outcome_state": "attackOutcomeState",
   "attack_timer": "attackTimer",
   "bank_state": "bankState",
+  "barter_stall_inventory_event": "barterStallInventoryEvent",
   "barter_stall_state": "barterStallState",
   "biome_desc": "biomeDesc",
   "buff_desc": "buffDesc",
   "buff_type_desc": "buffTypeDesc",
+  "building_buff_activate_event": "buildingBuffActivateEvent",
   "building_buff_desc": "buildingBuffDesc",
   "building_claim_desc": "buildingClaimDesc",
+  "building_deconstruct_start_event": "buildingDeconstructStartEvent",
   "building_desc": "buildingDesc",
   "building_function_type_mapping_desc": "buildingFunctionTypeMappingDesc",
   "building_map_icon_desc": "buildingMapIconDesc",
   "building_nickname_state": "buildingNicknameState",
   "building_portal_desc": "buildingPortalDesc",
+  "building_repair_start_event": "buildingRepairStartEvent",
   "building_repairs_desc": "buildingRepairsDesc",
   "building_spawn_desc": "buildingSpawnDesc",
   "building_state": "buildingState",
@@ -6072,11 +6548,13 @@ const tableAccessorAliases = {
   "claim_lowercase_name_state": "claimLowercaseNameState",
   "claim_member_state": "claimMemberState",
   "claim_recruitment_state": "claimRecruitmentState",
+  "claim_resupply_start_event": "claimResupplyStartEvent",
   "claim_state": "claimState",
   "claim_tech_desc": "claimTechDesc",
   "claim_tech_state": "claimTechState",
   "claim_tile_cost": "claimTileCost",
   "claim_tile_state": "claimTileState",
+  "claim_treasury_event": "claimTreasuryEvent",
   "climb_requirement_desc": "climbRequirementDesc",
   "closed_listing_state": "closedListingState",
   "clothing_desc": "clothingDesc",
@@ -6089,6 +6567,10 @@ const tableAccessorAliases = {
   "construction_recipe_desc": "constructionRecipeDesc",
   "contribution_loot_desc": "contributionLootDesc",
   "contribution_state": "contributionState",
+  "craft_completed_event": "craftCompletedEvent",
+  "craft_continue_start_event": "craftContinueStartEvent",
+  "craft_event": "craftEvent",
+  "craft_initiate_start_event": "craftInitiateStartEvent",
   "crafting_recipe_desc": "craftingRecipeDesc",
   "crumb_trail_contribution_lock_state": "crumbTrailContributionLockState",
   "crumb_trail_contribution_spent_state": "crumbTrailContributionSpentState",
@@ -6096,9 +6578,14 @@ const tableAccessorAliases = {
   "deconstruction_recipe_desc": "deconstructionRecipeDesc",
   "deployable_appearance_override_desc": "deployableAppearanceOverrideDesc",
   "deployable_collectible_state": "deployableCollectibleState",
+  "deployable_deploy_start_event": "deployableDeployStartEvent",
   "deployable_desc": "deployableDesc",
+  "deployable_disembark_event": "deployableDisembarkEvent",
+  "deployable_mount_event": "deployableMountEvent",
+  "deployable_move_event": "deployableMoveEvent",
   "deployable_state": "deployableState",
   "deployable_state_v2": "deployableStateV2",
+  "deployable_store_start_event": "deployableStoreStartEvent",
   "dimension_description_state": "dimensionDescriptionState",
   "dimension_network_state": "dimensionNetworkState",
   "distant_visible_entity": "distantVisibleEntity",
@@ -6110,6 +6597,7 @@ const tableAccessorAliases = {
   "dungeon_state": "dungeonState",
   "elevator_desc": "elevatorDesc",
   "emote_desc": "emoteDesc",
+  "emote_start_event": "emoteStartEvent",
   "empire_chunk_state": "empireChunkState",
   "empire_color_desc": "empireColorDesc",
   "empire_icon_desc": "empireIconDesc",
@@ -6120,15 +6608,19 @@ const tableAccessorAliases = {
   "empire_player_data_state": "empirePlayerDataState",
   "empire_rank_desc": "empireRankDesc",
   "empire_rank_state": "empireRankState",
+  "empire_resupply_node_start_event": "empireResupplyNodeStartEvent",
   "empire_settlement_state": "empireSettlementState",
   "empire_state": "empireState",
   "empire_supplies_desc": "empireSuppliesDesc",
   "empire_territory_desc": "empireTerritoryDesc",
   "enemy_ai_params_desc": "enemyAiParamsDesc",
   "enemy_desc": "enemyDesc",
+  "enemy_despawn_event": "enemyDespawnEvent",
   "enemy_mob_monitor_state": "enemyMobMonitorState",
+  "enemy_move_event": "enemyMoveEvent",
   "enemy_scaling_desc": "enemyScalingDesc",
   "enemy_state": "enemyState",
+  "entity_attack_start_event": "entityAttackStartEvent",
   "environment_debuff_desc": "environmentDebuffDesc",
   "equipment_desc": "equipmentDesc",
   "equipment_preset_knowledge_desc": "equipmentPresetKnowledgeDesc",
@@ -6137,8 +6629,10 @@ const tableAccessorAliases = {
   "experience_state": "experienceState",
   "exploration_chunks_state": "explorationChunksState",
   "exploration_chunks_state_v2": "explorationChunksStateV2",
+  "extract_event": "extractEvent",
   "extract_outcome_state": "extractOutcomeState",
   "extract_outcome_state_v1": "extractOutcomeStateV1",
+  "extract_start_event": "extractStartEvent",
   "extraction_recipe_desc": "extractionRecipeDesc",
   "food_desc": "foodDesc",
   "footprint_tile_state": "footprintTileState",
@@ -6164,6 +6658,7 @@ const tableAccessorAliases = {
   "interior_spawn_desc": "interiorSpawnDesc",
   "inventory_state": "inventoryState",
   "item_conversion_recipe_desc": "itemConversionRecipeDesc",
+  "item_convert_start_event": "itemConvertStartEvent",
   "item_desc": "itemDesc",
   "item_list_desc": "itemListDesc",
   "knowledge_achievement_state": "knowledgeAchievementState",
@@ -6196,6 +6691,7 @@ const tableAccessorAliases = {
   "loot_rarity_desc": "lootRarityDesc",
   "loot_table_desc": "lootTableDesc",
   "lost_items_state": "lostItemsState",
+  "market_trade_event": "marketTradeEvent",
   "marketplace_state": "marketplaceState",
   "mobile_entity_state": "mobileEntityState",
   "mounting_state": "mountingState",
@@ -6208,25 +6704,35 @@ const tableAccessorAliases = {
   "passive_craft_state": "passiveCraftState",
   "pathfinding_desc": "pathfindingDesc",
   "paved_tile_state": "pavedTileState",
+  "paving_destroy_tile_start_event": "pavingDestroyTileStartEvent",
+  "paving_place_tile_start_event": "pavingPlaceTileStartEvent",
   "paving_tile_desc": "pavingTileDesc",
   "permission_state": "permissionState",
   "pillar_shaping_desc": "pillarShapingDesc",
+  "pillar_shaping_destroy_start_event": "pillarShapingDestroyStartEvent",
+  "pillar_shaping_place_pillar_start_event": "pillarShapingPlacePillarStartEvent",
   "pillar_shaping_state": "pillarShapingState",
   "placeable_desc": "placeableDesc",
   "placeable_group_desc": "placeableGroupDesc",
   "placeable_growth_desc": "placeableGrowthDesc",
   "placeable_growth_timer": "placeableGrowthTimer",
+  "placeable_interact_start_event": "placeableInteractStartEvent",
   "placeable_interaction_desc": "placeableInteractionDesc",
+  "placeable_place_start_event": "placeablePlaceStartEvent",
   "placeable_placement_desc": "placeablePlacementDesc",
   "placeable_state": "placeableState",
   "player_action_desc": "playerActionDesc",
   "player_action_state": "playerActionState",
+  "player_climb_start_event": "playerClimbStartEvent",
+  "player_death_event": "playerDeathEvent",
+  "player_death_start_event": "playerDeathStartEvent",
   "player_housing_customization_state": "playerHousingCustomizationState",
   "player_housing_desc": "playerHousingDesc",
   "player_housing_evict_player_timer": "playerHousingEvictPlayerTimer",
   "player_housing_moving_cost_state": "playerHousingMovingCostState",
   "player_housing_state": "playerHousingState",
   "player_lowercase_username_state": "playerLowercaseUsernameState",
+  "player_move_event": "playerMoveEvent",
   "player_note_state": "playerNoteState",
   "player_notification_event": "playerNotificationEvent",
   "player_prefs_state": "playerPrefsState",
@@ -6234,7 +6740,11 @@ const tableAccessorAliases = {
   "player_region_transfer_event": "playerRegionTransferEvent",
   "player_set_name_outcome_event": "playerSetNameOutcomeEvent",
   "player_settings_state": "playerSettingsState",
+  "player_signed_out_event": "playerSignedOutEvent",
   "player_state": "playerState",
+  "player_teleport_event": "playerTeleportEvent",
+  "player_teleport_home_start_event": "playerTeleportHomeStartEvent",
+  "player_teleport_waystone_start_event": "playerTeleportWaystoneStartEvent",
   "player_use_elevator_timer": "playerUseElevatorTimer",
   "player_username_state": "playerUsernameState",
   "player_vote_state": "playerVoteState",
@@ -6242,7 +6752,9 @@ const tableAccessorAliases = {
   "premium_item_desc": "premiumItemDesc",
   "premium_service_desc": "premiumServiceDesc",
   "progressive_action_state": "progressiveActionState",
+  "project_site_advance_project_start_event": "projectSiteAdvanceProjectStartEvent",
   "project_site_state": "projectSiteState",
+  "prospect_start_event": "prospectStartEvent",
   "prospecting_desc": "prospectingDesc",
   "prospecting_state": "prospectingState",
   "public_progressive_action_state": "publicProgressiveActionState",
@@ -6258,6 +6770,7 @@ const tableAccessorAliases = {
   "rent_state": "rentState",
   "reserved_name_desc": "reservedNameDesc",
   "resource_clump_desc": "resourceClumpDesc",
+  "resource_depleted_event": "resourceDepletedEvent",
   "resource_desc": "resourceDesc",
   "resource_growth_recipe_desc": "resourceGrowthRecipeDesc",
   "resource_growth_timer": "resourceGrowthTimer",
@@ -6267,9 +6780,12 @@ const tableAccessorAliases = {
   "satiation_state": "satiationState",
   "secondary_knowledge_desc": "secondaryKnowledgeDesc",
   "sell_order_state": "sellOrderState",
+  "server_teleport_event": "serverTeleportEvent",
+  "set_home_event": "setHomeEvent",
   "signed_in_player_state": "signedInPlayerState",
   "skill_desc": "skillDesc",
   "skill_level_knowledge_desc": "skillLevelKnowledgeDesc",
+  "sleep_event": "sleepEvent",
   "stage_rewards_desc": "stageRewardsDesc",
   "stamina_state": "staminaState",
   "storage_log_state": "storageLogState",
@@ -6280,6 +6796,7 @@ const tableAccessorAliases = {
   "teleportation_energy_state": "teleportationEnergyState",
   "terraform_progress_state": "terraformProgressState",
   "terraform_recipe_desc": "terraformRecipeDesc",
+  "terraform_start_event": "terraformStartEvent",
   "terrain_chunk_state": "terrainChunkState",
   "the_great_placeholder_table": "theGreatPlaceholderTable",
   "threat_state": "threatState",
@@ -6350,6 +6867,10 @@ export type DbView = __DbViewBase & {
   readonly "alert_state": __DbViewBase["alertState"];
   /** @deprecated Use `attachedHerdsState` instead. This alias will be removed in the next major version. */
   readonly "attached_herds_state": __DbViewBase["attachedHerdsState"];
+  /** @deprecated Use `attackEvent` instead. This alias will be removed in the next major version. */
+  readonly "attack_event": __DbViewBase["attackEvent"];
+  /** @deprecated Use `attackImpactEvent` instead. This alias will be removed in the next major version. */
+  readonly "attack_impact_event": __DbViewBase["attackImpactEvent"];
   /** @deprecated Use `attackImpactTimerMigrated` instead. This alias will be removed in the next major version. */
   readonly "attack_impact_timer_migrated": __DbViewBase["attackImpactTimerMigrated"];
   /** @deprecated Use `attackOutcomeState` instead. This alias will be removed in the next major version. */
@@ -6358,6 +6879,8 @@ export type DbView = __DbViewBase & {
   readonly "attack_timer": __DbViewBase["attackTimer"];
   /** @deprecated Use `bankState` instead. This alias will be removed in the next major version. */
   readonly "bank_state": __DbViewBase["bankState"];
+  /** @deprecated Use `barterStallInventoryEvent` instead. This alias will be removed in the next major version. */
+  readonly "barter_stall_inventory_event": __DbViewBase["barterStallInventoryEvent"];
   /** @deprecated Use `barterStallState` instead. This alias will be removed in the next major version. */
   readonly "barter_stall_state": __DbViewBase["barterStallState"];
   /** @deprecated Use `biomeDesc` instead. This alias will be removed in the next major version. */
@@ -6366,10 +6889,14 @@ export type DbView = __DbViewBase & {
   readonly "buff_desc": __DbViewBase["buffDesc"];
   /** @deprecated Use `buffTypeDesc` instead. This alias will be removed in the next major version. */
   readonly "buff_type_desc": __DbViewBase["buffTypeDesc"];
+  /** @deprecated Use `buildingBuffActivateEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_buff_activate_event": __DbViewBase["buildingBuffActivateEvent"];
   /** @deprecated Use `buildingBuffDesc` instead. This alias will be removed in the next major version. */
   readonly "building_buff_desc": __DbViewBase["buildingBuffDesc"];
   /** @deprecated Use `buildingClaimDesc` instead. This alias will be removed in the next major version. */
   readonly "building_claim_desc": __DbViewBase["buildingClaimDesc"];
+  /** @deprecated Use `buildingDeconstructStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_deconstruct_start_event": __DbViewBase["buildingDeconstructStartEvent"];
   /** @deprecated Use `buildingDesc` instead. This alias will be removed in the next major version. */
   readonly "building_desc": __DbViewBase["buildingDesc"];
   /** @deprecated Use `buildingFunctionTypeMappingDesc` instead. This alias will be removed in the next major version. */
@@ -6380,6 +6907,8 @@ export type DbView = __DbViewBase & {
   readonly "building_nickname_state": __DbViewBase["buildingNicknameState"];
   /** @deprecated Use `buildingPortalDesc` instead. This alias will be removed in the next major version. */
   readonly "building_portal_desc": __DbViewBase["buildingPortalDesc"];
+  /** @deprecated Use `buildingRepairStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_repair_start_event": __DbViewBase["buildingRepairStartEvent"];
   /** @deprecated Use `buildingRepairsDesc` instead. This alias will be removed in the next major version. */
   readonly "building_repairs_desc": __DbViewBase["buildingRepairsDesc"];
   /** @deprecated Use `buildingSpawnDesc` instead. This alias will be removed in the next major version. */
@@ -6410,6 +6939,8 @@ export type DbView = __DbViewBase & {
   readonly "claim_member_state": __DbViewBase["claimMemberState"];
   /** @deprecated Use `claimRecruitmentState` instead. This alias will be removed in the next major version. */
   readonly "claim_recruitment_state": __DbViewBase["claimRecruitmentState"];
+  /** @deprecated Use `claimResupplyStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "claim_resupply_start_event": __DbViewBase["claimResupplyStartEvent"];
   /** @deprecated Use `claimState` instead. This alias will be removed in the next major version. */
   readonly "claim_state": __DbViewBase["claimState"];
   /** @deprecated Use `claimTechDesc` instead. This alias will be removed in the next major version. */
@@ -6420,6 +6951,8 @@ export type DbView = __DbViewBase & {
   readonly "claim_tile_cost": __DbViewBase["claimTileCost"];
   /** @deprecated Use `claimTileState` instead. This alias will be removed in the next major version. */
   readonly "claim_tile_state": __DbViewBase["claimTileState"];
+  /** @deprecated Use `claimTreasuryEvent` instead. This alias will be removed in the next major version. */
+  readonly "claim_treasury_event": __DbViewBase["claimTreasuryEvent"];
   /** @deprecated Use `climbRequirementDesc` instead. This alias will be removed in the next major version. */
   readonly "climb_requirement_desc": __DbViewBase["climbRequirementDesc"];
   /** @deprecated Use `closedListingState` instead. This alias will be removed in the next major version. */
@@ -6444,6 +6977,14 @@ export type DbView = __DbViewBase & {
   readonly "contribution_loot_desc": __DbViewBase["contributionLootDesc"];
   /** @deprecated Use `contributionState` instead. This alias will be removed in the next major version. */
   readonly "contribution_state": __DbViewBase["contributionState"];
+  /** @deprecated Use `craftCompletedEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_completed_event": __DbViewBase["craftCompletedEvent"];
+  /** @deprecated Use `craftContinueStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_continue_start_event": __DbViewBase["craftContinueStartEvent"];
+  /** @deprecated Use `craftEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_event": __DbViewBase["craftEvent"];
+  /** @deprecated Use `craftInitiateStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_initiate_start_event": __DbViewBase["craftInitiateStartEvent"];
   /** @deprecated Use `craftingRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "crafting_recipe_desc": __DbViewBase["craftingRecipeDesc"];
   /** @deprecated Use `crumbTrailContributionLockState` instead. This alias will be removed in the next major version. */
@@ -6458,12 +6999,22 @@ export type DbView = __DbViewBase & {
   readonly "deployable_appearance_override_desc": __DbViewBase["deployableAppearanceOverrideDesc"];
   /** @deprecated Use `deployableCollectibleState` instead. This alias will be removed in the next major version. */
   readonly "deployable_collectible_state": __DbViewBase["deployableCollectibleState"];
+  /** @deprecated Use `deployableDeployStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_deploy_start_event": __DbViewBase["deployableDeployStartEvent"];
   /** @deprecated Use `deployableDesc` instead. This alias will be removed in the next major version. */
   readonly "deployable_desc": __DbViewBase["deployableDesc"];
+  /** @deprecated Use `deployableDisembarkEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_disembark_event": __DbViewBase["deployableDisembarkEvent"];
+  /** @deprecated Use `deployableMountEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_mount_event": __DbViewBase["deployableMountEvent"];
+  /** @deprecated Use `deployableMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_move_event": __DbViewBase["deployableMoveEvent"];
   /** @deprecated Use `deployableState` instead. This alias will be removed in the next major version. */
   readonly "deployable_state": __DbViewBase["deployableState"];
   /** @deprecated Use `deployableStateV2` instead. This alias will be removed in the next major version. */
   readonly "deployable_state_v2": __DbViewBase["deployableStateV2"];
+  /** @deprecated Use `deployableStoreStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_store_start_event": __DbViewBase["deployableStoreStartEvent"];
   /** @deprecated Use `dimensionDescriptionState` instead. This alias will be removed in the next major version. */
   readonly "dimension_description_state": __DbViewBase["dimensionDescriptionState"];
   /** @deprecated Use `dimensionNetworkState` instead. This alias will be removed in the next major version. */
@@ -6486,6 +7037,8 @@ export type DbView = __DbViewBase & {
   readonly "elevator_desc": __DbViewBase["elevatorDesc"];
   /** @deprecated Use `emoteDesc` instead. This alias will be removed in the next major version. */
   readonly "emote_desc": __DbViewBase["emoteDesc"];
+  /** @deprecated Use `emoteStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "emote_start_event": __DbViewBase["emoteStartEvent"];
   /** @deprecated Use `empireChunkState` instead. This alias will be removed in the next major version. */
   readonly "empire_chunk_state": __DbViewBase["empireChunkState"];
   /** @deprecated Use `empireColorDesc` instead. This alias will be removed in the next major version. */
@@ -6506,6 +7059,8 @@ export type DbView = __DbViewBase & {
   readonly "empire_rank_desc": __DbViewBase["empireRankDesc"];
   /** @deprecated Use `empireRankState` instead. This alias will be removed in the next major version. */
   readonly "empire_rank_state": __DbViewBase["empireRankState"];
+  /** @deprecated Use `empireResupplyNodeStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "empire_resupply_node_start_event": __DbViewBase["empireResupplyNodeStartEvent"];
   /** @deprecated Use `empireSettlementState` instead. This alias will be removed in the next major version. */
   readonly "empire_settlement_state": __DbViewBase["empireSettlementState"];
   /** @deprecated Use `empireState` instead. This alias will be removed in the next major version. */
@@ -6518,12 +7073,18 @@ export type DbView = __DbViewBase & {
   readonly "enemy_ai_params_desc": __DbViewBase["enemyAiParamsDesc"];
   /** @deprecated Use `enemyDesc` instead. This alias will be removed in the next major version. */
   readonly "enemy_desc": __DbViewBase["enemyDesc"];
+  /** @deprecated Use `enemyDespawnEvent` instead. This alias will be removed in the next major version. */
+  readonly "enemy_despawn_event": __DbViewBase["enemyDespawnEvent"];
   /** @deprecated Use `enemyMobMonitorState` instead. This alias will be removed in the next major version. */
   readonly "enemy_mob_monitor_state": __DbViewBase["enemyMobMonitorState"];
+  /** @deprecated Use `enemyMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "enemy_move_event": __DbViewBase["enemyMoveEvent"];
   /** @deprecated Use `enemyScalingDesc` instead. This alias will be removed in the next major version. */
   readonly "enemy_scaling_desc": __DbViewBase["enemyScalingDesc"];
   /** @deprecated Use `enemyState` instead. This alias will be removed in the next major version. */
   readonly "enemy_state": __DbViewBase["enemyState"];
+  /** @deprecated Use `entityAttackStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "entity_attack_start_event": __DbViewBase["entityAttackStartEvent"];
   /** @deprecated Use `environmentDebuffDesc` instead. This alias will be removed in the next major version. */
   readonly "environment_debuff_desc": __DbViewBase["environmentDebuffDesc"];
   /** @deprecated Use `equipmentDesc` instead. This alias will be removed in the next major version. */
@@ -6540,10 +7101,14 @@ export type DbView = __DbViewBase & {
   readonly "exploration_chunks_state": __DbViewBase["explorationChunksState"];
   /** @deprecated Use `explorationChunksStateV2` instead. This alias will be removed in the next major version. */
   readonly "exploration_chunks_state_v2": __DbViewBase["explorationChunksStateV2"];
+  /** @deprecated Use `extractEvent` instead. This alias will be removed in the next major version. */
+  readonly "extract_event": __DbViewBase["extractEvent"];
   /** @deprecated Use `extractOutcomeState` instead. This alias will be removed in the next major version. */
   readonly "extract_outcome_state": __DbViewBase["extractOutcomeState"];
   /** @deprecated Use `extractOutcomeStateV1` instead. This alias will be removed in the next major version. */
   readonly "extract_outcome_state_v1": __DbViewBase["extractOutcomeStateV1"];
+  /** @deprecated Use `extractStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "extract_start_event": __DbViewBase["extractStartEvent"];
   /** @deprecated Use `extractionRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "extraction_recipe_desc": __DbViewBase["extractionRecipeDesc"];
   /** @deprecated Use `foodDesc` instead. This alias will be removed in the next major version. */
@@ -6594,6 +7159,8 @@ export type DbView = __DbViewBase & {
   readonly "inventory_state": __DbViewBase["inventoryState"];
   /** @deprecated Use `itemConversionRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "item_conversion_recipe_desc": __DbViewBase["itemConversionRecipeDesc"];
+  /** @deprecated Use `itemConvertStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "item_convert_start_event": __DbViewBase["itemConvertStartEvent"];
   /** @deprecated Use `itemDesc` instead. This alias will be removed in the next major version. */
   readonly "item_desc": __DbViewBase["itemDesc"];
   /** @deprecated Use `itemListDesc` instead. This alias will be removed in the next major version. */
@@ -6658,6 +7225,8 @@ export type DbView = __DbViewBase & {
   readonly "loot_table_desc": __DbViewBase["lootTableDesc"];
   /** @deprecated Use `lostItemsState` instead. This alias will be removed in the next major version. */
   readonly "lost_items_state": __DbViewBase["lostItemsState"];
+  /** @deprecated Use `marketTradeEvent` instead. This alias will be removed in the next major version. */
+  readonly "market_trade_event": __DbViewBase["marketTradeEvent"];
   /** @deprecated Use `marketplaceState` instead. This alias will be removed in the next major version. */
   readonly "marketplace_state": __DbViewBase["marketplaceState"];
   /** @deprecated Use `mobileEntityState` instead. This alias will be removed in the next major version. */
@@ -6682,12 +7251,20 @@ export type DbView = __DbViewBase & {
   readonly "pathfinding_desc": __DbViewBase["pathfindingDesc"];
   /** @deprecated Use `pavedTileState` instead. This alias will be removed in the next major version. */
   readonly "paved_tile_state": __DbViewBase["pavedTileState"];
+  /** @deprecated Use `pavingDestroyTileStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "paving_destroy_tile_start_event": __DbViewBase["pavingDestroyTileStartEvent"];
+  /** @deprecated Use `pavingPlaceTileStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "paving_place_tile_start_event": __DbViewBase["pavingPlaceTileStartEvent"];
   /** @deprecated Use `pavingTileDesc` instead. This alias will be removed in the next major version. */
   readonly "paving_tile_desc": __DbViewBase["pavingTileDesc"];
   /** @deprecated Use `permissionState` instead. This alias will be removed in the next major version. */
   readonly "permission_state": __DbViewBase["permissionState"];
   /** @deprecated Use `pillarShapingDesc` instead. This alias will be removed in the next major version. */
   readonly "pillar_shaping_desc": __DbViewBase["pillarShapingDesc"];
+  /** @deprecated Use `pillarShapingDestroyStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "pillar_shaping_destroy_start_event": __DbViewBase["pillarShapingDestroyStartEvent"];
+  /** @deprecated Use `pillarShapingPlacePillarStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "pillar_shaping_place_pillar_start_event": __DbViewBase["pillarShapingPlacePillarStartEvent"];
   /** @deprecated Use `pillarShapingState` instead. This alias will be removed in the next major version. */
   readonly "pillar_shaping_state": __DbViewBase["pillarShapingState"];
   /** @deprecated Use `placeableDesc` instead. This alias will be removed in the next major version. */
@@ -6698,8 +7275,12 @@ export type DbView = __DbViewBase & {
   readonly "placeable_growth_desc": __DbViewBase["placeableGrowthDesc"];
   /** @deprecated Use `placeableGrowthTimer` instead. This alias will be removed in the next major version. */
   readonly "placeable_growth_timer": __DbViewBase["placeableGrowthTimer"];
+  /** @deprecated Use `placeableInteractStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "placeable_interact_start_event": __DbViewBase["placeableInteractStartEvent"];
   /** @deprecated Use `placeableInteractionDesc` instead. This alias will be removed in the next major version. */
   readonly "placeable_interaction_desc": __DbViewBase["placeableInteractionDesc"];
+  /** @deprecated Use `placeablePlaceStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "placeable_place_start_event": __DbViewBase["placeablePlaceStartEvent"];
   /** @deprecated Use `placeablePlacementDesc` instead. This alias will be removed in the next major version. */
   readonly "placeable_placement_desc": __DbViewBase["placeablePlacementDesc"];
   /** @deprecated Use `placeableState` instead. This alias will be removed in the next major version. */
@@ -6708,6 +7289,12 @@ export type DbView = __DbViewBase & {
   readonly "player_action_desc": __DbViewBase["playerActionDesc"];
   /** @deprecated Use `playerActionState` instead. This alias will be removed in the next major version. */
   readonly "player_action_state": __DbViewBase["playerActionState"];
+  /** @deprecated Use `playerClimbStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_climb_start_event": __DbViewBase["playerClimbStartEvent"];
+  /** @deprecated Use `playerDeathEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_death_event": __DbViewBase["playerDeathEvent"];
+  /** @deprecated Use `playerDeathStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_death_start_event": __DbViewBase["playerDeathStartEvent"];
   /** @deprecated Use `playerHousingCustomizationState` instead. This alias will be removed in the next major version. */
   readonly "player_housing_customization_state": __DbViewBase["playerHousingCustomizationState"];
   /** @deprecated Use `playerHousingDesc` instead. This alias will be removed in the next major version. */
@@ -6720,6 +7307,8 @@ export type DbView = __DbViewBase & {
   readonly "player_housing_state": __DbViewBase["playerHousingState"];
   /** @deprecated Use `playerLowercaseUsernameState` instead. This alias will be removed in the next major version. */
   readonly "player_lowercase_username_state": __DbViewBase["playerLowercaseUsernameState"];
+  /** @deprecated Use `playerMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_move_event": __DbViewBase["playerMoveEvent"];
   /** @deprecated Use `playerNoteState` instead. This alias will be removed in the next major version. */
   readonly "player_note_state": __DbViewBase["playerNoteState"];
   /** @deprecated Use `playerNotificationEvent` instead. This alias will be removed in the next major version. */
@@ -6734,8 +7323,16 @@ export type DbView = __DbViewBase & {
   readonly "player_set_name_outcome_event": __DbViewBase["playerSetNameOutcomeEvent"];
   /** @deprecated Use `playerSettingsState` instead. This alias will be removed in the next major version. */
   readonly "player_settings_state": __DbViewBase["playerSettingsState"];
+  /** @deprecated Use `playerSignedOutEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_signed_out_event": __DbViewBase["playerSignedOutEvent"];
   /** @deprecated Use `playerState` instead. This alias will be removed in the next major version. */
   readonly "player_state": __DbViewBase["playerState"];
+  /** @deprecated Use `playerTeleportEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_event": __DbViewBase["playerTeleportEvent"];
+  /** @deprecated Use `playerTeleportHomeStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_home_start_event": __DbViewBase["playerTeleportHomeStartEvent"];
+  /** @deprecated Use `playerTeleportWaystoneStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_waystone_start_event": __DbViewBase["playerTeleportWaystoneStartEvent"];
   /** @deprecated Use `playerUseElevatorTimer` instead. This alias will be removed in the next major version. */
   readonly "player_use_elevator_timer": __DbViewBase["playerUseElevatorTimer"];
   /** @deprecated Use `playerUsernameState` instead. This alias will be removed in the next major version. */
@@ -6750,8 +7347,12 @@ export type DbView = __DbViewBase & {
   readonly "premium_service_desc": __DbViewBase["premiumServiceDesc"];
   /** @deprecated Use `progressiveActionState` instead. This alias will be removed in the next major version. */
   readonly "progressive_action_state": __DbViewBase["progressiveActionState"];
+  /** @deprecated Use `projectSiteAdvanceProjectStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "project_site_advance_project_start_event": __DbViewBase["projectSiteAdvanceProjectStartEvent"];
   /** @deprecated Use `projectSiteState` instead. This alias will be removed in the next major version. */
   readonly "project_site_state": __DbViewBase["projectSiteState"];
+  /** @deprecated Use `prospectStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "prospect_start_event": __DbViewBase["prospectStartEvent"];
   /** @deprecated Use `prospectingDesc` instead. This alias will be removed in the next major version. */
   readonly "prospecting_desc": __DbViewBase["prospectingDesc"];
   /** @deprecated Use `prospectingState` instead. This alias will be removed in the next major version. */
@@ -6782,6 +7383,8 @@ export type DbView = __DbViewBase & {
   readonly "reserved_name_desc": __DbViewBase["reservedNameDesc"];
   /** @deprecated Use `resourceClumpDesc` instead. This alias will be removed in the next major version. */
   readonly "resource_clump_desc": __DbViewBase["resourceClumpDesc"];
+  /** @deprecated Use `resourceDepletedEvent` instead. This alias will be removed in the next major version. */
+  readonly "resource_depleted_event": __DbViewBase["resourceDepletedEvent"];
   /** @deprecated Use `resourceDesc` instead. This alias will be removed in the next major version. */
   readonly "resource_desc": __DbViewBase["resourceDesc"];
   /** @deprecated Use `resourceGrowthRecipeDesc` instead. This alias will be removed in the next major version. */
@@ -6800,12 +7403,18 @@ export type DbView = __DbViewBase & {
   readonly "secondary_knowledge_desc": __DbViewBase["secondaryKnowledgeDesc"];
   /** @deprecated Use `sellOrderState` instead. This alias will be removed in the next major version. */
   readonly "sell_order_state": __DbViewBase["sellOrderState"];
+  /** @deprecated Use `serverTeleportEvent` instead. This alias will be removed in the next major version. */
+  readonly "server_teleport_event": __DbViewBase["serverTeleportEvent"];
+  /** @deprecated Use `setHomeEvent` instead. This alias will be removed in the next major version. */
+  readonly "set_home_event": __DbViewBase["setHomeEvent"];
   /** @deprecated Use `signedInPlayerState` instead. This alias will be removed in the next major version. */
   readonly "signed_in_player_state": __DbViewBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __DbViewBase["skillDesc"];
   /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_level_knowledge_desc": __DbViewBase["skillLevelKnowledgeDesc"];
+  /** @deprecated Use `sleepEvent` instead. This alias will be removed in the next major version. */
+  readonly "sleep_event": __DbViewBase["sleepEvent"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __DbViewBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -6826,6 +7435,8 @@ export type DbView = __DbViewBase & {
   readonly "terraform_progress_state": __DbViewBase["terraformProgressState"];
   /** @deprecated Use `terraformRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "terraform_recipe_desc": __DbViewBase["terraformRecipeDesc"];
+  /** @deprecated Use `terraformStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "terraform_start_event": __DbViewBase["terraformStartEvent"];
   /** @deprecated Use `terrainChunkState` instead. This alias will be removed in the next major version. */
   readonly "terrain_chunk_state": __DbViewBase["terrainChunkState"];
   /** @deprecated Use `theGreatPlaceholderTable` instead. This alias will be removed in the next major version. */
@@ -6906,6 +7517,10 @@ export type Tables = __TablesBase & {
   readonly "alert_state": __TablesBase["alertState"];
   /** @deprecated Use `attachedHerdsState` instead. This alias will be removed in the next major version. */
   readonly "attached_herds_state": __TablesBase["attachedHerdsState"];
+  /** @deprecated Use `attackEvent` instead. This alias will be removed in the next major version. */
+  readonly "attack_event": __TablesBase["attackEvent"];
+  /** @deprecated Use `attackImpactEvent` instead. This alias will be removed in the next major version. */
+  readonly "attack_impact_event": __TablesBase["attackImpactEvent"];
   /** @deprecated Use `attackImpactTimerMigrated` instead. This alias will be removed in the next major version. */
   readonly "attack_impact_timer_migrated": __TablesBase["attackImpactTimerMigrated"];
   /** @deprecated Use `attackOutcomeState` instead. This alias will be removed in the next major version. */
@@ -6914,6 +7529,8 @@ export type Tables = __TablesBase & {
   readonly "attack_timer": __TablesBase["attackTimer"];
   /** @deprecated Use `bankState` instead. This alias will be removed in the next major version. */
   readonly "bank_state": __TablesBase["bankState"];
+  /** @deprecated Use `barterStallInventoryEvent` instead. This alias will be removed in the next major version. */
+  readonly "barter_stall_inventory_event": __TablesBase["barterStallInventoryEvent"];
   /** @deprecated Use `barterStallState` instead. This alias will be removed in the next major version. */
   readonly "barter_stall_state": __TablesBase["barterStallState"];
   /** @deprecated Use `biomeDesc` instead. This alias will be removed in the next major version. */
@@ -6922,10 +7539,14 @@ export type Tables = __TablesBase & {
   readonly "buff_desc": __TablesBase["buffDesc"];
   /** @deprecated Use `buffTypeDesc` instead. This alias will be removed in the next major version. */
   readonly "buff_type_desc": __TablesBase["buffTypeDesc"];
+  /** @deprecated Use `buildingBuffActivateEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_buff_activate_event": __TablesBase["buildingBuffActivateEvent"];
   /** @deprecated Use `buildingBuffDesc` instead. This alias will be removed in the next major version. */
   readonly "building_buff_desc": __TablesBase["buildingBuffDesc"];
   /** @deprecated Use `buildingClaimDesc` instead. This alias will be removed in the next major version. */
   readonly "building_claim_desc": __TablesBase["buildingClaimDesc"];
+  /** @deprecated Use `buildingDeconstructStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_deconstruct_start_event": __TablesBase["buildingDeconstructStartEvent"];
   /** @deprecated Use `buildingDesc` instead. This alias will be removed in the next major version. */
   readonly "building_desc": __TablesBase["buildingDesc"];
   /** @deprecated Use `buildingFunctionTypeMappingDesc` instead. This alias will be removed in the next major version. */
@@ -6936,6 +7557,8 @@ export type Tables = __TablesBase & {
   readonly "building_nickname_state": __TablesBase["buildingNicknameState"];
   /** @deprecated Use `buildingPortalDesc` instead. This alias will be removed in the next major version. */
   readonly "building_portal_desc": __TablesBase["buildingPortalDesc"];
+  /** @deprecated Use `buildingRepairStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "building_repair_start_event": __TablesBase["buildingRepairStartEvent"];
   /** @deprecated Use `buildingRepairsDesc` instead. This alias will be removed in the next major version. */
   readonly "building_repairs_desc": __TablesBase["buildingRepairsDesc"];
   /** @deprecated Use `buildingSpawnDesc` instead. This alias will be removed in the next major version. */
@@ -6966,6 +7589,8 @@ export type Tables = __TablesBase & {
   readonly "claim_member_state": __TablesBase["claimMemberState"];
   /** @deprecated Use `claimRecruitmentState` instead. This alias will be removed in the next major version. */
   readonly "claim_recruitment_state": __TablesBase["claimRecruitmentState"];
+  /** @deprecated Use `claimResupplyStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "claim_resupply_start_event": __TablesBase["claimResupplyStartEvent"];
   /** @deprecated Use `claimState` instead. This alias will be removed in the next major version. */
   readonly "claim_state": __TablesBase["claimState"];
   /** @deprecated Use `claimTechDesc` instead. This alias will be removed in the next major version. */
@@ -6976,6 +7601,8 @@ export type Tables = __TablesBase & {
   readonly "claim_tile_cost": __TablesBase["claimTileCost"];
   /** @deprecated Use `claimTileState` instead. This alias will be removed in the next major version. */
   readonly "claim_tile_state": __TablesBase["claimTileState"];
+  /** @deprecated Use `claimTreasuryEvent` instead. This alias will be removed in the next major version. */
+  readonly "claim_treasury_event": __TablesBase["claimTreasuryEvent"];
   /** @deprecated Use `climbRequirementDesc` instead. This alias will be removed in the next major version. */
   readonly "climb_requirement_desc": __TablesBase["climbRequirementDesc"];
   /** @deprecated Use `closedListingState` instead. This alias will be removed in the next major version. */
@@ -7000,6 +7627,14 @@ export type Tables = __TablesBase & {
   readonly "contribution_loot_desc": __TablesBase["contributionLootDesc"];
   /** @deprecated Use `contributionState` instead. This alias will be removed in the next major version. */
   readonly "contribution_state": __TablesBase["contributionState"];
+  /** @deprecated Use `craftCompletedEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_completed_event": __TablesBase["craftCompletedEvent"];
+  /** @deprecated Use `craftContinueStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_continue_start_event": __TablesBase["craftContinueStartEvent"];
+  /** @deprecated Use `craftEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_event": __TablesBase["craftEvent"];
+  /** @deprecated Use `craftInitiateStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "craft_initiate_start_event": __TablesBase["craftInitiateStartEvent"];
   /** @deprecated Use `craftingRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "crafting_recipe_desc": __TablesBase["craftingRecipeDesc"];
   /** @deprecated Use `crumbTrailContributionLockState` instead. This alias will be removed in the next major version. */
@@ -7014,12 +7649,22 @@ export type Tables = __TablesBase & {
   readonly "deployable_appearance_override_desc": __TablesBase["deployableAppearanceOverrideDesc"];
   /** @deprecated Use `deployableCollectibleState` instead. This alias will be removed in the next major version. */
   readonly "deployable_collectible_state": __TablesBase["deployableCollectibleState"];
+  /** @deprecated Use `deployableDeployStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_deploy_start_event": __TablesBase["deployableDeployStartEvent"];
   /** @deprecated Use `deployableDesc` instead. This alias will be removed in the next major version. */
   readonly "deployable_desc": __TablesBase["deployableDesc"];
+  /** @deprecated Use `deployableDisembarkEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_disembark_event": __TablesBase["deployableDisembarkEvent"];
+  /** @deprecated Use `deployableMountEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_mount_event": __TablesBase["deployableMountEvent"];
+  /** @deprecated Use `deployableMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_move_event": __TablesBase["deployableMoveEvent"];
   /** @deprecated Use `deployableState` instead. This alias will be removed in the next major version. */
   readonly "deployable_state": __TablesBase["deployableState"];
   /** @deprecated Use `deployableStateV2` instead. This alias will be removed in the next major version. */
   readonly "deployable_state_v2": __TablesBase["deployableStateV2"];
+  /** @deprecated Use `deployableStoreStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "deployable_store_start_event": __TablesBase["deployableStoreStartEvent"];
   /** @deprecated Use `dimensionDescriptionState` instead. This alias will be removed in the next major version. */
   readonly "dimension_description_state": __TablesBase["dimensionDescriptionState"];
   /** @deprecated Use `dimensionNetworkState` instead. This alias will be removed in the next major version. */
@@ -7042,6 +7687,8 @@ export type Tables = __TablesBase & {
   readonly "elevator_desc": __TablesBase["elevatorDesc"];
   /** @deprecated Use `emoteDesc` instead. This alias will be removed in the next major version. */
   readonly "emote_desc": __TablesBase["emoteDesc"];
+  /** @deprecated Use `emoteStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "emote_start_event": __TablesBase["emoteStartEvent"];
   /** @deprecated Use `empireChunkState` instead. This alias will be removed in the next major version. */
   readonly "empire_chunk_state": __TablesBase["empireChunkState"];
   /** @deprecated Use `empireColorDesc` instead. This alias will be removed in the next major version. */
@@ -7062,6 +7709,8 @@ export type Tables = __TablesBase & {
   readonly "empire_rank_desc": __TablesBase["empireRankDesc"];
   /** @deprecated Use `empireRankState` instead. This alias will be removed in the next major version. */
   readonly "empire_rank_state": __TablesBase["empireRankState"];
+  /** @deprecated Use `empireResupplyNodeStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "empire_resupply_node_start_event": __TablesBase["empireResupplyNodeStartEvent"];
   /** @deprecated Use `empireSettlementState` instead. This alias will be removed in the next major version. */
   readonly "empire_settlement_state": __TablesBase["empireSettlementState"];
   /** @deprecated Use `empireState` instead. This alias will be removed in the next major version. */
@@ -7074,12 +7723,18 @@ export type Tables = __TablesBase & {
   readonly "enemy_ai_params_desc": __TablesBase["enemyAiParamsDesc"];
   /** @deprecated Use `enemyDesc` instead. This alias will be removed in the next major version. */
   readonly "enemy_desc": __TablesBase["enemyDesc"];
+  /** @deprecated Use `enemyDespawnEvent` instead. This alias will be removed in the next major version. */
+  readonly "enemy_despawn_event": __TablesBase["enemyDespawnEvent"];
   /** @deprecated Use `enemyMobMonitorState` instead. This alias will be removed in the next major version. */
   readonly "enemy_mob_monitor_state": __TablesBase["enemyMobMonitorState"];
+  /** @deprecated Use `enemyMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "enemy_move_event": __TablesBase["enemyMoveEvent"];
   /** @deprecated Use `enemyScalingDesc` instead. This alias will be removed in the next major version. */
   readonly "enemy_scaling_desc": __TablesBase["enemyScalingDesc"];
   /** @deprecated Use `enemyState` instead. This alias will be removed in the next major version. */
   readonly "enemy_state": __TablesBase["enemyState"];
+  /** @deprecated Use `entityAttackStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "entity_attack_start_event": __TablesBase["entityAttackStartEvent"];
   /** @deprecated Use `environmentDebuffDesc` instead. This alias will be removed in the next major version. */
   readonly "environment_debuff_desc": __TablesBase["environmentDebuffDesc"];
   /** @deprecated Use `equipmentDesc` instead. This alias will be removed in the next major version. */
@@ -7096,10 +7751,14 @@ export type Tables = __TablesBase & {
   readonly "exploration_chunks_state": __TablesBase["explorationChunksState"];
   /** @deprecated Use `explorationChunksStateV2` instead. This alias will be removed in the next major version. */
   readonly "exploration_chunks_state_v2": __TablesBase["explorationChunksStateV2"];
+  /** @deprecated Use `extractEvent` instead. This alias will be removed in the next major version. */
+  readonly "extract_event": __TablesBase["extractEvent"];
   /** @deprecated Use `extractOutcomeState` instead. This alias will be removed in the next major version. */
   readonly "extract_outcome_state": __TablesBase["extractOutcomeState"];
   /** @deprecated Use `extractOutcomeStateV1` instead. This alias will be removed in the next major version. */
   readonly "extract_outcome_state_v1": __TablesBase["extractOutcomeStateV1"];
+  /** @deprecated Use `extractStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "extract_start_event": __TablesBase["extractStartEvent"];
   /** @deprecated Use `extractionRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "extraction_recipe_desc": __TablesBase["extractionRecipeDesc"];
   /** @deprecated Use `foodDesc` instead. This alias will be removed in the next major version. */
@@ -7150,6 +7809,8 @@ export type Tables = __TablesBase & {
   readonly "inventory_state": __TablesBase["inventoryState"];
   /** @deprecated Use `itemConversionRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "item_conversion_recipe_desc": __TablesBase["itemConversionRecipeDesc"];
+  /** @deprecated Use `itemConvertStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "item_convert_start_event": __TablesBase["itemConvertStartEvent"];
   /** @deprecated Use `itemDesc` instead. This alias will be removed in the next major version. */
   readonly "item_desc": __TablesBase["itemDesc"];
   /** @deprecated Use `itemListDesc` instead. This alias will be removed in the next major version. */
@@ -7214,6 +7875,8 @@ export type Tables = __TablesBase & {
   readonly "loot_table_desc": __TablesBase["lootTableDesc"];
   /** @deprecated Use `lostItemsState` instead. This alias will be removed in the next major version. */
   readonly "lost_items_state": __TablesBase["lostItemsState"];
+  /** @deprecated Use `marketTradeEvent` instead. This alias will be removed in the next major version. */
+  readonly "market_trade_event": __TablesBase["marketTradeEvent"];
   /** @deprecated Use `marketplaceState` instead. This alias will be removed in the next major version. */
   readonly "marketplace_state": __TablesBase["marketplaceState"];
   /** @deprecated Use `mobileEntityState` instead. This alias will be removed in the next major version. */
@@ -7238,12 +7901,20 @@ export type Tables = __TablesBase & {
   readonly "pathfinding_desc": __TablesBase["pathfindingDesc"];
   /** @deprecated Use `pavedTileState` instead. This alias will be removed in the next major version. */
   readonly "paved_tile_state": __TablesBase["pavedTileState"];
+  /** @deprecated Use `pavingDestroyTileStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "paving_destroy_tile_start_event": __TablesBase["pavingDestroyTileStartEvent"];
+  /** @deprecated Use `pavingPlaceTileStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "paving_place_tile_start_event": __TablesBase["pavingPlaceTileStartEvent"];
   /** @deprecated Use `pavingTileDesc` instead. This alias will be removed in the next major version. */
   readonly "paving_tile_desc": __TablesBase["pavingTileDesc"];
   /** @deprecated Use `permissionState` instead. This alias will be removed in the next major version. */
   readonly "permission_state": __TablesBase["permissionState"];
   /** @deprecated Use `pillarShapingDesc` instead. This alias will be removed in the next major version. */
   readonly "pillar_shaping_desc": __TablesBase["pillarShapingDesc"];
+  /** @deprecated Use `pillarShapingDestroyStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "pillar_shaping_destroy_start_event": __TablesBase["pillarShapingDestroyStartEvent"];
+  /** @deprecated Use `pillarShapingPlacePillarStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "pillar_shaping_place_pillar_start_event": __TablesBase["pillarShapingPlacePillarStartEvent"];
   /** @deprecated Use `pillarShapingState` instead. This alias will be removed in the next major version. */
   readonly "pillar_shaping_state": __TablesBase["pillarShapingState"];
   /** @deprecated Use `placeableDesc` instead. This alias will be removed in the next major version. */
@@ -7254,8 +7925,12 @@ export type Tables = __TablesBase & {
   readonly "placeable_growth_desc": __TablesBase["placeableGrowthDesc"];
   /** @deprecated Use `placeableGrowthTimer` instead. This alias will be removed in the next major version. */
   readonly "placeable_growth_timer": __TablesBase["placeableGrowthTimer"];
+  /** @deprecated Use `placeableInteractStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "placeable_interact_start_event": __TablesBase["placeableInteractStartEvent"];
   /** @deprecated Use `placeableInteractionDesc` instead. This alias will be removed in the next major version. */
   readonly "placeable_interaction_desc": __TablesBase["placeableInteractionDesc"];
+  /** @deprecated Use `placeablePlaceStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "placeable_place_start_event": __TablesBase["placeablePlaceStartEvent"];
   /** @deprecated Use `placeablePlacementDesc` instead. This alias will be removed in the next major version. */
   readonly "placeable_placement_desc": __TablesBase["placeablePlacementDesc"];
   /** @deprecated Use `placeableState` instead. This alias will be removed in the next major version. */
@@ -7264,6 +7939,12 @@ export type Tables = __TablesBase & {
   readonly "player_action_desc": __TablesBase["playerActionDesc"];
   /** @deprecated Use `playerActionState` instead. This alias will be removed in the next major version. */
   readonly "player_action_state": __TablesBase["playerActionState"];
+  /** @deprecated Use `playerClimbStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_climb_start_event": __TablesBase["playerClimbStartEvent"];
+  /** @deprecated Use `playerDeathEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_death_event": __TablesBase["playerDeathEvent"];
+  /** @deprecated Use `playerDeathStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_death_start_event": __TablesBase["playerDeathStartEvent"];
   /** @deprecated Use `playerHousingCustomizationState` instead. This alias will be removed in the next major version. */
   readonly "player_housing_customization_state": __TablesBase["playerHousingCustomizationState"];
   /** @deprecated Use `playerHousingDesc` instead. This alias will be removed in the next major version. */
@@ -7276,6 +7957,8 @@ export type Tables = __TablesBase & {
   readonly "player_housing_state": __TablesBase["playerHousingState"];
   /** @deprecated Use `playerLowercaseUsernameState` instead. This alias will be removed in the next major version. */
   readonly "player_lowercase_username_state": __TablesBase["playerLowercaseUsernameState"];
+  /** @deprecated Use `playerMoveEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_move_event": __TablesBase["playerMoveEvent"];
   /** @deprecated Use `playerNoteState` instead. This alias will be removed in the next major version. */
   readonly "player_note_state": __TablesBase["playerNoteState"];
   /** @deprecated Use `playerNotificationEvent` instead. This alias will be removed in the next major version. */
@@ -7290,8 +7973,16 @@ export type Tables = __TablesBase & {
   readonly "player_set_name_outcome_event": __TablesBase["playerSetNameOutcomeEvent"];
   /** @deprecated Use `playerSettingsState` instead. This alias will be removed in the next major version. */
   readonly "player_settings_state": __TablesBase["playerSettingsState"];
+  /** @deprecated Use `playerSignedOutEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_signed_out_event": __TablesBase["playerSignedOutEvent"];
   /** @deprecated Use `playerState` instead. This alias will be removed in the next major version. */
   readonly "player_state": __TablesBase["playerState"];
+  /** @deprecated Use `playerTeleportEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_event": __TablesBase["playerTeleportEvent"];
+  /** @deprecated Use `playerTeleportHomeStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_home_start_event": __TablesBase["playerTeleportHomeStartEvent"];
+  /** @deprecated Use `playerTeleportWaystoneStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "player_teleport_waystone_start_event": __TablesBase["playerTeleportWaystoneStartEvent"];
   /** @deprecated Use `playerUseElevatorTimer` instead. This alias will be removed in the next major version. */
   readonly "player_use_elevator_timer": __TablesBase["playerUseElevatorTimer"];
   /** @deprecated Use `playerUsernameState` instead. This alias will be removed in the next major version. */
@@ -7306,8 +7997,12 @@ export type Tables = __TablesBase & {
   readonly "premium_service_desc": __TablesBase["premiumServiceDesc"];
   /** @deprecated Use `progressiveActionState` instead. This alias will be removed in the next major version. */
   readonly "progressive_action_state": __TablesBase["progressiveActionState"];
+  /** @deprecated Use `projectSiteAdvanceProjectStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "project_site_advance_project_start_event": __TablesBase["projectSiteAdvanceProjectStartEvent"];
   /** @deprecated Use `projectSiteState` instead. This alias will be removed in the next major version. */
   readonly "project_site_state": __TablesBase["projectSiteState"];
+  /** @deprecated Use `prospectStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "prospect_start_event": __TablesBase["prospectStartEvent"];
   /** @deprecated Use `prospectingDesc` instead. This alias will be removed in the next major version. */
   readonly "prospecting_desc": __TablesBase["prospectingDesc"];
   /** @deprecated Use `prospectingState` instead. This alias will be removed in the next major version. */
@@ -7338,6 +8033,8 @@ export type Tables = __TablesBase & {
   readonly "reserved_name_desc": __TablesBase["reservedNameDesc"];
   /** @deprecated Use `resourceClumpDesc` instead. This alias will be removed in the next major version. */
   readonly "resource_clump_desc": __TablesBase["resourceClumpDesc"];
+  /** @deprecated Use `resourceDepletedEvent` instead. This alias will be removed in the next major version. */
+  readonly "resource_depleted_event": __TablesBase["resourceDepletedEvent"];
   /** @deprecated Use `resourceDesc` instead. This alias will be removed in the next major version. */
   readonly "resource_desc": __TablesBase["resourceDesc"];
   /** @deprecated Use `resourceGrowthRecipeDesc` instead. This alias will be removed in the next major version. */
@@ -7356,12 +8053,18 @@ export type Tables = __TablesBase & {
   readonly "secondary_knowledge_desc": __TablesBase["secondaryKnowledgeDesc"];
   /** @deprecated Use `sellOrderState` instead. This alias will be removed in the next major version. */
   readonly "sell_order_state": __TablesBase["sellOrderState"];
+  /** @deprecated Use `serverTeleportEvent` instead. This alias will be removed in the next major version. */
+  readonly "server_teleport_event": __TablesBase["serverTeleportEvent"];
+  /** @deprecated Use `setHomeEvent` instead. This alias will be removed in the next major version. */
+  readonly "set_home_event": __TablesBase["setHomeEvent"];
   /** @deprecated Use `signedInPlayerState` instead. This alias will be removed in the next major version. */
   readonly "signed_in_player_state": __TablesBase["signedInPlayerState"];
   /** @deprecated Use `skillDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_desc": __TablesBase["skillDesc"];
   /** @deprecated Use `skillLevelKnowledgeDesc` instead. This alias will be removed in the next major version. */
   readonly "skill_level_knowledge_desc": __TablesBase["skillLevelKnowledgeDesc"];
+  /** @deprecated Use `sleepEvent` instead. This alias will be removed in the next major version. */
+  readonly "sleep_event": __TablesBase["sleepEvent"];
   /** @deprecated Use `stageRewardsDesc` instead. This alias will be removed in the next major version. */
   readonly "stage_rewards_desc": __TablesBase["stageRewardsDesc"];
   /** @deprecated Use `staminaState` instead. This alias will be removed in the next major version. */
@@ -7382,6 +8085,8 @@ export type Tables = __TablesBase & {
   readonly "terraform_progress_state": __TablesBase["terraformProgressState"];
   /** @deprecated Use `terraformRecipeDesc` instead. This alias will be removed in the next major version. */
   readonly "terraform_recipe_desc": __TablesBase["terraformRecipeDesc"];
+  /** @deprecated Use `terraformStartEvent` instead. This alias will be removed in the next major version. */
+  readonly "terraform_start_event": __TablesBase["terraformStartEvent"];
   /** @deprecated Use `terrainChunkState` instead. This alias will be removed in the next major version. */
   readonly "terrain_chunk_state": __TablesBase["terrainChunkState"];
   /** @deprecated Use `theGreatPlaceholderTable` instead. This alias will be removed in the next major version. */
