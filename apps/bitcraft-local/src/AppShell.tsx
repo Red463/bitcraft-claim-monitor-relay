@@ -29,7 +29,7 @@ import {
   relayOutageNotice,
   staleDataWarning,
 } from "./api/pageGameDataWarnings";
-import { ApiErrorState, AppSkeleton, RefreshStatus, type ApiStatusDiagnostics } from "./components/main/AppChrome";
+import { ApiErrorState, AppSkeleton, RefreshStatus, ShutdownNotice, type ApiStatusDiagnostics } from "./components/main/AppChrome";
 import { RouteLoadingState } from "./components/main/RouteLoadingState";
 import { CommandPalette } from "./components/main/CommandPalette";
 import { NotificationDrawer, ToastStack } from "./components/main/Notifications";
@@ -1164,6 +1164,7 @@ function DashboardApp({ initialBootstrap }: { initialBootstrap: BootstrapPayload
       refreshLineVisible={dedicatedMapView ? null : visibleRefreshProgress}
       overlays={overlayNodes}
     >
+        <ShutdownNotice />
         <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{routeStatus}</p>
         <p role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN_STYLE}>{manualRefreshStatusText}</p>
         <GameDataQualityNotice
@@ -1259,9 +1260,10 @@ export function BotControlApp({
     void load();
     return () => { cancelled = true; };
   }, [initialConfig, initialPublicSettings, reloadSequence]);
-  if (state.status === "loading") return <main><AppSkeleton /></main>;
+  if (state.status === "loading") return <main><ShutdownNotice /><AppSkeleton /></main>;
   if (state.status === "error") return (
     <main className="bot-control-page route-entry-state surface-mode-bot">
+      <ShutdownNotice />
       <section className="empty-state panel" role="alert">
         <strong>Discord Bot Control could not be loaded safely.</strong>
         <span>{state.error}</span>
@@ -1284,6 +1286,7 @@ export function BotControlApp({
   };
   return (
     <main className="bot-control-page surface-mode-bot">
+      <ShutdownNotice />
       {renderConsole
         ? renderConsole(consoleProps)
         : <AdminPanel key={state.status} {...consoleProps} botOnly headingLevel={1} />}

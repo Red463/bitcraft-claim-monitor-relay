@@ -9,6 +9,12 @@ Historical release headings have been migrated to `0.MINOR.PATCH-beta.N`. Existi
 
 ## [Unreleased]
 
+## [0.68.0-beta.1] - 2026-10-08
+
+### Added
+
+- Added advance notice of the app’s upcoming shutdown to the app and bot console.
+
 ## [0.67.0-beta.5] - 2026-09-21
 
 ### Changed
