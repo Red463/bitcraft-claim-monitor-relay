@@ -34,7 +34,9 @@ The 2.7.0 generator omitted the named `PlayerVoteAnswer` enum while emitting
 references to it. Both generated `types.ts` files contain one documented repair
 copied exactly from schema type `PlayerVoteAnswer`: the unit variants `None`,
 `No`, and `Yes`. Binding verification must fail if this repair disappears or
-the schema definition changes.
+the schema definition changes. The audited live schema also uses the lowercase
+spellings `none`, `no`, and `yes`; those exact ordered unit variants retain the
+same generated TypeScript names and wire ordinals. Other shapes remain rejected.
 
 `scripts/check-relay-schema-drift.mjs` hashes both exact live schema responses.
 Deployments run this guard before testing or packaging. The scheduled

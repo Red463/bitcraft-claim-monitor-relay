@@ -9,9 +9,16 @@ import {
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
 } from "spacetimedb";
+import {
+  SmallHexTileMessage,
+} from "./types";
+
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  playerEntityId: __t.u64().name("player_entity_id"),
+  resourceEntityId: __t.u64().name("resource_entity_id"),
+  get location() {
+    return SmallHexTileMessage;
+  },
+  showTimeLeft: __t.bool().name("show_time_left"),
 });

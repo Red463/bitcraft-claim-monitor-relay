@@ -11,7 +11,7 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  actorId: __t.u64().name("actor_id"),
+  prospectingId: __t.i32().name("prospecting_id"),
+  timestamp: __t.u64(),
 });

@@ -9,9 +9,15 @@ import {
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
 } from "spacetimedb";
+import {
+  PlayerDeployableMoveRequest,
+} from "./types";
+
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  actorId: __t.u64().name("actor_id"),
+  get request() {
+    return PlayerDeployableMoveRequest;
+  },
+  isFollow: __t.bool().name("is_follow"),
 });

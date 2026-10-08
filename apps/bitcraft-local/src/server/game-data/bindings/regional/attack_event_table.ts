@@ -11,7 +11,10 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  attackerEntityId: __t.u64().name("attacker_entity_id"),
+  defenderEntityId: __t.u64().name("defender_entity_id"),
+  combatActionId: __t.i32().name("combat_action_id"),
+  damage: __t.i32(),
+  isCrit: __t.bool().name("is_crit"),
+  isDodge: __t.bool().name("is_dodge"),
 });

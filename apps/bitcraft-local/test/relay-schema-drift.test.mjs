@@ -80,3 +80,15 @@ test("schema drift check returns a distinct drift exit code and never accepts a 
   assert.equal(report.schemas[0].status, "drift");
   assert.equal(report.schemas[0].observed, sha256(schemas["global-db"]));
 });
+
+test("binding refresh accepts the audited lowercase vote variants but rejects changed wire shapes", () => {
+  const schemaFor = (names, elements = []) => ({
+    types: [{ name: { name: "PlayerVoteAnswer" }, ty: 0 }],
+    typespace: { types: [{ Sum: { variants: names.map((name) => ({ name: { some: name }, algebraic_type: { Product: { elements } } })) } }] },
+  });
+  assert.doesNotThrow(() => assertPlayerVoteAnswerShape(schemaFor(["none", "no", "yes"])));
+  for (const names of [["none", "yes", "no"], ["none", "no"], ["none", "no", "yes", "abstain"], ["None", "no", "yes"]]) {
+    assert.throws(() => assertPlayerVoteAnswerShape(schemaFor(names)), /PlayerVoteAnswer/);
+  }
+  assert.throws(() => assertPlayerVoteAnswerShape(schemaFor(["none", "no", "yes"], [{ name: { some: "value" }, algebraic_type: { Bool: [] } }])), /PlayerVoteAnswer/);
+});

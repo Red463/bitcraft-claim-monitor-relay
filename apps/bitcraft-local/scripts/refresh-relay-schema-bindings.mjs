@@ -16,12 +16,11 @@ export function assertPlayerVoteAnswerShape(schema) {
     name: variant?.name?.some,
     unit: Array.isArray(variant?.algebraic_type?.Product?.elements) && variant.algebraic_type.Product.elements.length === 0,
   }));
-  if (JSON.stringify(actual) !== JSON.stringify([
-    { name: "None", unit: true },
-    { name: "No", unit: true },
-    { name: "Yes", unit: true },
-  ])) {
-    throw new Error("Relay schema PlayerVoteAnswer no longer matches the audited None/No/Yes unit enum");
+  // Relay now publishes lowercase variant names. The pinned generator maps
+  // both audited spellings to the same TypeScript variants and wire ordinals.
+  const auditedNames = [["None", "No", "Yes"], ["none", "no", "yes"]];
+  if (!auditedNames.some((names) => JSON.stringify(actual) === JSON.stringify(names.map((name) => ({ name, unit: true }))))) {
+    throw new Error("Relay schema PlayerVoteAnswer no longer matches the audited None/No/Yes or none/no/yes unit enum");
   }
 }
 

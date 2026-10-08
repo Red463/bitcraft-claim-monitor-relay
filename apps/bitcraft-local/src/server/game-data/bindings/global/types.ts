@@ -10,22 +10,6 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export const AiDebugState = __t.object("AiDebugState", {
-  entityId: __t.u64(),
-  targetEntityId: __t.u64(),
-  get currentDestination() {
-    return OffsetCoordinatesFloat;
-  },
-  get currentPosition() {
-    return OffsetCoordinatesFloat;
-  },
-  get targetPosition() {
-    return OffsetCoordinatesFloat;
-  },
-  dp: __t.f32(),
-});
-export type AiDebugState = __Infer<typeof AiDebugState>;
-
 export const AbilityCustomDesc = __t.object("AbilityCustomDesc", {
   id: __t.i32(),
   abilityName: __t.string(),
@@ -242,6 +226,22 @@ export const AdminBroadcastMessageMsg = __t.object("AdminBroadcastMessageMsg", {
   signOut: __t.bool(),
 });
 export type AdminBroadcastMessageMsg = __Infer<typeof AdminBroadcastMessageMsg>;
+
+export const AiDebugState = __t.object("AiDebugState", {
+  entityId: __t.u64(),
+  targetEntityId: __t.u64(),
+  get currentDestination() {
+    return OffsetCoordinatesFloat;
+  },
+  get currentPosition() {
+    return OffsetCoordinatesFloat;
+  },
+  get targetPosition() {
+    return OffsetCoordinatesFloat;
+  },
+  dp: __t.f32(),
+});
+export type AiDebugState = __Infer<typeof AiDebugState>;
 
 export const AlertDesc = __t.object("AlertDesc", {
   alertType: __t.i32(),

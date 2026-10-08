@@ -11,7 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  id: __t.i32().primaryKey(),
-  colorArgb: __t.u64().name("color_argb"),
-  color2Argb: __t.option(__t.u64()).name("color_2_argb"),
+  actorEntityId: __t.u64().name("actor_entity_id"),
+  progressiveActionEntityId: __t.u64().name("progressive_action_entity_id"),
+  buildingEntityId: __t.u64().name("building_entity_id"),
+  recipeId: __t.i32().name("recipe_id"),
+  craftCount: __t.i32().name("craft_count"),
 });

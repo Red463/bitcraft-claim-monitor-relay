@@ -30,7 +30,7 @@ export default __t.row({
   get outcome() {
     return PlayerVoteAnswer;
   },
-  argument1: __t.u64(),
-  argument2: __t.u64(),
+  argument1: __t.u64().name("argument_1"),
+  argument2: __t.u64().name("argument_2"),
   outcomeStr: __t.string().name("outcome_str"),
 });
